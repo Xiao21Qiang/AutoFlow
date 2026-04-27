@@ -1,0 +1,482 @@
+.stTrackWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+.stTrackTop {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.stTrackSearchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stTrackSearchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.stTrackSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.stTrackSearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+}
+
+.stTrackSearchInput::placeholder {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.stTrackFilterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stTrackFilterBtn:hover {
+  background: #f8fafc;
+}
+
+.stTrackFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.stTrackCard {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.stTrackTbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.stTrackTbl thead tr th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  background: #e8e8e8;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  color: #111827;
+}
+
+.stTrackTbl tbody tr td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  background: #fff;
+}
+
+.stTrackTbl thead tr th:first-child,
+.stTrackTbl tbody tr td:first-child {
+  width: 170px;
+}
+
+.stTrackTbl thead tr th:nth-child(2),
+.stTrackTbl tbody tr td:nth-child(2) {
+  width: 130px;
+}
+
+.stTrackTbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stTrackTbl tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.stTrackColActions {
+  width: 140px;
+  text-align: center;
+}
+
+.stTrackEmpty {
+  padding: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.stTrackBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 950;
+  padding: 0 10px;
+}
+
+.stTrackInProgress {
+  background: #dbeafe;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.stTrackCompleted {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.stTrackArrived {
+  background: var(--accent-soft);
+  color: var(--gold-dark);
+  border: 1px solid var(--accent-line);
+}
+
+.stTrackBooked {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.stTrackRowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+
+.stTrackMiniBtn {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stTrackMiniBtn:hover {
+  background: #f8fafc;
+}
+
+.stTrackMiniBtnDanger {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+
+.stTrackMiniBtnDanger:hover {
+  background: #fee2e2;
+}
+
+.stTrackPagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.stTrackPagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.stTrackPagerBtn:hover {
+  background: #f8fafc;
+}
+
+.stTrackPagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.stTrackPagerNum:hover {
+  background: #f8fafc;
+}
+
+.stTrackPagerNum.active {
+  font-weight: 950;
+  color: #0f172a;
+}
+
+.stTrackModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.stTrackModalCard {
+  width: min(100%, 430px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.stTrackModalCard.deleteMode {
+  width: min(100%, 360px);
+}
+
+.stTrackModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.stTrackModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.stTrackField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stTrackField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stTrackField input,
+.stTrackField select {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.stTrackField input:focus,
+.stTrackField select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.stTrackSuggestWrap {
+  position: relative;
+}
+
+.stTrackFieldInvalidInput {
+  border-color: #fca5a5 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.stTrackSuggestMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #d5deed;
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.stTrackSuggestItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stTrackSuggestItem:hover {
+  background: #f8fafc;
+}
+
+.stTrackSuggestItem span {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: none;
+  color: #0f172a;
+}
+
+.stTrackSuggestItem small {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.stTrackFieldError {
+  font-size: 11px;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+.stTrackFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stTrackModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.stTrackTextBtn,
+.stTrackPrimaryBtn,
+.stTrackDangerBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.stTrackTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.stTrackPrimaryBtn {
+  background: #6366f1;
+  color: #fff;
+}
+
+.stTrackDangerBtn {
+  background: #ef4444;
+  color: #fff;
+}
+
+.stTrackDeleteText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.stTrackDeleteMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.stTrackDeleteMeta div {
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+@media (max-width: 760px) {
+  .stTrackCard {
+    overflow-x: auto;
+  }
+
+  .stTrackTbl {
+    min-width: 900px;
+  }
+
+  .stTrackFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stTrackModalOverlay {
+    padding: 16px;
+  }
+}

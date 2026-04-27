@@ -1,0 +1,380 @@
+.stPayWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+/* ── TOP BAR ── */
+.stPayTop {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.stPaySearchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stPaySearchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.stPaySearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.stPaySearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+}
+
+.stPaySearchInput::placeholder {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.stPayFilterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stPayFilterBtn:hover {
+  background: #f8fafc;
+}
+
+.stPayFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+/* ── TABLE ── */
+.stPayCard {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.stPayTbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stPayTbl thead tr th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  background: #e8e8e8;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  color: #111827;
+}
+
+.stPayTbl tbody tr td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: #fff;
+}
+
+.stPayTbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stPayTbl tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.stPayColActions {
+  width: 110px;
+  text-align: center;
+}
+
+.stPayEmpty {
+  padding: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ── BADGES ── */
+.stPayBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 950;
+  padding: 0 10px;
+}
+
+.stPayBadge.pending {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.stPayBadge.paid {
+  background: #d7f3df;
+  color: #16a34a;
+}
+
+.stPayBadge.review {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.stPayBadge.rejected {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ── ACTION CELL ── */
+.stPayActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.stPayPaidPlaceholder {
+  width: 51px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.stPayPaidBtn {
+  border: none;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 950;
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stPayPaidBtn:hover {
+  background: #15803d;
+}
+
+.stPayEditBtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.stPayEditBtn:hover {
+  background: #f8fafc;
+}
+
+/* ── PAGINATION ── */
+.stPayPagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.stPayPagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.stPayPagerBtn:hover {
+  background: #f8fafc;
+}
+
+.stPayPagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.stPayPagerNum:hover {
+  background: #f8fafc;
+}
+
+.stPayPagerNum.active {
+  font-weight: 950;
+  color: #0f172a;
+}
+
+.stPayModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.stPayModalCard {
+  width: min(100%, 430px);
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+
+.stPayModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stPayModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.stPayDetailList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+  margin-bottom: 12px;
+}
+
+.stPayField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stPayField span {
+  font-size: 10px;
+  font-weight: 900;
+  color: #475569;
+  text-transform: uppercase;
+}
+
+.stPayField input,
+.stPayField textarea,
+.stPayField select {
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.stPayField textarea {
+  resize: none;
+}
+
+.stPayProofPreviewWrap {
+  margin-bottom: 12px;
+}
+
+.stPayProofPreview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid #dbe2ef;
+}
+
+.stPayModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.stPayTextBtn,
+.stPayPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.stPayTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.stPayPrimaryBtn {
+  background: #111827;
+  color: #fff;
+}

@@ -1,0 +1,492 @@
+.stWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  align-self: flex-start;
+}
+
+.stTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stSearchBox {
+  flex: 1;
+  max-width: 420px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.stSearchBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.stSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.stSearchInput {
+  border: 0;
+  outline: none;
+  width: 100%;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  background: transparent;
+}
+
+.stSearchInput::placeholder {
+  color: #94a3b8;
+}
+
+.stFilterBtn {
+  height: 40px;
+  width: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stFilterBtn:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.stFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.stTopRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.stExportBtn {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--action-dark);
+  background: var(--action-dark);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stExportBtn:hover {
+  background: var(--action-dark-hover);
+  border-color: var(--action-dark-hover);
+}
+
+.stBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.stTable {
+  width: 100%;
+}
+
+.stHead {
+  display: grid;
+  grid-template-columns: minmax(165px, 1.2fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1.1fr) minmax(160px, 1.1fr) minmax(120px, 0.9fr) minmax(130px, 1fr) minmax(120px, 0.8fr);
+  padding: 10px 14px;
+  background: #e8e8e8;
+  font-weight: 900;
+  font-size: 11px;
+  color: #111827;
+  border-bottom: 1px solid var(--line);
+  text-transform: uppercase;
+}
+
+.stRow {
+  display: grid;
+  grid-template-columns: minmax(165px, 1.2fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1.1fr) minmax(160px, 1.1fr) minmax(120px, 0.9fr) minmax(130px, 1fr) minmax(120px, 0.8fr);
+  padding: 10px 14px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  align-items: center;
+}
+
+.stHead > div,
+.stRow > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stRow:hover {
+  background: #fbfaf7;
+}
+
+.stRow:first-child {
+  border-top: none;
+}
+
+.stId {
+  font-weight: 900;
+  color: var(--gold-dark);
+}
+
+.stEmptyRow {
+  padding: 20px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.stPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 11px;
+}
+
+.stInProgress {
+  background: #dbeafe;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.stCompleted {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.stArrived {
+  background: var(--accent-soft);
+  color: var(--gold-dark);
+  border: 1px solid var(--accent-line);
+}
+
+.stBooked {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.stActionsCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stActBtn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 900;
+  font-size: 11px;
+  cursor: pointer;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.stGreen { background: #16a34a; }
+.stBlue  { background: #2563eb; }
+.stAmber { background: var(--accent); }
+
+.stRowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stMiniBtn {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stMiniBtn:hover {
+  background: #f8fafc;
+}
+
+.stMiniBtnDanger {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+
+.stMiniBtnDanger:hover {
+  background: #fee2e2;
+}
+
+.stTinyIcon {
+  height: 30px;
+  width: 34px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  cursor: pointer;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+}
+
+.stTinyIcon:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+.stPager {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.stPagerBtn {
+  height: 28px;
+  width: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 13px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.stPagerBtn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--gold-dark);
+}
+
+.stPagerNum {
+  height: 28px;
+  min-width: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text);
+  padding: 0 6px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.stPagerNum:hover,
+.stPagerNum.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--gold-dark);
+}
+
+.stModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.stModalCard {
+  width: min(100%, 430px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.stModalCard.deleteMode {
+  width: min(100%, 360px);
+}
+
+.stModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.stModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.stField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stField input,
+.stField select {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.stField input:focus,
+.stField select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.stFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.stModalActionsDelete {
+  margin-top: 16px;
+}
+
+.stTextBtn,
+.stPrimaryBtn,
+.stDangerBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.stTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.stPrimaryBtn {
+  background: #6366f1;
+  color: #fff;
+}
+
+.stDangerBtn {
+  background: #ef4444;
+  color: #fff;
+}
+
+.stDeleteText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.stDeleteMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.stDeleteMeta div {
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+@media (max-width: 1180px) {
+  .stBoard {
+    overflow-x: auto;
+  }
+
+  .stTable {
+    min-width: 980px;
+  }
+}
+
+@media (max-width: 720px) {
+  .stTopRow {
+    flex-wrap: wrap;
+  }
+
+  .stFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stModalOverlay {
+    padding: 16px;
+  }
+}
+
+
+
+
+

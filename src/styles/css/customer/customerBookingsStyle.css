@@ -1,0 +1,360 @@
+.clBookWrap {
+  padding: 10px 14px 0;
+}
+
+.clBookTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.clBookSearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clBookSearchBox {
+  width: 184px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.clBookSearchIcon,
+.clBookFilterIcon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.7;
+}
+
+.clBookSearchInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clBookFilterBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clBookAddBtn {
+  height: 30px;
+  padding: 0 16px;
+  border: 1px solid #b89b30;
+  border-radius: 8px;
+  background: #f5e38c;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clBookBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* 7 columns matching image 2 */
+.clBookHead,
+.clBookRow {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr 1.2fr 0.9fr 1.2fr 1fr 0.7fr;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 10px;
+  align-items: center;
+}
+
+.clBookHead {
+  background: #d7d7d7;
+  font-weight: 950;
+}
+
+.clBookRow {
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+  color: #374151;
+}
+
+.clBookEmptyRow {
+  padding: 20px 16px;
+  text-align: center;
+}
+
+.clBookEmptyTxt {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 700;
+}
+
+.clBookPager {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clBookPager button,
+.clBookPager div {
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.clBookPager button {
+  cursor: pointer;
+}
+
+.clBookViewBtn {
+  height: 22px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8f8f8;
+  font-size: 10px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clBookModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.clBookModalCard {
+  width: min(100%, 400px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.clBookModalCard.compact {
+  width: min(100%, 360px);
+}
+
+.clBookModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clBookModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.clBookField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.clBookField span {
+  font-size: 10px;
+  font-weight: 900;
+  color: #475569;
+  text-transform: uppercase;
+}
+
+.clBookField input,
+.clBookField select {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.clBookSelectWrap {
+  position: relative;
+}
+
+.clBookSelectWrap::after,
+.clBookModalSelectTrigger::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+.clBookSelectWrap select {
+  padding-right: 40px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+}
+
+.clBookModalSelect {
+  width: 100%;
+}
+
+.clBookModalSelectTrigger {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px 40px 12px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+  box-sizing: border-box;
+  min-width: 0;
+  background: #fff;
+  text-align: left;
+  position: relative;
+  cursor: pointer;
+}
+
+.clBookModalSelectTrigger span {
+  display: block;
+}
+
+.clBookModalSelectMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #d5deed;
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.clBookModalSelectItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.clBookModalSelectItem:hover {
+  background: #f8fafc;
+}
+
+.clBookModalSelectItem span {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: none;
+  color: #0f172a;
+}
+
+.clBookFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.clBookDetailList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.clBookModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.clBookTextBtn,
+.clBookPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.clBookTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.clBookPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 560px) {
+  .clBookFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .clBookModalOverlay {
+    padding: 16px;
+  }
+}

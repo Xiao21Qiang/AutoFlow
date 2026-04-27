@@ -1,0 +1,870 @@
+/* ─── keep all existing rules unchanged ─────────────────────────────────────
+   Only the car-diagram section is replaced.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.bookingsWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+.bookingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.searchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.searchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+}
+
+.filterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.filterBtn:hover {
+  background: #f8fafc;
+}
+
+.filterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.actionBtns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #f8fafc;
+}
+
+.btnDark {
+  background: var(--action-dark);
+  border-color: var(--action-dark);
+  color: #fff;
+}
+
+.btnDark:hover {
+  background: var(--action-dark-hover);
+}
+
+.btnGold {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--gold-dark);
+}
+
+.btnGold:hover {
+  filter: brightness(0.98);
+}
+
+.tableCard {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tbl thead tr th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  background: #e8e8e8;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  color: #111827;
+}
+
+.tbl tbody tr td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: #fff;
+}
+
+.tbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tbl tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.colActions {
+  width: 100px;
+  text-align: center;
+}
+
+.editBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  color: #111827;
+}
+
+.editBtn:hover {
+  background: #f8fafc;
+}
+
+.pagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.pagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.pagerBtn:hover {
+  background: #f8fafc;
+}
+
+.pagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.pagerNum:hover {
+  background: #f8fafc;
+}
+
+.pagerNum.active {
+  font-weight: 950;
+  color: #0f172a;
+}
+
+.bookModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.bookModalCard {
+  width: min(100%, 980px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.bookModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.bookModalTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+  margin-bottom: 16px;
+}
+
+.bookRecordMeta {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.bookRecordMetaTitle {
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.bookRecordMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bookRecordMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bookRecordMetaItem span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.bookRecordMetaItem code {
+  display: block;
+  width: 100%;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  word-break: break-all;
+}
+
+.bookFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.bookField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bookSuggestWrap {
+  position: relative;
+}
+
+.bookSelectWrap {
+  position: relative;
+}
+
+.bookSelectWrap::after,
+.bookModalSelectTrigger::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+.bookField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #111827;
+}
+
+.bookField input,
+.bookField select,
+.bookField textarea {
+  width: 100%;
+  border: 1px solid #bfc7d4;
+  border-radius: 6px;
+  padding: 10px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+  resize: vertical;
+}
+
+.bookSelectWrap select,
+.bookSelectWrap input[list] {
+  padding-right: 40px;
+}
+
+.bookModalSelect {
+  width: 100%;
+}
+
+.bookModalSelectTrigger {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 10px 40px 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+  resize: vertical;
+  text-align: left;
+  position: relative;
+  cursor: pointer;
+}
+
+.bookModalSelectTrigger span {
+  display: block;
+}
+
+.bookModalSelectMenu {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.bookModalSelectItem small {
+  display: block;
+}
+
+.bookSelectWrap select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+}
+
+.bookField input:focus,
+.bookField select:focus,
+.bookField textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.bookFieldInvalidInput {
+  border-color: #fca5a5 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important;
+}
+
+.bookSuggestMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 32px rgba(15, 23, 42, 0.12);
+}
+
+.bookSuggestItem {
+  width: 100%;
+  border: none;
+  border-top: 1px solid #eef2f7;
+  background: #fff;
+  color: #0f172a;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bookSuggestItem:first-child {
+  border-top: none;
+}
+
+.bookSuggestItem:hover {
+  background: #f8fafc;
+}
+
+.bookSuggestItem span {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.bookSuggestItem small {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.bookFieldError {
+  font-size: 10px;
+  font-weight: 800;
+  color: #b91c1c;
+}
+
+.bookIssueSection {
+  margin-top: 18px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 16px;
+}
+
+.bookIssueSectionHead {
+  margin-bottom: 12px;
+}
+
+.bookIssueTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.bookIssueSub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.bookIssueLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bookIssueMapPanel {
+  border: 1px solid #d7deea;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  padding: 14px;
+}
+
+.bookIssueMapShell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ─── Image-based car map ─────────────────────────────────────────────────── */
+.bookIssueMap {
+  border-radius: 12px;
+  border: 1px solid #d5deed;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+/* When using the real diagram image */
+.bookIssueMapImg {
+  position: relative;   /* anchor for absolute markers */
+  line-height: 0;       /* collapse img baseline gap */
+  padding: 0;
+  min-height: 290px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+/* The car diagram PNG – fills the panel, preserves aspect ratio */
+.bookCarDiagramImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none; /* clicks/drags pass through to the map container */
+  border-radius: 11px;
+}
+
+/* ─── Issue marker (unchanged logic, unchanged appearance) ────────────────── */
+.bookIssueMarker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45);
+  cursor: grab;
+  touch-action: none;
+  z-index: 10;
+  transition: box-shadow 0.15s;
+}
+
+.bookIssueMarker:active {
+  cursor: grabbing;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.55);
+}
+
+/* ─── Legend / action strip ──────────────────────────────────────────────── */
+.bookIssueLegend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bookIssueMarkerLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.bookIssueMarkerLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.bookIssueMarkerLegendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bookIssueHint {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.bookIssueActions {
+  display: flex;
+  gap: 8px;
+}
+
+.bookIssueActionBtn {
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.bookIssueActionBtn.ghost {
+  border-color: #d1d5db;
+  background: #fff;
+  color: #374151;
+}
+
+.bookIssueNoteField {
+  height: 100%;
+}
+
+.bookIssueNoteTextarea {
+  min-height: 168px;
+  line-height: 1.55;
+  font-weight: 600 !important;
+  white-space: pre-wrap;
+}
+
+.bookIssueNoteHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bookIssueGenerateBtn {
+  border: 1px solid #bfd0ff;
+  background: #f4f7ff;
+  color: #3158d8;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bookIssueGenerateBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* ─── Issue type checkboxes ───────────────────────────────────────────────── */
+.bookIssueRightPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bookIssueMarkerFields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: 1px solid #bfc7d4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.bookIssueMarkerField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bookIssueMarkerFieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 850;
+  color: #1e293b;
+}
+
+.bookIssueMarkerField select {
+  width: 100%;
+  border: 1px solid #bfc7d4;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+}
+
+.bookIssueMarkerField select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.bookModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+.bookTextBtn,
+.bookPrimaryBtn,
+.bookDangerBtn {
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.bookTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.bookPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.bookPrimaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bookDangerBtn {
+  margin-right: auto;
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .tableCard {
+    overflow-x: auto;
+  }
+
+  .tbl {
+    min-width: 940px;
+  }
+
+  .bookIssueLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .bookRecordMetaGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .bookingsRow {
+    flex-wrap: wrap;
+  }
+
+  .actionBtns {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .bookFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .bookIssueLegend {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bookModalOverlay {
+    padding: 16px;
+  }
+}
+
+
+.bookSlotField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bookSlotField > span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #111827;
+}
+
+.bookPlaceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.bookPlaceSlot {
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid #d5deed;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.bookPlaceSlot.selected {
+  border-color: #c59d31;
+  background: #fff7dd;
+  color: #7a5600;
+}
+
+.bookPlaceSlot.occupied {
+  border-color: #d1d5db;
+  background: #e5e7eb;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.bookSlotHint {
+  font-size: 10px;
+  font-weight: 800;
+  color: #64748b;
+}

@@ -1,0 +1,645 @@
+.clTrackWrap {
+  padding: 10px 14px 0;
+}
+
+.clTrackTop {
+  margin-bottom: 8px;
+}
+
+.clTrackSearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clTrackSearchBox {
+  width: 184px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.clTrackSearchIcon,
+.clTrackFilterIcon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.7;
+}
+
+.clTrackSearchInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clTrackFilterBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clTrackBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* 7 columns: ID, Date, Customer, Vehicle, Service, Status, Assigned To */
+.clTrackHead,
+.clTrackRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.3fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(140px, 1.1fr) minmax(150px, 1.1fr) minmax(110px, 0.9fr) minmax(120px, 1fr) minmax(90px, 0.7fr);
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 10px;
+  align-items: center;
+}
+
+.clTrackHead > div,
+.clTrackRow > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.clTrackHead {
+  background: #d7d7d7;
+  font-weight: 950;
+}
+
+.clTrackRow {
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+  color: #374151;
+}
+
+.clTrackEmptyRow {
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 700;
+}
+
+.clTrackBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.clTrackBadge.progress  { background: #dbe8ff; color: #2563eb; }
+.clTrackBadge.completed { background: #d7f3df; color: #16a34a; }
+.clTrackBadge.booked    { background: #f7d1bc; color: #ff6b00; }
+.clTrackBadge.arrived   { background: #fef3c7; color: #d97706; }
+
+.clTrackPager {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clTrackPager button,
+.clTrackPager div {
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clTrackViewBtn {
+  height: 22px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8f8f8;
+  font-size: 10px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clTrackModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.clTrackModalCard {
+  width: min(100%, 1080px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+
+.clTrackModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clTrackModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.clTrackDetailList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.clTrackTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.clTrackTimeline div {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.clTrackTimeline div.active {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.clTrackModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.clTrackPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+}
+
+.issueViewSection {
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 16px;
+}
+
+.issueViewHead {
+  margin-bottom: 12px;
+}
+
+.issueViewTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.issueViewSub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.issueViewLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.issueViewMapPanel {
+  border: 1px solid #d7deea;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  padding: 14px;
+}
+
+.issueViewMapShell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.issueViewMap {
+  border-radius: 12px;
+  border: 1px solid #d5deed;
+  background: #fff;
+  overflow: hidden;
+}
+
+.issueViewMapImg {
+  position: relative;
+  line-height: 0;
+  padding: 0;
+}
+
+.issueViewCarDiagramImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+  border-radius: 11px;
+}
+
+.issueViewMarker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45);
+  z-index: 10;
+}
+
+.issueViewMarkerLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.issueViewMarkerLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.issueViewMarkerLegendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.issueViewRightPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.issueViewField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.issueViewField > span {
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  color: #111827;
+}
+
+.issueViewCheckGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid #bfc7d4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.issueViewCheckItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.issueViewCheckItem input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #2563eb;
+  pointer-events: none;
+}
+
+.issueViewField textarea {
+  width: 100%;
+  border: 1px solid #bfc7d4;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #fff;
+  resize: vertical;
+}
+
+.clTrackIssueView {
+  margin-top: 16px;
+}
+
+.clTrackQrCard {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #f8fafc;
+  padding: 16px;
+}
+
+.clTrackQrHead {
+  margin-bottom: 12px;
+}
+
+.clTrackQrTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clTrackQrSub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.clTrackQrBody {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.clTrackQrImage {
+  width: 180px;
+  height: 180px;
+  border-radius: 14px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  object-fit: cover;
+}
+
+.clTrackQrMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.clTrackQrLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.clTrackQrMeta code {
+  display: block;
+  border: 1px solid #d7deea;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  word-break: break-all;
+}
+
+.clTrackStandalonePage {
+  min-height: 100vh;
+  padding: 32px 18px;
+  background: linear-gradient(180deg, #f8f5ef 0%, #eef2f7 100%);
+}
+
+.clTrackStandaloneCard {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #e5e7eb;
+  border-radius: 28px;
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.12);
+  padding: 28px;
+}
+
+.clTrackStandaloneBrand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.clTrackStandaloneBrand img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.clTrackStandaloneName {
+  font-size: 20px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clTrackStandaloneSub {
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.clTrackStandaloneHeader {
+  margin-top: 22px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.clTrackStandaloneHeader h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clTrackStandaloneHeader p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.clTrackStandaloneBack {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.clTrackStandaloneState {
+  margin-top: 20px;
+  padding: 18px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  font-size: 13px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.clTrackStandaloneState.error {
+  color: #b91c1c;
+  background: #fff5f5;
+  border-color: #fecaca;
+}
+
+.clTrackStandaloneDetails {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #fff;
+  font-size: 13px;
+  color: #334155;
+}
+
+.clTrackStandaloneTimeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.clTrackStandaloneTimeline div {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.clTrackStandaloneTimeline div.active {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+@media (max-width: 900px) {
+  .clTrackModalCard,
+  .clTrackStandaloneCard {
+    width: 100%;
+  }
+
+  .issueViewLayout,
+  .clTrackStandaloneDetails,
+  .clTrackStandaloneTimeline {
+    grid-template-columns: 1fr;
+  }
+
+  .issueViewCheckGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .clTrackModalOverlay {
+    padding: 14px;
+  }
+
+  .clTrackQrBody,
+  .clTrackStandaloneHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .clTrackQrImage {
+    width: 160px;
+    height: 160px;
+  }
+}

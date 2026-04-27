@@ -1,0 +1,650 @@
+* { box-sizing: border-box; }
+
+.invWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+.invTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.invSearchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invSearchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.invSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.invSearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+  color: #111827;
+}
+
+.invSearchInput::placeholder {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.invFilterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.invFilterBtn:hover {
+  background: #f8fafc;
+}
+
+.invFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.invActionBtns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.invBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.invBtnDark {
+  background: var(--action-dark);
+  border-color: var(--action-dark);
+  color: #fff;
+}
+
+.invBtnDark:hover {
+  background: var(--action-dark-hover);
+}
+
+.invBtnGold {
+  background: #fff3c7;
+  border-color: rgba(216, 177, 47, 0.55);
+  color: #111827;
+}
+
+.invBtnGold:hover {
+  filter: brightness(0.98);
+}
+
+.invBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.invGuidePanel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #fff8e7 0%, #fff 100%);
+  border-bottom: 1px solid #f0e1b6;
+}
+
+.invGuideHeadRow th {
+  padding: 0 !important;
+  background: transparent !important;
+  white-space: normal !important;
+}
+
+.invGuideCopy {
+  max-width: 280px;
+}
+
+.invGuideEyebrow {
+  font-size: 11px;
+  font-weight: 950;
+  color: #8a6116;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.invGuideText {
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 800;
+  color: #334155;
+}
+
+.invLegendList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.invLegendItem {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #eadfbe;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.invLegendBar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.invLegendBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.invLegendBarFill.healthy {
+  width: 88%;
+  background: #16a34a;
+}
+
+.invLegendBarFill.warning {
+  width: 50%;
+  background: #f97316;
+}
+
+.invLegendBarFill.danger {
+  width: 20%;
+  background: #ef4444;
+}
+
+.invLegendMeta {
+  display: grid;
+  gap: 2px;
+}
+
+.invLegendLabel {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.invLegendRange {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.invLegendNote {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.invTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.invTable thead th {
+  background: #e8e8e8;
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  color: #111827;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.invTable tbody td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.invTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.invTable tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.invTable th:nth-child(1),
+.invTable td:nth-child(1) { width: 90px; }
+
+.invTable th:nth-child(2),
+.invTable td:nth-child(2) { width: 150px; }
+
+.invTable th:nth-child(3),
+.invTable td:nth-child(3) { width: 110px; }
+
+.invTable th:nth-child(4),
+.invTable td:nth-child(4) { width: 100px; }
+
+.invTable th:nth-child(5),
+.invTable td:nth-child(5) { width: 90px; }
+
+.invTable th:nth-child(6),
+.invTable td:nth-child(6) { width: 150px; }
+
+.invTable th:nth-child(7),
+.invTable td:nth-child(7) { width: 120px; }
+
+.invTable th:nth-child(8),
+.invTable td:nth-child(8) {
+  width: 180px;
+  text-align: center;
+}
+
+.invStockValue.healthy {
+  color: #16a34a;
+}
+
+.invStockValue.warning {
+  color: #ea580c;
+}
+
+.invStockValue.danger {
+  color: #dc2626;
+}
+
+.invPercentCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invPercentTrack {
+  width: 76px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.invPercentFill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.invPercentFill.healthy {
+  background: #16a34a;
+}
+
+.invPercentFill.warning {
+  background: #f97316;
+}
+
+.invPercentFill.danger {
+  background: #ef4444;
+}
+
+.invActionStack {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.invMiniBtn {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.invMiniBtn:hover {
+  background: #f8fafc;
+}
+
+.invMiniBtnDanger {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+
+.invMiniBtnDanger:hover {
+  background: #fee2e2;
+}
+
+.invEmptyRow {
+  text-align: center;
+  padding: 24px !important;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+}
+
+.invPagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.invSectionBlock {
+  margin: 18px 0 10px;
+}
+
+.invSectionTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.invSectionSub {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.invBoardSecondary {
+  margin-top: 0;
+}
+
+.invPagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.invPagerBtn:hover {
+  background: #f8fafc;
+}
+
+.invPagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+}
+
+.invModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.invModalCard {
+  width: min(100%, 430px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.invModalCard.deleteMode {
+  width: min(100%, 360px);
+}
+
+.invModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.invModalTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.invModalTitleAdd {
+  font-size: 28px;
+  line-height: 1.1;
+  margin-bottom: 24px;
+}
+
+.invField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.invField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.invField input,
+.invField select,
+.invField textarea {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.invField textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.invField input:focus,
+.invField select:focus,
+.invField textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.invFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.invModalMeta {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  display: grid;
+  gap: 5px;
+}
+
+.invModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.invModalActionsAdd {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.invTextBtn,
+.invPrimaryBtn,
+.invDangerBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.invTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.invPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.invDangerBtn {
+  background: #ef4444;
+  color: #fff;
+}
+
+.invDeleteText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.invDeleteMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.invDeleteMeta div {
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #334155;
+  background: #f8fafc;
+}
+
+@media (max-width: 1080px) {
+  .invBoard {
+    overflow-x: auto;
+  }
+
+  .invTable {
+    min-width: 940px;
+  }
+}
+
+@media (max-width: 720px) {
+  .invTopRow {
+    flex-wrap: wrap;
+  }
+
+  .invGuidePanel {
+    flex-direction: column;
+  }
+
+  .invLegendList {
+    grid-template-columns: 1fr;
+  }
+
+  .invActionBtns {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .invFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .invModalOverlay {
+    padding: 16px;
+  }
+}

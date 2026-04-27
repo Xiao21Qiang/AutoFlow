@@ -1,0 +1,357 @@
+* { box-sizing: border-box; }
+
+.anaWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+/* TOP ROW */
+.anaTopRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.anaExportBtn {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--action-dark);
+  color: #fff;
+  border: none;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.anaExportBtn:hover { background: var(--action-dark-hover); }
+
+/* OUTER BOARD */
+.anaBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+/* MAIN GRID */
+.anaGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* LEFT */
+.anaLeft {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.anaSalesTop {
+  text-align: center;
+  padding-bottom: 10px;
+}
+
+.anaSalesLabel {
+  font-weight: 950;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.anaSalesValue {
+  margin-top: 6px;
+  font-weight: 950;
+  font-size: 28px;
+  color: #0f8a3a;
+}
+
+.anaSalesHint {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #22c55e;
+}
+
+.anaSectionTitle {
+  font-size: 11px;
+  font-weight: 900;
+  color: #6b7280;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+/* PAYMENT GRID */
+.anaPayGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.anaPayItem {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-height: 110px;
+  padding: 14px 10px;
+  text-align: center;
+  background: #fff;
+}
+
+.anaPayName {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.anaPayNum {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.anaPaySub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #6b7280;
+}
+
+/* TOP SERVICES */
+.anaTopServices {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  flex: 1;
+  margin-top: 2px;
+}
+
+.anaTopTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+.anaServiceRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.anaServiceRow:last-child { border-bottom: none; }
+
+.anaBadge {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--gold-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 950;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.anaSvcName {
+  flex: 1;
+  font-weight: 900;
+  color: #111827;
+  font-size: 13px;
+}
+
+.anaSvcNum {
+  font-weight: 900;
+  color: #111827;
+  opacity: 0.8;
+  font-size: 12px;
+}
+
+/* RIGHT COLUMN */
+.anaRight {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.anaSmallCard {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.anaBlue {
+  background: #f7f1e1;
+  border-color: #e3d5ae;
+}
+
+.anaYellow {
+  background: #fbf7eb;
+  border-color: #e8dcc0;
+}
+
+.anaSmallTitle {
+  font-weight: 950;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.anaSmallValue {
+  margin-top: 8px;
+  font-weight: 950;
+  font-size: 28px;
+  color: #1f2937;
+}
+
+.anaRatingStars {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.anaRatingStar {
+  font-size: 22px;
+  line-height: 1;
+  color: #d1d5db;
+}
+
+.anaRatingStar.filled {
+  color: #d4a63f;
+}
+
+.anaSmallMeta {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #1f2937;
+}
+
+.anaSmallHint {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #6b7280;
+}
+
+.anaInterpretationCard {
+  min-height: 290px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.anaInterpretationHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.anaInterpretationTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.anaInterpretationMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.anaInterpretationStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f1ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.anaInterpretationBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.anaInterpretationBtn:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.anaInterpretationBtn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.anaInterpretationError {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #b45309;
+}
+
+.anaInterpretationList {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.anaInterpretationItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafafa;
+  padding: 12px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 700;
+  color: #475569;
+}
+
+.anaInterpretationEmpty {
+  border: 1px dashed #d6dbe4;
+  border-radius: 14px;
+  background: #fcfcfd;
+  padding: 16px 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+/* RESPONSIVE */
+@media (max-width: 1100px) {
+  .anaGrid { grid-template-columns: 1fr; }
+  .anaPayGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .anaPayGrid { grid-template-columns: 1fr; }
+}

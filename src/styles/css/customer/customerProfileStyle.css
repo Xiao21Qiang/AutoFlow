@@ -1,0 +1,417 @@
+.clProWrap {
+  padding: 14px 18px 0;
+}
+
+.clProCard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.clProInner {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  padding: 18px;
+}
+
+.clProLeft {
+  display: flex;
+  justify-content: center;
+}
+
+.clProAvatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid #aeb3bc;
+  background: #f1f3f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clProGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.clProField {
+  margin-bottom: 10px;
+}
+
+.clProLabel {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clProInput {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 800;
+  outline: none;
+}
+
+.clProPwRow {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 4px;
+}
+
+.clProShowBtn {
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clProActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.clProSaveBtn {
+  min-width: 150px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: #000;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+/* ── MODAL ── */
+.clM-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.42);
+  backdrop-filter: blur(3px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.clM-overlay.open { opacity: 1; }
+
+.clM-box {
+  background: #fff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.16);
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+.clM-head {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.clM-title { font-size: 13px; font-weight: 950; color: #111827; margin: 0 0 2px; }
+.clM-sub   { font-size: 11px; color: #9ca3af; margin: 0; }
+.clM-x {
+  background: #f3f4f6; border: none; width: 26px; height: 26px;
+  border-radius: 7px; cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; color: #6b7280;
+}
+.clM-x:hover { background: #e5e7eb; }
+
+.clM-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.clM-field { display: flex; flex-direction: column; gap: 4px; }
+.clM-label { font-size: 10px; font-weight: 950; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+.clM-input {
+  height: 32px; border-radius: 8px; border: 1px solid #e5e7eb;
+  background: #fff; padding: 0 10px; font-size: 11px; font-weight: 700;
+  color: #111827; outline: none; width: 100%; box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.clM-input:focus { border-color: #000; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+.clM-input::placeholder { color: #c4c4c4; font-weight: 400; }
+.clM-input.eb { border-color: #f87171; }
+
+.clM-divider { display: flex; align-items: center; gap: 8px; }
+.clM-divider span { font-size: 10px; font-weight: 950; color: #c4c4c4; text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; }
+.clM-divider::before, .clM-divider::after { content: ''; flex: 1; height: 1px; background: #f0f0f0; }
+
+.clPw-box {
+  border: 1px solid #eeeeee; border-radius: 10px;
+  background: #fafafa; padding: 12px 13px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.clPw-title { font-size: 11px; font-weight: 950; color: #374151; margin: 0; }
+.clPw-sub   { font-size: 11px; color: #9ca3af; margin: 2px 0 0; }
+.clPw-trigger {
+  align-self: flex-start; background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: 950;
+  color: #374151; cursor: pointer;
+}
+.clPw-trigger:hover { border-color: #000; }
+.clBack-btn { background: none; border: none; font-size: 11px; font-weight: 950; color: #6b7280; cursor: pointer; padding: 0; align-self: flex-start; }
+.clBack-btn:hover { color: #111827; }
+
+.clOtp-hint { font-size: 11px; color: #6b7280; margin: 0; line-height: 1.55; }
+.clOtp-hint strong { color: #111827; font-weight: 950; }
+.clOtp-boxes { display: flex; gap: 6px; justify-content: center; }
+.clOtp-box {
+  width: 38px; height: 42px; border-radius: 8px; border: 1px solid #e5e7eb;
+  text-align: center; font-size: 18px; font-weight: 950; color: #111827;
+  outline: none; background: #fff; transition: border-color 0.15s;
+}
+.clOtp-box:focus { border-color: #000; box-shadow: 0 0 0 2px rgba(0,0,0,0.06); }
+.clOtp-box.ok  { border-color: #000; background: #f9fafb; }
+.clOtp-box.bad { border-color: #f87171; background: #fff5f5; }
+
+.clErr-msg { font-size: 11px; color: #ef4444; font-weight: 700; text-align: center; }
+.clResend-row { font-size: 11px; color: #9ca3af; text-align: center; }
+.clResend-row button { background: none; border: none; font-size: 11px; font-weight: 950; color: #000; cursor: pointer; padding: 0; }
+
+.clFull-btn {
+  width: 100%; height: 32px; border-radius: 8px; border: none;
+  background: #000; color: #fff; font-size: 11px; font-weight: 950; cursor: pointer;
+}
+.clFull-btn:hover { background: #1d2433; }
+
+.clVerified-badge {
+  display: flex; align-items: center; gap: 7px;
+  background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+  padding: 8px 11px; font-size: 11px; font-weight: 950; color: #15803d;
+}
+.clPw-input-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.clPw-show {
+  height: 32px; padding: 0 11px; border-radius: 8px; border: 1px solid #e5e7eb;
+  background: #f9fafb; font-size: 11px; font-weight: 950; color: #374151; cursor: pointer;
+}
+.clPw-show:hover { background: #f3f4f6; }
+
+.clM-foot {
+  padding: 12px 20px 18px; display: flex; justify-content: flex-end;
+  gap: 8px; border-top: 1px solid #f0f0f0; flex-shrink: 0;
+}
+.clM-cancel { background: #f3f4f6; border: none; color: #374151; border-radius: 8px; padding: 7px 16px; font-size: 11px; font-weight: 950; cursor: pointer; }
+.clM-cancel:hover { background: #e5e7eb; }
+.clM-save { background: #000; border: none; color: #fff; border-radius: 8px; padding: 7px 18px; font-size: 11px; font-weight: 950; cursor: pointer; }
+.clM-save:disabled { opacity: 0.3; cursor: not-allowed; }
+.clM-save:not(:disabled):hover { background: #1d2433; }
+
+.clCarSection {
+  border-top: 1px solid #eef2f7;
+  padding-top: 12px;
+}
+
+.clCarSectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.clCarTitle {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clCarSub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.clCarList {
+  display: grid;
+  gap: 8px;
+}
+
+.clCarItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.clCarVehicle {
+  font-size: 12px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.clCarSize {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #9a7b21;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.clCarPlate {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #6b7280;
+}
+
+.clCarEmpty {
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.clM-boxWide {
+  max-width: 720px;
+}
+
+.clCarEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.clCarEditorRow {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.clCarEditorRowWide {
+  grid-template-columns: 1.05fr 1.05fr 0.95fr 0.9fr auto;
+  align-items: end;
+}
+
+.clCarCatalogError {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b91c1c;
+}
+
+.clCarField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clCarLookup {
+  position: relative;
+}
+
+.clCarLookupMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+}
+
+.clCarLookupItem {
+  width: 100%;
+  border: none;
+  border-top: 1px solid #f3f4f6;
+  background: #ffffff;
+  padding: 9px 10px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 800;
+  color: #111827;
+  cursor: pointer;
+}
+
+.clCarLookupItem:first-child {
+  border-top: none;
+}
+
+.clCarLookupItem:hover {
+  background: #f9fafb;
+}
+
+.clCarAddBtn,
+.clCarRemoveBtn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+  cursor: pointer;
+}
+
+.clCarAddBtn {
+  align-self: flex-start;
+  padding: 0 14px;
+}
+
+.clCarRemoveBtn {
+  padding: 0 12px;
+}
+
+.clCarSizeSelect {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #6b7280 50%),
+    linear-gradient(135deg, #6b7280 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
+@media (max-width: 900px) {
+  .clCarEditorRowWide {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .clCarRemoveBtn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 620px) {
+  .clCarEditorRowWide {
+    grid-template-columns: 1fr;
+  }
+}

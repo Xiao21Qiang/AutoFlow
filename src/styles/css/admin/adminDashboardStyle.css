@@ -1,0 +1,487 @@
+/* ══════════════════════════════════════════════════
+   ADMIN DASHBOARD — White + Gold Theme
+   All class names preserved from original.
+══════════════════════════════════════════════════ */
+
+/* ── wrap ────────────────────────────────────────── */
+.adminDashWrap {
+  width: 100%;
+  padding: 12px 16px 16px;
+}
+
+/* ══════════════════════════════════════════════════
+   STAT CARDS
+══════════════════════════════════════════════════ */
+.adminDashStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.adminDashStatCard {
+  min-height: 64px;
+  background: #ffffff !important;
+  border: 1px solid #e2e6ed;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.adminDashStatCard:hover {
+  border-color: rgba(212,160,23,0.45);
+  box-shadow: 0 4px 16px rgba(212,160,23,0.1);
+  transform: translateY(-2px);
+}
+
+.adminDashStatNum {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.adminDashStatLabel {
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  line-height: 1.1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ══════════════════════════════════════════════════
+   TOP GRID
+══════════════════════════════════════════════════ */
+.adminDashTopGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.adminDashCard {
+  background: #ffffff !important;
+  border: 1px solid #e2e6ed;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+}
+
+.adminDashTitle {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: #0f172a;
+  line-height: 1.05;
+}
+
+.adminDashSub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.1;
+}
+
+/* ── Attention items ─────────────────────────────── */
+.adminAttentionItem {
+  margin-top: 8px;
+  border: 1px solid #e2e6ed;
+  border-radius: 12px;
+  background: #f8fafc !important;
+  padding: 9px 11px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.adminAttentionItemClickable {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.adminAttentionItem:hover {
+  border-color: rgba(212,160,23,0.45);
+  box-shadow: 0 2px 8px rgba(212,160,23,0.08);
+}
+
+.adminAttentionName {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.05;
+}
+
+.adminAttentionDesc {
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+/* ── Quick Actions ───────────────────────────────── */
+.adminQuickGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.adminQuickCard {
+  min-height: 40px;
+  border: 1px solid #e2e6ed;
+  border-radius: 12px;
+  background: #f8fafc !important;
+  padding: 9px 11px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.18s;
+}
+
+.adminQuickCard:hover {
+  background: rgba(212,160,23,0.05) !important;
+  border-color: rgba(212,160,23,0.4);
+  box-shadow: 0 2px 8px rgba(212,160,23,0.1);
+  transform: translateY(-2px);
+}
+
+.adminQuickTitle {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.05;
+}
+
+.adminQuickDesc {
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+/* ══════════════════════════════════════════════════
+   CALENDAR
+══════════════════════════════════════════════════ */
+.adminCalendarCard {
+  background: #ffffff !important;
+  border: 1px solid #e2e6ed;
+  border-radius: 16px;
+  padding: 12px 14px 14px;
+  box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+}
+
+.adminCalendarGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.98fr);
+  gap: 10px;
+}
+
+.adminCalTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.adminCalMain {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: #0f172a;
+  line-height: 1.05;
+}
+
+.adminCalMini {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.1;
+}
+
+.adminCalControls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.adminCalControls button {
+  height: 22px;
+  min-width: 24px;
+  border: 1px solid #e2e6ed;
+  background: #f8fafc !important;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #0f172a;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.18s, border-color 0.18s;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06);
+}
+
+.adminCalControls button:hover {
+  background: rgba(212,160,23,0.08) !important;
+  border-color: #d4a017;
+  color: #b8860b;
+}
+
+/* week header row */
+.adminWeekRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 8px 0 4px;
+  text-align: center;
+}
+
+.adminWeekRow > div {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* day cells */
+.adminDaysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.adminDay {
+  min-height: 48px;
+  border: 1px solid #e8ecf1;
+  border-radius: 10px;
+  background: #ffffff !important;
+  padding: 5px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #0f172a;
+  position: relative;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+.adminDay:hover {
+  border-color: rgba(212,160,23,0.5);
+  background: rgba(212,160,23,0.04) !important;
+  box-shadow: 0 2px 6px rgba(212,160,23,0.1);
+}
+
+.adminDay.muted {
+  opacity: 0.4;
+}
+
+.adminDay.active {
+  border-color: #d4a017;
+  background: rgba(212,160,23,0.08) !important;
+  color: #b8860b;
+  box-shadow: 0 2px 8px rgba(212,160,23,0.15);
+}
+
+/* booking count badge */
+.adminDayBadge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #d4a017;
+  border: 1px solid #b8860b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 900;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(212,160,23,0.3);
+}
+
+/* ══════════════════════════════════════════════════
+   OVERVIEW LIST
+══════════════════════════════════════════════════ */
+.adminOverviewList {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.adminOverviewItem {
+  border: 1px solid #e2e6ed;
+  border-radius: 12px;
+  background: #f8fafc !important;
+  padding: 9px 11px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.adminOverviewItem:hover {
+  border-color: rgba(212,160,23,0.4);
+  box-shadow: 0 2px 8px rgba(212,160,23,0.08);
+}
+
+.adminOverviewName {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.05;
+}
+
+.adminOverviewMeta {
+  margin-top: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.adminQuoteDetailCard {
+  margin-bottom: 8px;
+}
+
+.adminQuoteDetailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.adminQuoteDetailClose {
+  height: 30px;
+  min-width: 72px;
+  border: 1px solid #e2e6ed;
+  background: #f8fafc;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.adminQuoteDetailGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.adminQuoteDetailItem {
+  border: 1px solid #e2e6ed;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adminQuoteDetailItem span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.adminQuoteDetailItem strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.4;
+}
+
+.adminQuoteDetailItemWide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1180px) {
+  .adminDashStats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .adminDashTopGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminCalendarGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .adminDashStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .adminQuoteDetailHead,
+  .adminQuoteDetailGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminQuoteDetailHead {
+    display: grid;
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   AI BAR  (purple gradient kept intentionally)
+══════════════════════════════════════════════════ */
+.aiBar {
+  margin-top: 12px;
+  width: 354px;
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(139,92,246,0.25);
+  background: linear-gradient(135deg, #4f46e5 0%, #a34bf0 100%);
+  padding: 12px 14px 10px;
+  box-shadow: 0 6px 20px rgba(139,92,246,0.2);
+}
+
+.aiLeft {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.aiIcon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.22);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.aiTitle {
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.1;
+}
+
+.aiBullets {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.92);
+  line-height: 1.45;
+}
+

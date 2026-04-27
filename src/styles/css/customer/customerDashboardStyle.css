@@ -1,0 +1,119 @@
+.clDashWrap {
+  padding: 10px 10px 0;
+}
+
+/* ── 3-column stats row ── */
+.clDashStats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.clDashStatCard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+}
+
+.clDashStatNum {
+  font-size: 22px;
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1;
+}
+
+.clDashStatLabel {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #374151;
+}
+
+/* ── Two equal side-by-side cards ── */
+.clDashGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.clDashCard {
+  min-height: 140px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+
+.clDashTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1;
+}
+
+.clDashSub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #4b5563;
+}
+
+/* ── Booking list items ── */
+.clUpcomingItem {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.clUpcomingName {
+  font-size: 12px;
+  font-weight: 950;
+  color: var(--text);
+}
+
+.clUpcomingDate {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #6b7280;
+}
+
+/* ── Quick action buttons ── */
+.clQuickGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.clQuickCard {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.clQuickCard:hover {
+  background: #f9fafb;
+}
+
+.clQuickTitle {
+  font-size: 12px;
+  font-weight: 950;
+  color: var(--text);
+}
+
+.clQuickDesc {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+}

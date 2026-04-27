@@ -1,0 +1,108 @@
+.fltModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1100;
+}
+
+.fltModalCard {
+  width: min(100%, 360px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+
+.fltModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.fltModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.fltModalFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fltField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fltField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.fltField input,
+.fltField select {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.fltField input:focus,
+.fltField select:focus {
+  border-color: var(--accent, #d4a72c);
+  box-shadow: 0 0 0 2px rgba(212, 167, 44, 0.14);
+}
+
+.fltModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.fltTextBtn,
+.fltPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.fltTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.fltPrimaryBtn {
+  background: var(--accent, #d4a72c);
+  color: #fff;
+}

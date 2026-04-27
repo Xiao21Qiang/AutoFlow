@@ -1,0 +1,781 @@
+.stBookWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+/* ── TOP BAR ── */
+.stBookTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stSearchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stSearchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.stSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.stSearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+}
+
+.stSearchInput::placeholder {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.stFilterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stFilterBtn:hover {
+  background: #f8fafc;
+}
+
+.stFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.stBookActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stBookAddBtn {
+  border: 1px solid rgba(216, 177, 47, 0.55);
+  background: #fff3c7;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  cursor: pointer;
+}
+
+.stBookAddBtn:hover {
+  filter: brightness(0.98);
+}
+
+/* ── TABLE ── */
+.stTableCard {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.stTbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stTbl thead tr th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  background: #e8e8e8;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  color: #111827;
+}
+
+.stTbl tbody tr td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: #fff;
+}
+
+.stTbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stTbl tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.stColActions {
+  width: 100px;
+  text-align: center;
+}
+
+.stEditBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  color: #111827;
+}
+
+.stEditBtn:hover {
+  background: #f8fafc;
+}
+
+.stBookEmpty {
+  padding: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-align: center;
+}
+
+/* ── PAGINATION ── */
+.stPagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.stPagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.stPagerBtn:hover {
+  background: #f8fafc;
+}
+
+.stPagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.stPagerNum:hover {
+  background: #f8fafc;
+}
+
+.stPagerNum.active {
+  font-weight: 950;
+  color: #0f172a;
+}
+
+/* ── MODAL ── */
+.stBookModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.stBookModalCard {
+  width: min(100%, 980px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.stBookModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.stBookModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.stBookFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stBookField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.stBookField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stBookField input,
+.stBookField select,
+.stBookField textarea {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+  resize: vertical;
+}
+
+.stBookField input:focus,
+.stBookField select:focus,
+.stBookField textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.stBookSuggestWrap {
+  position: relative;
+}
+
+.stBookSelectWrap {
+  position: relative;
+}
+
+.stBookSelectWrap::after,
+.stBookModalSelectTrigger::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+.stBookFieldInvalidInput {
+  border-color: #fca5a5 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.stBookSuggestMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #d5deed;
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.stBookSuggestItem {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.stBookSuggestItem:hover {
+  background: #f8fafc;
+}
+
+.stBookSuggestItem span {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: none;
+  color: #0f172a;
+}
+
+.stBookSelectWrap select,
+.stBookSelectWrap input[list] {
+  padding-right: 40px;
+}
+
+.stBookSelectWrap select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+}
+
+.stBookSuggestItem small {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.stBookModalSelect {
+  width: 100%;
+}
+
+.stBookModalSelectTrigger {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 10px 40px 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #fff;
+  text-align: left;
+  position: relative;
+  cursor: pointer;
+}
+
+.stBookModalSelectTrigger span {
+  display: block;
+}
+
+.stBookModalSelectMenu {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.stBookFieldError {
+  font-size: 11px;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+/* ── PROBLEM LOCATION SECTION ── */
+.stIssueSection {
+  margin-top: 18px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 16px;
+}
+
+.stIssueSectionHead {
+  margin-bottom: 12px;
+}
+
+.stIssueTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.stIssueSub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.stIssueLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── Car diagram panel ── */
+.stIssueMapPanel {
+  border: 1px solid #d7deea;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  padding: 14px;
+}
+
+.stIssueMapShell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stIssueMap {
+  border-radius: 12px;
+  border: 1px solid #d5deed;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.stIssueMapImg {
+  position: relative;
+  line-height: 0;
+  min-height: 290px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+.stCarDiagramImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+  border-radius: 11px;
+}
+
+/* ── Draggable marker ── */
+.stIssueMarker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.45);
+  cursor: grab;
+  touch-action: none;
+  z-index: 10;
+  transition: box-shadow 0.15s;
+}
+
+.stIssueMarker:active {
+  cursor: grabbing;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.55);
+}
+
+/* ── Legend strip ── */
+.stIssueLegend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stIssueMarkerLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.stIssueMarkerLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #d7deea;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.stIssueMarkerLegendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stIssueHint {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.stIssueActions {
+  display: flex;
+  gap: 8px;
+}
+
+.stIssueActionBtn {
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.stIssueActionBtn.ghost {
+  border-color: #d1d5db;
+  background: #fff;
+  color: #374151;
+}
+
+/* ── Right panel: checkboxes + notes ── */
+.stIssueRightPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stIssueNoteField {
+  height: 100%;
+}
+
+.stIssueNoteTextarea {
+  min-height: 168px;
+  line-height: 1.55;
+  font-weight: 600 !important;
+  white-space: pre-wrap;
+}
+
+.stIssueNoteHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stIssueGenerateBtn {
+  border: 1px solid #bfd0ff;
+  background: #f4f7ff;
+  color: #3158d8;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stIssueGenerateBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.stIssueMarkerFields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: 1px solid #bfc7d4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.stIssueMarkerField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stIssueMarkerFieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 850;
+  color: #1e293b;
+}
+
+.stIssueMarkerField select {
+  width: 100%;
+  border: 1px solid #bfc7d4;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.stIssueMarkerField select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* ── Modal actions ── */
+.stBookModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.stBookTextBtn,
+.stBookPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.stBookTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.stBookPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .stIssueLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .stTableCard {
+    overflow-x: auto;
+  }
+
+  .stTbl {
+    min-width: 860px;
+  }
+
+  .stBookFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stBookModalOverlay {
+    padding: 16px;
+  }
+
+  .stIssueLegend {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+
+.stBookSlotField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.stBookSlotField > span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stBookPlaceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stBookPlaceSlot {
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid #d5deed;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stBookPlaceSlot.selected {
+  border-color: #c59d31;
+  background: #fff7dd;
+  color: #7a5600;
+}
+
+.stBookPlaceSlot.occupied {
+  border-color: #d1d5db;
+  background: #e5e7eb;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.stBookSlotHint {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}

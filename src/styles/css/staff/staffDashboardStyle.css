@@ -1,0 +1,416 @@
+/* ── DASH WRAP ── */
+.stDashWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+}
+
+/* ── STATS ── */
+.stDashStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.stDashStatCard {
+  min-height: 55px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 13px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
+}
+
+.stDashStatNum {
+  font-size: 17px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1;
+}
+
+.stDashStatLabel {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #374151;
+  line-height: 1.05;
+}
+
+/* ── TOP GRID ── */
+.stDashTopGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.stDashCard {
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  padding: 8px 10px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+}
+
+.stDashTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.stDashSub {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #4b5563;
+  line-height: 1.05;
+}
+
+.stDashStack {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── ATTENTION ── */
+.stAttentionItem {
+  margin-top: 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.stAttentionItemClickable {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stAttentionItemClickable:hover {
+  background: #fafafa;
+}
+
+.stAttentionName {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.stAttentionDesc {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+  line-height: 1.1;
+}
+
+/* ── QUICK ACTIONS ── */
+.stQuickGrid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.stQuickCard {
+  min-height: 36px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.stQuickCard:hover {
+  background: #fafafa;
+}
+
+.stQuickTitle {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.stQuickDesc {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+  line-height: 1.1;
+}
+
+/* ── CALENDAR CARD ── */
+.stCalendarCard {
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  padding: 9px 10px 10px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
+}
+
+.stCalendarGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.98fr);
+  gap: 10px;
+}
+
+.stCalTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.stCalMain {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.stCalMini {
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+  line-height: 1.1;
+}
+
+/* ── NAV CONTROLS ── */
+.stCalControls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stCalControls button {
+  height: 16px;
+  min-width: 20px;
+  border: 1px solid var(--line-soft);
+  background: #fff;
+  border-radius: 5px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 900;
+  color: #111827;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* ── WEEK ROW ── */
+.stWeekRow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 8px 0 4px;
+  text-align: center;
+}
+
+.stWeekRow > div {
+  font-size: 10px;
+  font-weight: 900;
+  color: #4b5563;
+}
+
+/* ── DAYS GRID ── */
+.stDaysGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.stDay {
+  min-height: 47px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: #fff;
+  padding: 5px 6px;
+  font-size: 10px;
+  font-weight: 900;
+  color: #111827;
+  position: relative;
+  cursor: pointer;
+  text-align: left;
+  /* reset button styles */
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+}
+
+.stDay.muted {
+  opacity: 0.45;
+}
+
+/* Today — dark circle on number */
+.stDay.today > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0b0f19;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 950;
+}
+
+/* Selected */
+.stDay.active {
+  border-color: var(--gold-dark);
+  background: #fffef3;
+}
+
+/* Today + selected */
+.stDay.today.active > span {
+  background: var(--gold-dark, #c9ad2f);
+  color: #fff;
+}
+
+/* Booking dot badge */
+.stDayBadge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: #f5e38c;
+  border: 1px solid var(--gold-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 950;
+  color: #111827;
+}
+
+/* ── OVERVIEW PANEL ── */
+.stOverviewList {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stOverviewItem {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.stOverviewName {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.stOverviewMeta {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+  line-height: 1.1;
+}
+
+.stQuoteDetailCard {
+  margin-bottom: 5px;
+}
+
+.stQuoteDetailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stQuoteDetailClose {
+  height: 28px;
+  min-width: 70px;
+  border: 1px solid var(--line-soft);
+  background: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+  cursor: pointer;
+}
+
+.stQuoteDetailGrid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.stQuoteDetailItem {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stQuoteDetailItem span {
+  font-size: 10px;
+  font-weight: 800;
+  color: #4b5563;
+  text-transform: uppercase;
+}
+
+.stQuoteDetailItem strong {
+  font-size: 12px;
+  font-weight: 900;
+  color: #111827;
+  line-height: 1.35;
+}
+
+.stQuoteDetailItemWide {
+  grid-column: 1 / -1;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1100px) {
+  .stDashStats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .stDashTopGrid {
+    grid-template-columns: 1fr;
+  }
+  .stCalendarGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .stDashStats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stQuoteDetailHead {
+    display: grid;
+  }
+  .stQuoteDetailGrid {
+    grid-template-columns: 1fr;
+  }
+  .stDay {
+    min-height: 38px;
+    font-size: 9px;
+  }
+  .stDay.today > span {
+    width: 15px;
+    height: 15px;
+    font-size: 8px;
+  }
+}

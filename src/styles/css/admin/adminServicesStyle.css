@@ -1,0 +1,727 @@
+.servicesWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+.servicesRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.svcSearchBox {
+  width: 420px;
+  flex: 0 0 420px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.svcSearchBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.svcSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.svcSearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text);
+}
+
+.svcSearchInput::placeholder {
+  color: #94a3b8;
+}
+
+.svcFilterBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.svcFilterBtn:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.svcFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.svcActionBtns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.svcBtn {
+  height: 38px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.svcBtnDark {
+  background: var(--action-dark);
+  border-color: var(--action-dark);
+  color: #fff;
+}
+
+.svcBtnDark:hover {
+  background: var(--action-dark-hover);
+}
+
+.svcBtnGold {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--gold-dark);
+}
+
+.svcBtnGold:hover {
+  filter: brightness(0.99);
+}
+
+.svcBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.svcSectionBlock + .svcSectionBlock {
+  margin-top: 22px;
+}
+
+.svcSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.svcSectionTitle {
+  font-size: 15px;
+  font-weight: 950;
+  color: var(--text);
+}
+
+.svcSectionCount {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #dbe2ea;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: #475569;
+}
+
+.svcCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.svcCard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+  padding: 16px;
+  min-height: 320px;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.svcCard:hover {
+  border-color: var(--accent-line);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+}
+
+.svcTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.svcSub {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.svcMeta {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.svcMeta strong {
+  font-weight: 900;
+  color: var(--text);
+}
+
+.svcMetaDot {
+  margin: 0 2px;
+  color: #94a3b8;
+}
+
+.svcPriceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.statusBar {
+  margin-top: 10px;
+  min-height: 24px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.statusBar.enabled {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.statusBar.disabled {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.svcSection {
+  margin-top: 14px;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--gold-dark);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.svcList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.svcList li {
+  margin-bottom: 6px;
+}
+
+.cardActions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.smallBtn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.smallBtn:hover {
+  background: #f8fafc;
+}
+
+.smallBtnEdit {
+  background: var(--action-dark);
+  border-color: var(--action-dark);
+  color: #fff;
+}
+
+.smallBtnEdit:hover {
+  background: var(--action-dark-hover);
+}
+
+.smallBtnOutline {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+
+.smallBtnOutline:hover {
+  background: #fee2e2;
+}
+
+.svcPagerRow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.svcPagerBtn {
+  height: 28px;
+  width: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 13px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.svcPagerBtn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--gold-dark);
+}
+
+.svcPagerNum {
+  height: 28px;
+  min-width: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text);
+  padding: 0 6px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+}
+
+.svcModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.svcModalCard {
+  width: min(100%, 400px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 20px 14px;
+  position: relative;
+}
+
+.svcModalCardWide {
+  width: min(100%, 760px);
+  max-height: min(88vh, 900px);
+  overflow: auto;
+}
+
+.svcModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.svcModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.svcField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.svcField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #111827;
+}
+
+.svcField input,
+.svcField select,
+.svcField textarea {
+  width: 100%;
+  border: 1px solid #bfc7d4;
+  border-radius: 6px;
+  padding: 10px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.svcField textarea {
+  resize: none;
+}
+
+.svcField input:focus,
+.svcField select:focus,
+.svcField textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.svcFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.svcFormSection {
+  padding-bottom: 6px;
+}
+
+.svcConsumablesPanel {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fafcff 0%, #f8fafc 100%);
+  padding: 14px;
+}
+
+.svcConsumablesHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.svcConsumablesTitle {
+  font-size: 13px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.svcConsumablesHint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.svcConsumablesCount {
+  flex-shrink: 0;
+  min-width: 84px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid #dbe4f0;
+  font-size: 11px;
+  font-weight: 900;
+  color: #334155;
+  text-align: center;
+}
+
+.svcConsumablesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.svcConsumableCard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe4f0;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.svcConsumableCard:hover {
+  border-color: var(--accent-line);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+  transform: translateY(-1px);
+}
+
+.svcConsumableCard.selected {
+  border-color: #f5c24b;
+  background: linear-gradient(180deg, #fffdf5 0%, #fff8e8 100%);
+}
+
+.svcConsumableMain {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.svcConsumableCheckbox {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.svcConsumableInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.svcConsumableName {
+  font-size: 12px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.3;
+}
+
+.svcConsumableMeta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.svcConsumableQty {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.svcConsumableQtyLabel {
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+  letter-spacing: 0.04em;
+}
+
+.svcConsumableQty input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+}
+
+.svcConsumableQty input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.svcConsumableQty input:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.svcConsumableQtyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.svcConsumableQtyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.svcConsumableQtyItem span {
+  margin-bottom: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  white-space: normal;
+  color: #475569;
+}
+
+.svcConsumablesEmpty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.svcModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.svcModalActionsSplit {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.svcModalActionsRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.svcTextBtn,
+.svcPrimaryBtn,
+.svcDangerBtn {
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.svcTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.svcPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.svcDangerBtn {
+  background: #fff5f5;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+@media (max-width: 1180px) {
+  .svcCardsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .servicesRow {
+    flex-wrap: wrap;
+  }
+
+  .svcActionBtns {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .svcCardsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .svcFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .svcModalCardWide {
+    width: 100%;
+    padding: 16px;
+  }
+
+  .svcConsumablesHeader {
+    flex-direction: column;
+  }
+
+  .svcConsumablesGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .svcConsumableCard {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .svcConsumableQty {
+    width: 100%;
+  }
+
+  .svcConsumableQtyGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .svcModalActionsSplit {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .svcModalActionsRight {
+    justify-content: flex-end;
+  }
+}

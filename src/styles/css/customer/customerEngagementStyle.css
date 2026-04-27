@@ -1,0 +1,192 @@
+.clEngWrap {
+  padding: 10px 14px 0;
+}
+
+.clEngGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.clEngCard {
+  min-height: 340px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.clEngHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  min-height: 92px;
+}
+
+.clEngTitle {
+  font-size: 16px;
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.clEngSub {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.2;
+  color: #64748b;
+}
+
+.clEngAddBtn {
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--action-dark);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clEngAddBtn:hover {
+  background: var(--action-dark-hover);
+}
+
+.clEngTable {
+  padding: 10px 16px 14px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.clEngTableHead,
+.clEngTableRow {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 2fr;
+  gap: 10px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+.clEngTableHead {
+  background: #e8e8e8;
+  font-weight: 950;
+  font-size: 11px;
+  border-radius: 8px;
+  color: #111827;
+}
+
+.clEngTableRow {
+  border-bottom: 1px solid var(--line);
+  font-weight: 800;
+  color: #111827;
+  align-items: center;
+  padding: 16px 10px;
+}
+
+.clEngTableRow:last-child {
+  border-bottom: none;
+}
+
+.clEngTableRowFirst > div:first-child,
+.clEngPromoTitle {
+  font-weight: 950;
+}
+
+.clEngPromoTable {
+  min-height: 0;
+}
+
+.clEngPromoHead,
+.clEngPromoRow {
+  grid-template-columns: 1.2fr 0.9fr 2fr;
+}
+
+.clEngPromoBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #2f7a45;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.clEngEmptyRow {
+  padding: 18px 4px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #64748b;
+}
+
+.clEngPromoMeta {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.clReviewStars {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clReviewStarBtn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 28px;
+  line-height: 1;
+  color: #d1d5db;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.clReviewStarBtn:hover,
+.clReviewStarBtn:focus {
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.clReviewStarBtn.active {
+  color: #d8b53b;
+}
+
+.clReviewStarText {
+  font-size: 11px;
+  font-weight: 800;
+  color: #6b7280;
+}
+
+@media (max-width: 1100px) {
+  .clEngGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .clEngCard {
+    min-height: auto;
+  }
+
+  .clEngHead {
+    min-height: 0;
+  }
+}

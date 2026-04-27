@@ -1,0 +1,317 @@
+.clSvcWrap {
+  padding: 10px 14px 0;
+}
+
+.clSvcTop {
+  margin-bottom: 8px;
+}
+
+.clSvcSearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clSvcSearchBox {
+  width: 184px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.clSvcSearchIcon,
+.clSvcFilterIcon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.7;
+}
+
+.clSvcSearchInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clSvcFilterBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clSvcBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 14px;
+}
+
+.clSvcSectionBlock + .clSvcSectionBlock {
+  margin-top: 20px;
+}
+
+.clSvcSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.clSvcSectionTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: var(--text);
+}
+
+.clSvcSectionCount {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #dbe2ea;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  color: #475569;
+}
+
+.clSvcGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.clSvcCard {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.clSvcTitle {
+  font-size: 15px;
+  font-weight: 950;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.clSvcSub {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.clSvcMeta {
+  margin-top: 18px;
+  font-size: 13px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.clSvcBookBtn {
+  margin-top: 14px;
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 999px;
+  background: #d8b53b;
+  font-size: 13px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clSvcPager {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clSvcPager button,
+.clSvcPager div {
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clSvcModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.clSvcModalCard {
+  width: min(100%, 400px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+
+.clSvcModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clSvcModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.clSvcSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.clSvcSummaryTitle {
+  font-size: 13px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clSvcConsumablesPanel {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fafcff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+}
+
+.clSvcConsumablesTitle {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.clSvcConsumablesList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.clSvcConsumablesList li {
+  margin-bottom: 6px;
+}
+
+.clSvcConsumablesEmpty {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.clSvcField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.clSvcField span {
+  font-size: 10px;
+  font-weight: 900;
+  color: #475569;
+  text-transform: uppercase;
+}
+
+.clSvcField input,
+.clSvcField textarea {
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.clSvcField textarea {
+  resize: none;
+}
+
+.clSvcModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.clSvcTextBtn,
+.clSvcPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.clSvcTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.clSvcPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}

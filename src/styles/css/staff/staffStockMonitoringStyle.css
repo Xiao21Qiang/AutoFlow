@@ -1,0 +1,614 @@
+.stInvWrap {
+  width: 100%;
+  padding: 10px 14px 14px;
+  background: var(--bg);
+  flex: 1;
+  min-height: 100%;
+}
+
+.stInvTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stInvSearchGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stInvSearchBox {
+  width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.stInvSearchIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.stInvSearchInput {
+  width: 100%;
+  border: 0;
+  outline: none;
+  font-size: 12px;
+  font-weight: 800;
+  background: transparent;
+}
+
+.stInvSearchInput::placeholder {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.stInvFilterBtn {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.stInvFilterBtn:hover {
+  background: #f8fafc;
+}
+
+.stInvFilterIcon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+}
+
+.stInvActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stInvAddBtn {
+  border: 1px solid rgba(216, 177, 47, 0.55);
+  background: #fff3c7;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  cursor: pointer;
+}
+
+.stInvDarkBtn {
+  background: var(--action-dark);
+  border-color: var(--action-dark);
+  color: #fff;
+}
+
+.stInvDarkBtn:hover {
+  background: var(--action-dark-hover);
+  filter: none;
+}
+
+.stInvAddBtn:hover {
+  filter: brightness(0.98);
+}
+
+.stInvCard {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.stInvGuidePanel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #fff8e7 0%, #fff 100%);
+  border-bottom: 1px solid #f0e1b6;
+}
+
+.stInvGuideHeadRow th {
+  padding: 0 !important;
+  background: transparent !important;
+  white-space: normal !important;
+}
+
+.stInvGuideCopy {
+  max-width: 280px;
+}
+
+.stInvGuideEyebrow {
+  font-size: 11px;
+  font-weight: 950;
+  color: #8a6116;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.stInvGuideText {
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 800;
+  color: #334155;
+}
+
+.stInvLegendList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.stInvLegendItem {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #eadfbe;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.stInvLegendBar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.stInvLegendBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.stInvLegendBarFill.danger {
+  width: 20%;
+  background: #ef4444;
+}
+
+.stInvLegendBarFill.warning {
+  width: 50%;
+  background: #f59e0b;
+}
+
+.stInvLegendBarFill.healthy {
+  width: 88%;
+  background: #22c55e;
+}
+
+.stInvLegendMeta {
+  display: grid;
+  gap: 2px;
+}
+
+.stInvLegendLabel {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.stInvLegendRange {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+}
+
+.stInvLegendNote {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.stInvTbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stInvTbl thead tr th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 950;
+  background: #e8e8e8;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  color: #111827;
+}
+
+.stInvTbl tbody tr td {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: #fff;
+}
+
+.stInvTbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.stInvTbl tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.stInvColActions {
+  width: 180px;
+  text-align: center;
+}
+
+.stInvStockValue.danger {
+  color: #dc2626;
+}
+
+.stInvStockValue.warning {
+  color: #ca8a04;
+}
+
+.stInvStockValue.healthy {
+  color: #15803d;
+}
+
+.stInvPercentCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stInvPercentTrack {
+  width: 90px;
+  height: 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.stInvPercentFill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.stInvPercentFill.danger {
+  background: #ef4444;
+}
+
+.stInvPercentFill.warning {
+  background: #f59e0b;
+}
+
+.stInvPercentFill.healthy {
+  background: #22c55e;
+}
+
+.stInvActionStack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.stInvMiniBtn {
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stInvMiniBtn:hover {
+  background: #f8fafc;
+}
+
+.stInvMiniBtnDanger {
+  border-color: #fecaca;
+  color: #dc2626;
+  background: #fff5f5;
+}
+
+.stInvMiniBtnDanger:hover {
+  background: #fee2e2;
+}
+
+.stInvEmpty {
+  padding: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-align: center;
+}
+
+.stInvPagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.stInvSectionBlock {
+  margin: 18px 0 10px;
+}
+
+.stInvSectionTitle {
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.stInvSectionSub {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.stInvCardSecondary {
+  margin-top: 0;
+}
+
+.stInvPagerBtn {
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 950;
+  font-size: 13px;
+  cursor: pointer;
+  color: #111827;
+  display: grid;
+  place-items: center;
+}
+
+.stInvPagerBtn:hover {
+  background: #f8fafc;
+}
+
+.stInvPagerNum {
+  min-width: 28px;
+  height: 28px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.stInvPagerNum:hover {
+  background: #f8fafc;
+}
+
+.stInvPagerNum.active {
+  font-weight: 950;
+  color: #0f172a;
+}
+
+.stInvModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.stInvModalCard {
+  width: min(100%, 430px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  position: relative;
+}
+
+.stInvModalCard.deleteMode {
+  width: min(100%, 360px);
+}
+
+.stInvModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111827;
+}
+
+.stInvModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.stInvModalTitleAdd {
+  font-size: 28px;
+  line-height: 1.1;
+  margin-bottom: 24px;
+}
+
+.stInvField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.stInvField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stInvField input,
+.stInvField select,
+.stInvField textarea {
+  width: 100%;
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  background: #fff;
+}
+
+.stInvField textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.stInvField input:focus,
+.stInvField select:focus,
+.stInvField textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.stInvFieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stInvModalMeta {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.stInvModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.stInvModalActionsAdd {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.stInvTextBtn,
+.stInvPrimaryBtn,
+.stInvDangerBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.stInvTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.stInvPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.stInvDangerBtn {
+  background: #ef4444;
+  color: #fff;
+}
+
+.stInvDeleteText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.stInvDeleteMeta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.stInvDeleteMeta div {
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
+@media (max-width: 760px) {
+  .stInvGuidePanel {
+    flex-direction: column;
+  }
+
+  .stInvLegendList {
+    grid-template-columns: 1fr;
+  }
+
+  .stInvCard {
+    overflow-x: auto;
+  }
+
+  .stInvTbl {
+    min-width: 980px;
+  }
+
+  .stInvFieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stInvModalOverlay {
+    padding: 16px;
+  }
+}

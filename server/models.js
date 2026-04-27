@@ -1,0 +1,269 @@
+const mongoose = require("mongoose");
+
+const markerSchema = new mongoose.Schema(
+  {
+    id: Number,
+    x: Number,
+    y: Number,
+    issueType: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const servicePriceBySizeSchema = new mongoose.Schema(
+  {
+    sedanSmallCar: { type: Number, default: 0 },
+    midsizePickupMpv: { type: Number, default: 0 },
+    suv: { type: Number, default: 0 },
+    xlVanSemiTruck: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const serviceConsumableBySizeSchema = new mongoose.Schema(
+  {
+    sedanSmallCar: { type: Number, default: 0 },
+    midsizePickupMpv: { type: Number, default: 0 },
+    suv: { type: Number, default: 0 },
+    xlVanSemiTruck: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const bookingSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    customer: { type: String, default: "" },
+    customerEmail: { type: String, default: "" },
+    vehicle: { type: String, default: "" },
+    carSize: { type: String, default: "" },
+    plate: { type: String, default: "" },
+    service: { type: String, default: "" },
+    assigned: { type: String, default: "" },
+    date: { type: String, default: "" },
+    time: { type: String, default: "" },
+    placeSlot: { type: Number, default: 0 },
+    amount: { type: Number, default: 0 },
+    originalAmount: { type: Number, default: 0 },
+    promoId: { type: String, default: "" },
+    promoTitle: { type: String, default: "" },
+    promoDiscountPercent: { type: Number, default: 0 },
+    promoDiscountAmount: { type: Number, default: 0 },
+    status: { type: String, default: "Scheduled" },
+    consumablesApplied: { type: Boolean, default: false },
+    issueNote: { type: String, default: "" },
+    issueTypes: { type: [String], default: [] },
+    issueMarkers: { type: [markerSchema], default: [] },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const serviceSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    name: { type: String, default: "" },
+    desc: { type: String, default: "" },
+    serviceType: { type: String, default: "Basic Service" },
+    category: { type: String, default: "" },
+    price: { type: Number, default: 0 },
+    priceBySize: { type: servicePriceBySizeSchema, default: () => ({}) },
+    mins: { type: Number, default: 0 },
+    enabled: { type: Boolean, default: true },
+    consumables: { type: [String], default: [] },
+    consumablesBySize: {
+      type: Map,
+      of: serviceConsumableBySizeSchema,
+      default: () => ({}),
+    },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const restockHistorySchema = new mongoose.Schema(
+  {
+    date: { type: String, default: "" },
+    time: { type: String, default: "" },
+    qtyToAdd: { type: Number, default: 0 },
+    restockedBy: { type: String, default: "" },
+    costPerUnit: { type: Number, default: 0 },
+    supplier: { type: String, default: "" },
+    notes: { type: String, default: "" },
+    restockedAt: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const stockMonitoringItemSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    name: { type: String, default: "" },
+    category: { type: String, default: "" },
+    currentStock: { type: Number, default: 0 },
+    maxStock: { type: Number, default: 0 },
+    pricePerUnit: { type: Number, default: 0 },
+    lastRestocked: { type: String, default: "" },
+    restockHistory: { type: [restockHistorySchema], default: [] },
+  },
+  { timestamps: true, versionKey: false, collection: "stockmonitoringitems" }
+);
+
+const paymentSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    bookingId: { type: String, default: "" },
+    date: { type: String, default: "" },
+    customer: { type: String, default: "" },
+    customerEmail: { type: String, default: "" },
+    service: { type: String, default: "" },
+    amount: { type: Number, default: 0 },
+    originalAmount: { type: Number, default: 0 },
+    promoId: { type: String, default: "" },
+    promoTitle: { type: String, default: "" },
+    promoDiscountPercent: { type: Number, default: 0 },
+    promoDiscountAmount: { type: Number, default: 0 },
+    status: { type: String, default: "Pending" },
+    method: { type: String, default: "" },
+    reference: { type: String, default: "" },
+    notes: { type: String, default: "" },
+    proofSubmittedAt: { type: String, default: "" },
+    proofImage: { type: String, default: "" },
+    proofFileName: { type: String, default: "" },
+    reviewedAt: { type: String, default: "" },
+    reviewedBy: { type: String, default: "" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const customerCarSchema = new mongoose.Schema(
+  {
+    brand: { type: String, default: "" },
+    vehicle: { type: String, default: "" },
+    size: { type: String, default: "" },
+    plate: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const userSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    name: { type: String, default: "" },
+    first: { type: String, default: "" },
+    last: { type: String, default: "" },
+    userType: { type: String, default: "Customer" },
+    role: { type: String, default: "New" },
+    email: { type: String, required: true, unique: true },
+    phone: { type: String, default: "" },
+    password: { type: String, default: "" },
+    status: { type: String, default: "active" },
+    cars: { type: [customerCarSchema], default: [] },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const auditLogSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    userId: { type: String, default: "system" },
+    action: { type: String, default: "" },
+    targetId: { type: String, default: "" },
+    ts: { type: String, default: "" },
+    meta: { type: mongoose.Schema.Types.Mixed, default: {} },
+    archived: { type: Boolean, default: false },
+    archivedAt: { type: String, default: "" },
+    archivedBy: { type: String, default: "" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const reviewSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    customer: { type: String, default: "" },
+    customerEmail: { type: String, default: "" },
+    rating: { type: Number, default: 5 },
+    comment: { type: String, default: "" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const promoSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    title: { type: String, default: "" },
+    message: { type: String, default: "" },
+    status: { type: String, default: "Draft" },
+    scheduledFor: { type: String, default: "" },
+    expiryMode: { type: String, default: "none" },
+    expiresAt: { type: String, default: "" },
+    usageLimit: { type: Number, default: 0 },
+    usageCount: { type: Number, default: 0 },
+    maxUsagePerUser: { type: Number, default: 0 },
+    discountPercent: { type: Number, default: 0 },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const expenseSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    date: { type: String, default: "" },
+    description: { type: String, default: "" },
+    note: { type: String, default: "" },
+    category: { type: String, default: "" },
+    amount: { type: Number, default: 0 },
+    paidBy: { type: String, default: "" },
+    sourceType: { type: String, default: "" },
+    sourceId: { type: String, default: "" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const commissionSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    bookingId: { type: String, default: "" },
+    date: { type: String, default: "" },
+    worker: { type: String, default: "" },
+    role: { type: String, default: "" },
+    service: { type: String, default: "" },
+    serviceValue: { type: Number, default: 0 },
+    rate: { type: Number, default: 0 },
+    earned: { type: Number, default: 0 },
+    status: { type: String, default: "Pending" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const quoteRequestSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    fullName: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    vehicleType: { type: String, default: "" },
+    carSize: { type: String, default: "" },
+    service: { type: String, default: "" },
+    estimatedAmount: { type: Number, default: 0 },
+    estimateLabel: { type: String, default: "" },
+    message: { type: String, default: "" },
+    status: { type: String, default: "New" },
+    source: { type: String, default: "landing-page" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+module.exports = {
+  Booking: mongoose.models.Booking || mongoose.model("Booking", bookingSchema),
+  Service: mongoose.models.Service || mongoose.model("Service", serviceSchema),
+  StockMonitoringItem:
+    mongoose.models.StockMonitoringItem ||
+    mongoose.model("StockMonitoringItem", stockMonitoringItemSchema),
+  Payment: mongoose.models.Payment || mongoose.model("Payment", paymentSchema),
+  User: mongoose.models.User || mongoose.model("User", userSchema),
+  AuditLog: mongoose.models.AuditLog || mongoose.model("AuditLog", auditLogSchema),
+  Review: mongoose.models.Review || mongoose.model("Review", reviewSchema),
+  Promo: mongoose.models.Promo || mongoose.model("Promo", promoSchema),
+  Expense: mongoose.models.Expense || mongoose.model("Expense", expenseSchema),
+  Commission: mongoose.models.Commission || mongoose.model("Commission", commissionSchema),
+  QuoteRequest: mongoose.models.QuoteRequest || mongoose.model("QuoteRequest", quoteRequestSchema),
+};

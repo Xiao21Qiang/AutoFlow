@@ -1,0 +1,404 @@
+.clPayWrap {
+  padding: 10px 14px 0;
+}
+
+.clPayTop {
+  margin-bottom: 8px;
+}
+
+.clPaySearchWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.clPaySearchBox {
+  width: 184px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.clPaySearchIcon,
+.clPayFilterIcon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.7;
+}
+
+.clPaySearchInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clPayFilterBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clPayBoard {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* 9 columns: ID, Date, Customer, Service, Amount, Status, Method, Invoice, Proof */
+.clPayHead,
+.clPayRow {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr 1fr 0.7fr 0.8fr 0.7fr 0.7fr 0.5fr;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 10px;
+  align-items: center;
+}
+
+.clPayHead {
+  background: #d7d7d7;
+  font-weight: 950;
+}
+
+.clPayRow {
+  border-top: 1px solid var(--line);
+  font-weight: 800;
+  color: #374151;
+}
+
+.clPayEmptyRow {
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 700;
+}
+
+.clPayBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.clPayBadge.pending { background: #f3e7aa; color: #a17e00; }
+.clPayBadge.paid    { background: #d7f3df; color: #16a34a; }
+.clPayBadge.review  { background: #dbeafe; color: #1d4ed8; }
+.clPayBadge.rejected { background: #fee2e2; color: #b91c1c; }
+
+.clPayViewBtn {
+  height: 20px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8f8f8;
+  font-size: 10px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clPayProofIcon {
+  font-size: 13px;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.clPayProofBtn {
+  height: 20px;
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.clPayPager {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.clPayPager button,
+.clPayPager div {
+  width: 26px;
+  height: 22px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clPayModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.clPayModalCard {
+  width: min(100%, 560px);
+  background: #fff;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
+  padding: 16px 18px 14px;
+  position: relative;
+}
+
+.clPayModalClose {
+  position: absolute;
+  right: 12px;
+  top: 10px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.clPayModalTitle {
+  font-size: 14px;
+  font-weight: 900;
+  color: #111827;
+  margin-bottom: 14px;
+}
+
+.clPayDetailList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.clPayDetailListCompact {
+  gap: 6px;
+}
+
+.clPayInvoiceCard {
+  display: grid;
+  gap: 14px;
+}
+
+.clPayInvoiceTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff8e7 0%, #fff 100%);
+}
+
+.clPayInvoiceRight {
+  text-align: right;
+}
+
+.clPayInvoiceLabel {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #8a6116;
+  letter-spacing: 0.05em;
+}
+
+.clPayInvoiceValue {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clPayInvoiceGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.clPayInvoiceBlock {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 12px;
+  color: #334155;
+}
+
+.clPayInvoiceBlockTitle {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+  text-transform: uppercase;
+}
+
+.clPayBreakdownCard {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.clPayBreakdownTitle {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.clPayBreakdownTable {
+  display: grid;
+  gap: 8px;
+}
+
+.clPayBreakdownHead,
+.clPayBreakdownRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  font-size: 12px;
+  color: #334155;
+}
+
+.clPayBreakdownHead {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+  font-weight: 900;
+  color: #111827;
+}
+
+.clPayBreakdownRow.total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  font-weight: 950;
+  color: #111827;
+}
+
+.clPayField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.clPayField span {
+  font-size: 10px;
+  font-weight: 900;
+  color: #475569;
+  text-transform: uppercase;
+}
+
+.clPayField input,
+.clPayField textarea,
+.clPayField select {
+  border: 1px solid #d5deed;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.clPayField textarea {
+  resize: none;
+}
+
+.clPayProofFile {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.clPayProofPreviewWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clPayProofPreview {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid #dbe2ef;
+}
+
+.clPayModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.clPayTextBtn,
+.clPayPrimaryBtn {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.clPayTextBtn {
+  background: #fff;
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+.clPayPrimaryBtn {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .clPayInvoiceTop,
+  .clPayInvoiceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .clPayInvoiceTop {
+    flex-direction: column;
+  }
+
+  .clPayInvoiceRight {
+    text-align: left;
+  }
+}

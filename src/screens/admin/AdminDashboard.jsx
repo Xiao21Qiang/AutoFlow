@@ -1,0 +1,169 @@
+import "../../styles/css/admin/adminDashboardStyle.css";
+import { useMemo, useState } from "react";
+import { useAdminData } from "../../context/AdminDataContext";
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+function monthLabel(d) {
+  const m = d.toLocaleString("en-US", { month: "long" });
+  return `${m} ${d.getFullYear()}`;
+}
+
+function buildCalendarGrid(viewDate, bookings = []) {
+  const y = viewDate.getFullYear();
+  const m = viewDate.getMonth();
+  const first = new Date(y, m, 1);
+  const startDay = first.getDay();
+  const start = new Date(y, m, 1 - startDay);
+
+  const cells = [];
+  for (let i = 0; i < 42; i += 1) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = toKey(d);
+    const count = bookings.filter((b) => b.date === key).length;
+    cells.push({ date: d, inMonth: d.getMonth() === m, key, day: d.getDate(), count });
+  }
+  return cells;
+}
+
+export default function AdminDashboard({ goTo }) {
+  const { bookings, stockMonitoring, payments, alerts, quoteRequests, summary } = useAdminData();
+  const [today] = useState(() => new Date());
+  const [view, setView] = useState(new Date());
+  const [selected, setSelected] = useState(new Date());
+  const [selectedQuoteRequest, setSelectedQuoteRequest] = useState(null);
+
+  const cal = useMemo(() => buildCalendarGrid(view, bookings), [view, bookings]);
+  const todayKey = toKey(today);
+  const bookingsToday = bookings.filter((b) => b.date === todayKey).length;
+  const selectedKey = toKey(selected);
+  const todays = bookings.filter((b) => b.date === selectedKey);
+  const paidRevenue = summary?.paidRevenue || payments.filter((payment) => payment.status === "Paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const recentQuoteRequests = quoteRequests.slice(0, 4);
+
+  return (
+    <div className="adminDashWrap">
+      <div className="adminDashStats">
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{bookingsToday}</div><div className="adminDashStatLabel">Bookings today</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.inProgressCount || 0}</div><div className="adminDashStatLabel">In Progress</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.lowStockCount || 0}</div><div className="adminDashStatLabel">Low Stock</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">₱{Number(paidRevenue || 0).toLocaleString()}</div><div className="adminDashStatLabel">Paid Revenue</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.totalSchedules || bookings.length}</div><div className="adminDashStatLabel">Schedules</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{stockMonitoring.length}</div><div className="adminDashStatLabel">Stock Monitoring Items</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.completedCount || 0}</div><div className="adminDashStatLabel">Completed</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.cancelledCount || 0}</div><div className="adminDashStatLabel">Cancelled</div></div>
+        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.quoteRequestCount || quoteRequests.length}</div><div className="adminDashStatLabel">Quote Requests</div></div>
+      </div>
+
+      <div className="adminDashTopGrid">
+        <div className="adminDashCard">
+          <div className="adminDashTitle">Attention Needed</div>
+          <div className="adminDashSub">Quick alerts that need review.</div>
+          {alerts.length === 0 ? (
+            <div className="adminAttentionItem"><div className="adminAttentionName">No alerts</div><div className="adminAttentionDesc">Everything looks good right now.</div></div>
+          ) : (
+            alerts.map((a, idx) => (
+              <button className="adminAttentionItem adminAttentionItemClickable" type="button" key={idx} onClick={() => goTo?.("stock-monitoring")}><div className="adminAttentionName">{a.title}</div><div className="adminAttentionDesc">{a.description}</div></button>
+            ))
+          )}
+        </div>
+
+        <div className="adminDashCard">
+          <div className="adminDashTitle">Quick actions</div>
+          <div className="adminDashSub">Common tasks you do often.</div>
+          <div className="adminQuickGrid">
+            <div className="adminQuickCard" onClick={() => goTo?.("bookings", { action: "open-add-booking" })}><div className="adminQuickTitle">Create Booking</div><div className="adminQuickDesc">Add a new appointment</div></div>
+            <div className="adminQuickCard" onClick={() => goTo?.("stock-monitoring", { action: "open-add-stock-item" })}><div className="adminQuickTitle">Add stock item</div><div className="adminQuickDesc">Update stocks and supplies</div></div>
+            <div className="adminQuickCard" onClick={() => goTo?.("services", { action: "open-add-service" })}><div className="adminQuickTitle">Add Service</div><div className="adminQuickDesc">Manage Service List</div></div>
+            <div className="adminQuickCard" onClick={() => goTo?.("users")}><div className="adminQuickTitle">User Management</div><div className="adminQuickDesc">Manage admin, staff, and customers</div></div>
+          </div>
+        </div>
+
+        <div className="adminDashCard">
+          <div className="adminDashTitle">Recent Quote Requests</div>
+          <div className="adminDashSub">Landing-page quote requests from potential customers.</div>
+          {recentQuoteRequests.length === 0 ? (
+            <div className="adminAttentionItem"><div className="adminAttentionName">No quote requests yet</div><div className="adminAttentionDesc">New quote requests from the landing page will show here.</div></div>
+          ) : (
+            recentQuoteRequests.map((request) => (
+              <button className="adminAttentionItem adminAttentionItemClickable" type="button" key={request.id} onClick={() => setSelectedQuoteRequest(request)}>
+                <div className="adminAttentionName">{request.fullName} — {request.service}</div>
+                <div className="adminAttentionDesc">{request.vehicleType} • {request.carSize} • {request.phone}</div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {selectedQuoteRequest && (
+        <div className="adminDashCard adminQuoteDetailCard">
+          <div className="adminQuoteDetailHead">
+            <div>
+              <div className="adminDashTitle">Quote Request Details</div>
+              <div className="adminDashSub">Review the selected landing-page quote request.</div>
+            </div>
+            <button type="button" className="adminQuoteDetailClose" onClick={() => setSelectedQuoteRequest(null)}>Close</button>
+          </div>
+          <div className="adminQuoteDetailGrid">
+            <div className="adminQuoteDetailItem"><span>Name</span><strong>{selectedQuoteRequest.fullName || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Phone</span><strong>{selectedQuoteRequest.phone || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Vehicle Type</span><strong>{selectedQuoteRequest.vehicleType || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Car Size</span><strong>{selectedQuoteRequest.carSize || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
+            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
+            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><strong>{selectedQuoteRequest.status || "New"}</strong></div>
+          </div>
+        </div>
+      )}
+
+      <div className="adminCalendarCard">
+        <div className="adminDashTitle">Calendar Summary</div>
+        <div className="adminDashSub">Monthly view of bookings and daily totals.</div>
+
+        <div className="adminCalendarGrid">
+          <div>
+            <div className="adminCalTop">
+              <div>
+                <div className="adminCalMain">Bookings Calendar</div>
+                <div className="adminCalMini">{monthLabel(view)} • click a day to view</div>
+              </div>
+              <div className="adminCalControls">
+                <button type="button" onClick={() => setView((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>←</button>
+                <button type="button" onClick={() => { const now = new Date(); setView(new Date(now.getFullYear(), now.getMonth(), 1)); setSelected(now); }}>Today</button>
+                <button type="button" onClick={() => setView((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>→</button>
+              </div>
+            </div>
+
+            <div className="adminWeekRow">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (<div key={w}>{w}</div>))}</div>
+
+            <div className="adminDaysGrid">
+              {cal.map((c) => (
+                <div key={c.key} className={`adminDay ${!c.inMonth ? "muted" : ""} ${c.key === selectedKey ? "active" : ""}`} onClick={() => c.inMonth && setSelected(c.date)}>
+                  <span>{c.day}</span>
+                  {c.count > 0 && <div className="adminDayBadge">{c.count}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="adminCalMain">Bookings Overview</div>
+            <div className="adminCalMini">Selected: {selectedKey} • {todays.length} booking(s)</div>
+            <div className="adminOverviewList">
+              {todays.length === 0 ? (
+                <div className="adminOverviewItem"><div className="adminOverviewName">No bookings</div><div className="adminOverviewMeta">No bookings on selected date.</div></div>
+              ) : (
+                todays.map((b) => (
+                  <div className="adminOverviewItem" key={b.id}><div className="adminOverviewName">{b.customer} — {b.service}</div><div className="adminOverviewMeta">{b.vehicle} • Status: {b.status}</div></div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
