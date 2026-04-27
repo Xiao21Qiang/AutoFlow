@@ -518,6 +518,46 @@
   transform: none;
 }
 
+.fpOtpActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.fpOtpActions .fpBtn {
+  float: none;
+  margin-top: 0;
+}
+
+.fpResendBtn {
+  height: 44px;
+  border-radius: 12px;
+  border: 1.5px solid #e3d5ae !important;
+  background: #f8f2e4 !important;
+  color: var(--auth-gold-dark) !important;
+  font-size: 11px;
+  font-weight: 900;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+  padding: 0 16px;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.fpResendBtn:hover {
+  background: #f3e7cc !important;
+  border-color: var(--auth-line-strong) !important;
+  color: var(--auth-text) !important;
+}
+
+.fpResendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .suOverlay {
   position: fixed;
   inset: 0;
@@ -653,6 +693,18 @@
   font-size: 12px;
   font-weight: 700;
   color: var(--auth-gold-dark);
+}
+
+.otpTimerText {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--auth-muted);
+  line-height: 1.45;
+}
+
+.otpTimerText.locked {
+  color: var(--auth-danger);
 }
 
 .suField {

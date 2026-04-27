@@ -1,6 +1,6 @@
 import "../styles/css/login.css";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiRequest } from "../services/api";
 
@@ -10,6 +10,16 @@ import loginBackground from "../assets/IMAGE/IMG_9815.jpg";
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
 const onlyLettersSpaces = (v) => /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/.test(String(v || "").trim());
 const onlyDigits = (v) => /^\d+$/.test(String(v || "").trim());
+const OTP_RESEND_WAIT_SECONDS = 120;
+const OTP_RESEND_LIMIT = 3;
+const OTP_COOLDOWN_SECONDS = 15 * 60;
+
+const formatOtpTime = (totalSeconds) => {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const seconds = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+};
 
 const isPHMobile11 = (v) => {
   const s = String(v || "").trim();
@@ -67,6 +77,12 @@ export default function Login() {
   const [fpError, setFpError] = useState("");
   const [fpInfo, setFpInfo] = useState("");
   const [fpOtpSession, setFpOtpSession] = useState({ verificationId: "", destination: "", channel: "" });
+  const [fpOtpEmail, setFpOtpEmail] = useState("");
+  const [fpOtpTimerSeconds, setFpOtpTimerSeconds] = useState(0);
+  const [fpCanResendOtp, setFpCanResendOtp] = useState(false);
+  const [fpResendCount, setFpResendCount] = useState(0);
+  const [fpCooldownSeconds, setFpCooldownSeconds] = useState(0);
+  const [fpIsCooldown, setFpIsCooldown] = useState(false);
   const [fpShowNew, setFpShowNew] = useState(false);
   const [fpShowConfirm, setFpShowConfirm] = useState(false);
   const fpOtpRefs = useRef([]);
@@ -75,6 +91,12 @@ export default function Login() {
   const [signupOtpChoice, setSignupOtpChoice] = useState("email");
   const [signupOtpCode, setSignupOtpCode] = useState("");
   const [signupOtpSession, setSignupOtpSession] = useState({ verificationId: "", destination: "", channel: "" });
+  const [signupOtpEmail, setSignupOtpEmail] = useState("");
+  const [signupOtpTimerSeconds, setSignupOtpTimerSeconds] = useState(0);
+  const [signupCanResendOtp, setSignupCanResendOtp] = useState(false);
+  const [signupResendCount, setSignupResendCount] = useState(0);
+  const [signupCooldownSeconds, setSignupCooldownSeconds] = useState(0);
+  const [signupIsCooldown, setSignupIsCooldown] = useState(false);
   const [signupOtpError, setSignupOtpError] = useState("");
   const [signupOtpInfo, setSignupOtpInfo] = useState("");
   const signupOtpRefs = useRef([]);
@@ -164,6 +186,92 @@ export default function Login() {
     () => Array.from({ length: 6 }, (_, index) => signupOtpCode[index] || ""),
     [signupOtpCode]
   );
+  const signupResendMessage = signupIsCooldown
+    ? `Too many resend attempts. Try again in ${formatOtpTime(signupCooldownSeconds)}.`
+    : signupOtpTimerSeconds > 0
+      ? `Resend available in ${formatOtpTime(signupOtpTimerSeconds)}.`
+      : "You can request a new OTP now.";
+  const signupResendButtonText = signupIsCooldown
+    ? `Locked (${formatOtpTime(signupCooldownSeconds)})`
+    : "Resend OTP";
+  const signupResendDisabled = isSubmitting || signupIsCooldown || !signupCanResendOtp;
+  const fpResendMessage = fpIsCooldown
+    ? `Too many resend attempts. Try again in ${formatOtpTime(fpCooldownSeconds)}.`
+    : fpOtpTimerSeconds > 0
+      ? `Resend available in ${formatOtpTime(fpOtpTimerSeconds)}.`
+      : "You can request a new OTP now.";
+  const fpResendButtonText = fpIsCooldown
+    ? `Locked (${formatOtpTime(fpCooldownSeconds)})`
+    : "Resend OTP";
+  const fpResendDisabled = isSubmitting || fpIsCooldown || !fpCanResendOtp;
+
+  useEffect(() => {
+    if (signupOtpTimerSeconds <= 0) {
+      if (!signupIsCooldown && signupOtpSession.verificationId) {
+        setSignupCanResendOtp(true);
+      }
+      return undefined;
+    }
+
+    setSignupCanResendOtp(false);
+    const timerId = setInterval(() => {
+      setSignupOtpTimerSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [signupOtpTimerSeconds, signupIsCooldown, signupOtpSession.verificationId]);
+
+  useEffect(() => {
+    if (!signupIsCooldown) return undefined;
+
+    setSignupCanResendOtp(false);
+    if (signupCooldownSeconds <= 0) {
+      setSignupIsCooldown(false);
+      setSignupResendCount(0);
+      setSignupCanResendOtp(true);
+      return undefined;
+    }
+
+    const timerId = setInterval(() => {
+      setSignupCooldownSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [signupIsCooldown, signupCooldownSeconds]);
+
+  useEffect(() => {
+    if (fpOtpTimerSeconds <= 0) {
+      if (!fpIsCooldown && fpOtpSession.verificationId && fpStep === "otp") {
+        setFpCanResendOtp(true);
+      }
+      return undefined;
+    }
+
+    setFpCanResendOtp(false);
+    const timerId = setInterval(() => {
+      setFpOtpTimerSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [fpOtpTimerSeconds, fpIsCooldown, fpOtpSession.verificationId, fpStep]);
+
+  useEffect(() => {
+    if (!fpIsCooldown) return undefined;
+
+    setFpCanResendOtp(false);
+    if (fpCooldownSeconds <= 0) {
+      setFpIsCooldown(false);
+      setFpResendCount(0);
+      setFpCanResendOtp(true);
+      return undefined;
+    }
+
+    const timerId = setInterval(() => {
+      setFpCooldownSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [fpIsCooldown, fpCooldownSeconds]);
 
   const onTab = (next) => {
     setTab(next);
@@ -177,23 +285,78 @@ export default function Login() {
     setSignUp((p) => ({ ...p, phone: digitsOnly }));
   };
 
+  const startFpOtpWait = () => {
+    setFpIsCooldown(false);
+    setFpCooldownSeconds(0);
+    setFpCanResendOtp(false);
+    setFpOtpTimerSeconds(OTP_RESEND_WAIT_SECONDS);
+  };
+
+  const startFpOtpCooldown = () => {
+    setFpOtpTimerSeconds(0);
+    setFpCanResendOtp(false);
+    setFpIsCooldown(true);
+    setFpCooldownSeconds(OTP_COOLDOWN_SECONDS);
+  };
+
+  const resetFpOtpResendSystem = () => {
+    setFpOtpTimerSeconds(0);
+    setFpCanResendOtp(false);
+    setFpResendCount(0);
+    setFpCooldownSeconds(0);
+    setFpIsCooldown(false);
+  };
+
+  const startSignupOtpWait = () => {
+    setSignupIsCooldown(false);
+    setSignupCooldownSeconds(0);
+    setSignupCanResendOtp(false);
+    setSignupOtpTimerSeconds(OTP_RESEND_WAIT_SECONDS);
+  };
+
+  const startSignupOtpCooldown = () => {
+    setSignupOtpTimerSeconds(0);
+    setSignupCanResendOtp(false);
+    setSignupIsCooldown(true);
+    setSignupCooldownSeconds(OTP_COOLDOWN_SECONDS);
+  };
+
+  const resetSignupOtpResendSystem = () => {
+    setSignupOtpTimerSeconds(0);
+    setSignupCanResendOtp(false);
+    setSignupResendCount(0);
+    setSignupCooldownSeconds(0);
+    setSignupIsCooldown(false);
+  };
+
   const openForgot = () => {
+    const emailToUse = String(signIn.email || fp.email || "").trim().toLowerCase();
+    const hasActiveOtp = fpOtpSession.verificationId && fpOtpEmail === emailToUse && fpStep === "otp";
+
     setFpOpen(true);
-    setFpStep("email");
-    setFp({ email: signIn.email || "", otp: "", newPass: "", confirmNew: "" });
     setFpTouched({});
     setFpError("");
-    setFpInfo("");
-    setFpOtpSession({ verificationId: "", destination: "", channel: "" });
     setFpShowNew(false);
     setFpShowConfirm(false);
+
+    if (hasActiveOtp) {
+      setFpStep("otp");
+      setFp((prev) => ({ ...prev, email: emailToUse, otp: "" }));
+      return;
+    }
+
+    setFpStep("email");
+    setFp({ email: signIn.email || "", otp: "", newPass: "", confirmNew: "" });
+    setFpInfo("");
+    setFpOtpSession({ verificationId: "", destination: "", channel: "" });
+    setFpOtpEmail("");
+    resetFpOtpResendSystem();
   };
 
   const closeForgot = () => {
     setFpOpen(false);
     setFpError("");
     setFpInfo("");
-    setFpOtpSession({ verificationId: "", destination: "", channel: "" });
   };
 
   const fpMarkAll = () => {
@@ -235,35 +398,56 @@ export default function Login() {
     }
   };
 
+  const sendForgotOtp = async ({ isResend = false } = {}) => {
+    if (isResend && fpResendDisabled) return;
+
+    setIsSubmitting(true);
+    setFpError("");
+    try {
+      const email = fp.email.trim().toLowerCase();
+      const payload = await apiRequest("/api/auth/password-change/request-otp", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          channel: "email",
+        }),
+      });
+      setFpOtpSession({
+        verificationId: payload.verificationId,
+        destination: payload.destination,
+        channel: payload.channel,
+      });
+      setFpOtpEmail(email);
+      setFpInfo(payload.message || "");
+      setFp((prev) => ({ ...prev, otp: "" }));
+      setFpStep("otp");
+      setFpTouched({});
+
+      if (isResend) {
+        const nextResendCount = fpResendCount + 1;
+        setFpResendCount(nextResendCount);
+        if (nextResendCount >= OTP_RESEND_LIMIT) {
+          startFpOtpCooldown();
+        } else {
+          startFpOtpWait();
+        }
+      } else {
+        setFpResendCount(0);
+        startFpOtpWait();
+      }
+    } catch (error) {
+      setFpError(error.message || "Failed to send OTP.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const fpNext = async () => {
     fpMarkAll();
     if (!fpCanContinue) return;
 
     if (fpStep === "email") {
-      setIsSubmitting(true);
-      setFpError("");
-      try {
-        const payload = await apiRequest("/api/auth/password-change/request-otp", {
-          method: "POST",
-          body: JSON.stringify({
-            email: fp.email.trim().toLowerCase(),
-            channel: "email",
-          }),
-        });
-        setFpOtpSession({
-          verificationId: payload.verificationId,
-          destination: payload.destination,
-          channel: payload.channel,
-        });
-        setFpInfo(payload.message || "");
-        setFp((prev) => ({ ...prev, otp: "" }));
-        setFpStep("otp");
-        setFpTouched({});
-      } catch (error) {
-        setFpError(error.message || "Failed to send OTP.");
-      } finally {
-        setIsSubmitting(false);
-      }
+      await sendForgotOtp();
       return;
     }
 
@@ -299,6 +483,9 @@ export default function Login() {
             password: fp.newPass,
           }),
         });
+        setFpOtpSession({ verificationId: "", destination: "", channel: "" });
+        setFpOtpEmail("");
+        resetFpOtpResendSystem();
         closeForgot();
       } catch (error) {
         setFpError(error.message || "Failed to reset password.");
@@ -360,23 +547,33 @@ export default function Login() {
 
     if (!canSubmitSignUp) return;
 
-    setSignupOtpChoice("email");
-    setSignupOtpCode("");
-    setSignupOtpError("");
-    setSignupOtpInfo("");
-    setSignupOtpSession({ verificationId: "", destination: "", channel: "" });
-    setSignupOtpStep("channel");
+    const email = signUp.email.trim().toLowerCase();
+    const hasActiveOtp = signupOtpSession.verificationId && signupOtpEmail === email;
+
     setSignupOtpOpen(true);
+    setSignupOtpChoice("email");
+    setSignupOtpError("");
+
+    if (hasActiveOtp) {
+      setSignupOtpStep("otp");
+      setSignupOtpCode("");
+      return;
+    }
+
+    setSignupOtpCode("");
+    setSignupOtpInfo("Sending OTP to your email address...");
+    setSignupOtpSession({ verificationId: "", destination: "", channel: "" });
+    setSignupOtpEmail("");
+    setSignupOtpStep("channel");
+    resetSignupOtpResendSystem();
+    void sendSignupOtp("email");
   };
 
-  const closeSignupOtp = () => {
-    if (isSubmitting) return;
+  const closeSignupOtp = ({ force = false } = {}) => {
+    if (isSubmitting && !force) return;
     setSignupOtpOpen(false);
-    setSignupOtpStep("channel");
     setSignupOtpCode("");
     setSignupOtpError("");
-    setSignupOtpInfo("");
-    setSignupOtpSession({ verificationId: "", destination: "", channel: "" });
   };
 
   const handleSignupOtpChange = (index, value) => {
@@ -412,7 +609,9 @@ export default function Login() {
     }
   };
 
-  const sendSignupOtp = async (channel = "email") => {
+  const sendSignupOtp = async (channel = "email", { isResend = false } = {}) => {
+    if (isResend && signupResendDisabled) return;
+
     setIsSubmitting(true);
     setSignupOtpError("");
     try {
@@ -430,9 +629,23 @@ export default function Login() {
         destination: payload.destination,
         channel: payload.channel,
       });
+      setSignupOtpEmail(signUp.email.trim().toLowerCase());
       setSignupOtpStep("otp");
       setSignupOtpCode("");
       setSignupOtpInfo(payload.message || "");
+
+      if (isResend) {
+        const nextResendCount = signupResendCount + 1;
+        setSignupResendCount(nextResendCount);
+        if (nextResendCount >= OTP_RESEND_LIMIT) {
+          startSignupOtpCooldown();
+        } else {
+          startSignupOtpWait();
+        }
+      } else {
+        setSignupResendCount(0);
+        startSignupOtpWait();
+      }
     } catch (error) {
       setSignupOtpError(error.message || "Failed to send OTP.");
     } finally {
@@ -459,7 +672,10 @@ export default function Login() {
 
       localStorage.setItem("token", payload.token);
       localStorage.setItem("user", JSON.stringify(payload.user));
-      closeSignupOtp();
+      setSignupOtpSession({ verificationId: "", destination: "", channel: "" });
+      setSignupOtpEmail("");
+      resetSignupOtpResendSystem();
+      closeSignupOtp({ force: true });
       navigate("/customer");
     } catch (error) {
       setSignupOtpError(error.message || "Failed to verify OTP.");
@@ -788,11 +1004,24 @@ export default function Login() {
                     </div>
                     {fpTouched.otp && fpErrors.otp && <div className="fieldError">{fpErrors.otp}</div>}
                     {fpError && <div className="fieldError">{fpError}</div>}
+                    <div className={`otpTimerText ${fpIsCooldown ? "locked" : ""}`}>
+                      {fpResendMessage}
+                    </div>
                   </div>
 
-                  <button className="fpBtn" type="button" onClick={() => void fpNext()} disabled={!fpCanContinue || isSubmitting}>
-                    Verify OTP
-                  </button>
+                  <div className="fpOtpActions">
+                    <button
+                      className="fpResendBtn"
+                      type="button"
+                      onClick={() => void sendForgotOtp({ isResend: true })}
+                      disabled={fpResendDisabled}
+                    >
+                      {fpResendButtonText}
+                    </button>
+                    <button className="fpBtn" type="button" onClick={() => void fpNext()} disabled={!fpCanContinue || isSubmitting}>
+                      Verify OTP
+                    </button>
+                  </div>
                 </>
               )}
 
@@ -884,8 +1113,12 @@ export default function Login() {
                         <div className="suChoiceValue">{signUp.email || "Enter your email above"}</div>
                       </button>
                     </div>
-
                     {signupOtpError && <div className="fieldError">{signupOtpError}</div>}
+                    {(signupOtpInfo || signupOtpSession.verificationId) && (
+                      <div className={`otpTimerText ${signupIsCooldown ? "locked" : ""}`}>
+                        {signupOtpSession.verificationId ? signupResendMessage : signupOtpInfo}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -924,6 +1157,9 @@ export default function Login() {
                         ))}
                       </div>
                       {signupOtpError && <div className="fieldError">{signupOtpError}</div>}
+                      <div className={`otpTimerText ${signupIsCooldown ? "locked" : ""}`}>
+                        {signupResendMessage}
+                      </div>
                     </div>
                   </>
                 )}
@@ -947,10 +1183,10 @@ export default function Login() {
                     <button
                       className="suSecondary"
                       type="button"
-                      onClick={() => void sendSignupOtp("email")}
-                      disabled={isSubmitting}
+                      onClick={() => void sendSignupOtp("email", { isResend: true })}
+                      disabled={signupResendDisabled}
                     >
-                      Resend OTP
+                      {signupResendButtonText}
                     </button>
                     <button className="suPrimary" type="button" onClick={() => void verifySignupOtp()} disabled={isSubmitting}>
                       Verify & Create
@@ -961,7 +1197,12 @@ export default function Login() {
                     <button className="suSecondary" type="button" onClick={closeSignupOtp} disabled={isSubmitting}>
                       Cancel
                     </button>
-                    <button className="suPrimary" type="button" onClick={() => void sendSignupOtp("email")} disabled={isSubmitting}>
+                    <button
+                      className="suPrimary"
+                      type="button"
+                      onClick={() => void sendSignupOtp("email", { isResend: Boolean(signupOtpSession.verificationId) })}
+                      disabled={signupOtpSession.verificationId ? signupResendDisabled : isSubmitting}
+                    >
                       Send OTP
                     </button>
                   </>
