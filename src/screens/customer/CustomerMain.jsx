@@ -5,6 +5,7 @@ import NotificationCenter from "../../components/common/NotificationCenter";
 import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AdminDataProvider, useAdminData } from "../../context/AdminDataContext";
+import { clearAuthStorage, getStoredAuth, getUserType, isAuthExpired, readStoredUser } from "../../utils/auth";
 
 import CustomerDashboard from "./CustomerDashboard";
 import CustomerBookings from "./CustomerBookings";
@@ -23,27 +24,6 @@ import icoEngagement from "../../styles/icons/engagement.png";
 import icoProfile from "../../styles/icons/profile.png";
 import icoSearch from "../../styles/icons/search.png";
 import logo from "../../styles/images/aptlogo.png";
-
-const getUserType = (user) => {
-  const normalizedUserType = String(user?.userType || "").trim().toLowerCase();
-  if (["admin", "staff", "customer"].includes(normalizedUserType)) {
-    return normalizedUserType;
-  }
-
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
-  if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
-  return "customer";
-};
-
-const readStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem("user") || "{}");
-  } catch (_error) {
-    localStorage.removeItem("user");
-    return {};
-  }
-};
 
 const NAV_SECTIONS = [
   {
@@ -91,11 +71,13 @@ function CustomerMainContent({ session, onLogout }) {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const user = readStoredUser();
+    const auth = getStoredAuth();
 
-    if (!token || getUserType(user) !== "customer") {
-      navigate("/login");
+    if (!auth || isAuthExpired(auth) || getUserType(auth.user) !== "customer") {
+      if (auth && isAuthExpired(auth)) {
+        clearAuthStorage({ message: "Session expired. Please log in again." });
+      }
+      navigate("/login", { replace: true });
     }
   }, [navigate]);
 
@@ -106,9 +88,9 @@ function CustomerMainContent({ session, onLogout }) {
   };
 
   const confirmLogout = () => {
-    if (onLogout) return onLogout();
-    localStorage.clear();
-    navigate("/login");
+    clearAuthStorage();
+    if (onLogout) onLogout();
+    navigate("/login", { replace: true });
     return null;
   };
 

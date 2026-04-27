@@ -3,6 +3,7 @@ import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import { apiRequest } from "../../services/api";
+import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
@@ -755,9 +756,10 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
         message={selectedBooking ? `Delete booking ${selectedBooking.id}? This also removes its linked payment record.` : "Delete this booking?"}
         confirmLabel="Delete"
         cancelLabel="Cancel"
-        onConfirm={async () => {
-          if (!selectedBooking) return;
-          await deleteBooking(selectedBooking.id);
+	        onConfirm={async () => {
+	          if (!selectedBooking) return;
+	          if (!requireFreshAdminAuth("delete-booking")) return;
+	          await deleteBooking(selectedBooking.id);
           setIsDeleteConfirmOpen(false);
           setPage(1);
           closeModal();

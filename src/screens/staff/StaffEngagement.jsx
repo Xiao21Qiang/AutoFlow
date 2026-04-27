@@ -2,7 +2,7 @@ import "../../styles/css/staff/staffEngagementStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 
 export default function StaffEngagement() {
-  const { reviews, promos, usePromo } = useAdminData();
+  const { reviews, promos, usePromo: applyPromo } = useAdminData();
   const getPromoMeta = (promo) => {
     const expiryMode = String(promo.expiryMode || "none").trim().toLowerCase();
     if (expiryMode === "date" && promo.expiresAt) {
@@ -99,7 +99,7 @@ export default function StaffEngagement() {
                       <button
                         className="stEngUseBtn"
                         type="button"
-                        onClick={() => usePromo(promo.id)}
+                        onClick={() => applyPromo(promo.id)}
                         disabled={String(promo.status || "").trim().toLowerCase() !== "active"}
                       >
                         Use Promo

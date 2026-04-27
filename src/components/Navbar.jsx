@@ -1,12 +1,40 @@
 import Button from "./Buttons";
 import logo from "../styles/images/aptlogo.png";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { clearAuthStorage, getDashboardRoute, getStoredAuth, isAuthExpired } from "../utils/auth";
 
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [auth, setAuth] = useState(() => {
+    const storedAuth = getStoredAuth();
+    return storedAuth && !isAuthExpired(storedAuth) ? storedAuth : null;
+  });
 
   const isHome = location.pathname === "/";
+  const dashboardRoute = useMemo(() => (auth ? getDashboardRoute(auth.user) : "/login"), [auth]);
+
+  useEffect(() => {
+    const syncAuth = () => {
+      const storedAuth = getStoredAuth();
+      if (storedAuth && isAuthExpired(storedAuth)) {
+        clearAuthStorage({ message: "Session expired. Please log in again." });
+        setAuth(null);
+        return;
+      }
+      setAuth(storedAuth);
+    };
+
+    syncAuth();
+    window.addEventListener("storage", syncAuth);
+    window.addEventListener("focus", syncAuth);
+
+    return () => {
+      window.removeEventListener("storage", syncAuth);
+      window.removeEventListener("focus", syncAuth);
+    };
+  }, [location.pathname]);
 
   // If already on home, just scroll. If on another page, navigate home then scroll.
   const handleNavClick = (e, sectionId) => {
@@ -21,6 +49,18 @@ export default function Navbar() {
         if (el) el.scrollIntoView({ behavior: "smooth" });
       }, 120);
     }
+  };
+
+  const handleDashboardClick = (e) => {
+    e.preventDefault();
+    navigate(dashboardRoute, { replace: true });
+  };
+
+  const handleLogout = (e) => {
+    e.preventDefault();
+    clearAuthStorage();
+    setAuth(null);
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -47,17 +87,30 @@ export default function Navbar() {
 
         {/* Actions */}
         <div className="navActions">
-          <a
-            href="#contact"
-            style={{ textDecoration: "none" }}
-            onClick={(e) => handleNavClick(e, "contact")}
-          >
-            <Button variant="outline">Get Quote</Button>
-          </a>
+          {auth ? (
+            <>
+              <a href="/login" className="linkReset" onClick={handleLogout}>
+                <Button variant="outline">Logout</Button>
+              </a>
+              <a href={dashboardRoute} className="linkReset" onClick={handleDashboardClick}>
+                <Button variant="solid">Dashboard</Button>
+              </a>
+            </>
+          ) : (
+            <>
+              <a
+                href="#contact"
+                style={{ textDecoration: "none" }}
+                onClick={(e) => handleNavClick(e, "contact")}
+              >
+                <Button variant="outline">Get Quote</Button>
+              </a>
 
-          <Link to="/login" className="linkReset">
-            <Button variant="solid">Log In / Register</Button>
-          </Link>
+              <Link to="/login" className="linkReset">
+                <Button variant="solid">Log In / Register</Button>
+              </Link>
+            </>
+          )}
         </div>
 
       </div>

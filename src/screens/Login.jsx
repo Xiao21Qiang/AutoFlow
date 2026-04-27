@@ -3,6 +3,7 @@ import "../styles/css/login.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiRequest } from "../services/api";
+import { consumeAuthMessage, getDashboardRoute, writeAuthSession } from "../utils/auth";
 
 import Navbar from "../components/Navbar";
 import loginBackground from "../assets/IMAGE/IMG_9815.jpg";
@@ -34,18 +35,6 @@ const passRules = (v) => {
     okLower: /[a-z]/.test(s),
     okNum: /\d/.test(s),
   };
-};
-
-const getUserType = (user) => {
-  const normalizedUserType = String(user?.userType || "").trim().toLowerCase();
-  if (["admin", "staff", "customer"].includes(normalizedUserType)) {
-    return normalizedUserType;
-  }
-
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
-  if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
-  return "customer";
 };
 
 export default function Login() {
@@ -98,8 +87,16 @@ export default function Login() {
   const [signupCooldownSeconds, setSignupCooldownSeconds] = useState(0);
   const [signupIsCooldown, setSignupIsCooldown] = useState(false);
   const [signupOtpError, setSignupOtpError] = useState("");
-  const [signupOtpInfo, setSignupOtpInfo] = useState("");
-  const signupOtpRefs = useRef([]);
+	  const [signupOtpInfo, setSignupOtpInfo] = useState("");
+	  const signupOtpRefs = useRef([]);
+
+  useEffect(() => {
+    const message = consumeAuthMessage();
+    if (message) {
+      setTab("signin");
+      setAuthError(message);
+    }
+  }, []);
 
   const isSignIn = tab === "signin";
 
@@ -513,18 +510,8 @@ export default function Login() {
           }),
         });
 
-        localStorage.setItem("token", payload.token);
-        localStorage.setItem("user", JSON.stringify(payload.user));
-
-        if (getUserType(payload.user) === "admin") {
-          navigate("/admin");
-          return;
-        }
-        if (getUserType(payload.user) === "staff") {
-          navigate("/staff");
-          return;
-        }
-        navigate("/customer");
+        writeAuthSession(payload.token, payload.user);
+        navigate(getDashboardRoute(payload.user), { replace: true });
       } catch (error) {
         setAuthError(error.message || "Invalid email or password.");
       } finally {
@@ -670,13 +657,12 @@ export default function Login() {
         }),
       });
 
-      localStorage.setItem("token", payload.token);
-      localStorage.setItem("user", JSON.stringify(payload.user));
+      writeAuthSession(payload.token, payload.user);
       setSignupOtpSession({ verificationId: "", destination: "", channel: "" });
       setSignupOtpEmail("");
       resetSignupOtpResendSystem();
       closeSignupOtp({ force: true });
-      navigate("/customer");
+      navigate(getDashboardRoute(payload.user), { replace: true });
     } catch (error) {
       setSignupOtpError(error.message || "Failed to verify OTP.");
     } finally {

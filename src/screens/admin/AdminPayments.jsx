@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -154,9 +155,10 @@ export default function AdminPayments() {
           <div className="payModalCard" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button className="payModalClose" type="button" onClick={() => setSelectedPayment(null)}>x</button>
             <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                await updatePayment(selectedPayment.id, {
+	              onSubmit={async (e) => {
+	                e.preventDefault();
+	                if (!requireFreshAdminAuth("verify-payment")) return;
+	                await updatePayment(selectedPayment.id, {
                   ...selectedPayment,
                   status: form.status,
                   method: form.method,

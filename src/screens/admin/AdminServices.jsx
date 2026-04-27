@@ -4,6 +4,7 @@ import ConfirmModal from "../../components/common/ConfirmModal";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { requireFreshAdminAuth } from "../../utils/reauth";
 import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
 import {
   buildConsumablesBySizePayload,
@@ -488,9 +489,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
         message={`Delete ${selectedService?.name || "this service"} from the system?`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
-        onConfirm={async () => {
-          if (!selectedService) return;
-          await deleteService(selectedService.id);
+	        onConfirm={async () => {
+	          if (!selectedService) return;
+	          if (!requireFreshAdminAuth("delete-service")) return;
+	          await deleteService(selectedService.id);
           setIsDeleteConfirmOpen(false);
           setIsEditOpen(false);
           setSelectedServiceId(null);

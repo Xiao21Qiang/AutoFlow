@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminUsersStyle.css";
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
+import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -123,7 +124,7 @@ export default function AdminUsers() {
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
-              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); updateUser(selectedUser.id, { ...selectedUser, ...editForm }); closeModal(); }}>
+              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); if (!requireFreshAdminAuth("update-user-role-or-status")) return; updateUser(selectedUser.id, { ...selectedUser, ...editForm }); closeModal(); }}>
                 <div className="usersModalTitle">Edit User</div>
                 <div className="usersFieldGroup">
                   <label className="usersField"><span>Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
@@ -179,7 +180,7 @@ export default function AdminUsers() {
                 <div className="usersModalTitle">Confirm Delete</div>
                 <p className="usersConfirmText">Delete this user account? This action cannot be undone.</p>
                 <div className="usersConfirmMeta"><div>{selectedUser.name}</div><div>{selectedUser.email}</div></div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => { deleteUser(selectedUser.id); closeModal(); }}>Delete</button></div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => { if (!requireFreshAdminAuth("delete-user")) return; deleteUser(selectedUser.id); closeModal(); }}>Delete</button></div>
               </div>
             )}
           </div>

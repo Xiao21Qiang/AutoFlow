@@ -6,6 +6,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AdminDataProvider, useAdminData } from "../../context/AdminDataContext";
+import { clearAuthStorage, getStoredAuth, getUserType, isAuthExpired, readStoredUser } from "../../utils/auth";
 import AdminDashboard from "./AdminDashboard";
 import AdminBookings from "./AdminBookings";
 import AdminServices from "./AdminServices";
@@ -33,27 +34,6 @@ import icoAudit from "../../styles/icons/audit.png";
 import icoProfile from "../../styles/icons/profile.png";
 import icoSearch from "../../styles/icons/search.png";
 import logo from "../../styles/images/aptlogo.png";
-
-const getUserType = (user) => {
-  const normalizedUserType = String(user?.userType || "").trim().toLowerCase();
-  if (["admin", "staff", "customer"].includes(normalizedUserType)) {
-    return normalizedUserType;
-  }
-
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
-  if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
-  return "customer";
-};
-
-const readStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem("user") || "{}");
-  } catch (_error) {
-    localStorage.removeItem("user");
-    return {};
-  }
-};
 
 const NAV_SECTIONS = [
   {
@@ -117,14 +97,18 @@ function AdminMainContent({ session }) {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    const user = readStoredUser();
-    if (!token || getUserType(user) !== "admin") navigate("/login");
+    const auth = getStoredAuth();
+    if (!auth || isAuthExpired(auth) || getUserType(auth.user) !== "admin") {
+      if (auth && isAuthExpired(auth)) {
+        clearAuthStorage({ message: "Session expired. Please log in again." });
+      }
+      navigate("/login", { replace: true });
+    }
   }, [navigate]);
 
   const confirmLogout = () => {
-    localStorage.clear();
-    navigate("/login");
+    clearAuthStorage();
+    navigate("/login", { replace: true });
   };
 
   const filteredNav = useMemo(() => {
