@@ -1,30 +1,14 @@
 import "../../styles/css/staff/staffBookingsStyle.css";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
-import carDiagram from "../../assets/IMAGE/car.jpg";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
-
-const ISSUE_TYPES = [
-  "Light Swirls",
-  "Large Swirls",
-  "Deep Scratches",
-  "Deep Scratches on All Panels",
-  "Water Spot",
-  "Acid Rain",
-  "Oxidation",
-  "Chemical Failure",
-  "Paint Crack / Chip",
-  "Rough Paint",
-  "Over Spray",
-  "Dents / Dings",
-  "Loose Moldings",
-];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -87,89 +71,7 @@ function normalizeCustomerCars(cars) {
     .filter((car) => car.vehicle && car.plate);
 }
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function getMarkerTone(index) {
-  const tones = [
-    { fill: "#2563eb", shadow: "rgba(37, 99, 235, 0.45)" },
-    { fill: "#f97316", shadow: "rgba(249, 115, 22, 0.42)" },
-    { fill: "#10b981", shadow: "rgba(16, 185, 129, 0.4)" },
-    { fill: "#a855f7", shadow: "rgba(168, 85, 247, 0.4)" },
-    { fill: "#ef4444", shadow: "rgba(239, 68, 68, 0.4)" },
-    { fill: "#14b8a6", shadow: "rgba(20, 184, 166, 0.4)" },
-  ];
-  return tones[index % tones.length];
-}
-
-function CarIssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker }) {
-  return (
-    <div className="stIssueMapShell">
-      <div
-        className="stIssueMap stIssueMapImg"
-        style={{ backgroundImage: `url(${carDiagram})` }}
-      >
-        <img
-          src={carDiagram}
-          alt="Car diagram – top and side view"
-          className="stCarDiagramImg"
-          draggable={false}
-        />
-        {markers.map((marker, index) => {
-          const tone = getMarkerTone(index);
-          return (
-            <button
-              key={marker.id}
-              className="stIssueMarker"
-              type="button"
-              style={{
-                left: `${marker.x}%`,
-                top: `${marker.y}%`,
-                background: tone.fill,
-                boxShadow: `0 4px 12px ${tone.shadow}`,
-              }}
-              onPointerDown={(event) => onMarkerPointerDown(event, marker.id)}
-              title={marker.issueType ? `Marker ${marker.id}: ${marker.issueType}` : `Marker ${marker.id}`}
-            >
-              {marker.id}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="stIssueLegend">
-        <div className="stIssueHint">
-          Drag the colored markers onto the car diagram to pinpoint separate issue spots clearly.
-        </div>
-        <div className="stIssueActions">
-          <button className="stIssueActionBtn" type="button" onClick={onAddMarker}>
-            Add Marker
-          </button>
-          {markers.length > 1 && (
-            <button className="stIssueActionBtn ghost" type="button" onClick={onRemoveMarker}>
-              Remove Last
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="stIssueMarkerLegend">
-        {markers.map((marker, index) => {
-          const tone = getMarkerTone(index);
-          return (
-            <div key={marker.id} className="stIssueMarkerLegendItem">
-              <span className="stIssueMarkerLegendDot" style={{ background: tone.fill }} />
-              <span>{marker.issueType || `Marker ${marker.id} - Select issue type`}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ModalSelect({ value, options, placeholder, onSelect, className = "" }) {
+function ModalSelect({ value, options, placeholder, onSelect, className = "", disabled = false }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -177,6 +79,7 @@ function ModalSelect({ value, options, placeholder, onSelect, className = "" }) 
       <button
         className="stBookModalSelectTrigger"
         type="button"
+        disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span>{value || placeholder}</span>
@@ -204,7 +107,7 @@ function ModalSelect({ value, options, placeholder, onSelect, className = "" }) 
 }
 
 export default function StaffBookings() {
-  const { bookings, services, users, createBooking, updateBooking } = useAdminData();
+  const { bookings, services, users, currentUser, createBooking, updateBooking } = useAdminData();
   const serviceOptions = services.length ? services.map((service) => service.name) : ["Graphene Coating"];
   const customerOptions = users
     .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
@@ -220,11 +123,9 @@ export default function StaffBookings() {
   const [modal, setModal] = useState(null);
   const [selectedBookingId, setSelectedBookingId] = useState(null);
   const [form, setForm] = useState(createEmptyForm(serviceOptions[0]));
-  const [activeMarkerId, setActiveMarkerId] = useState(null);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
-  const isAiIssueNotesEnabled = false;
-  const mapRef = useRef(null);
   const todayKey = getTodayKey();
 
   const selectedBooking = useMemo(
@@ -340,35 +241,6 @@ export default function StaffBookings() {
   }, [filtered, safePage]);
 
   useEffect(() => {
-    if (!activeMarkerId) return undefined;
-
-    const handlePointerMove = (event) => {
-      const container = mapRef.current;
-      if (!container) return;
-      const bounds = container.getBoundingClientRect();
-      const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 2, 98);
-      const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 2, 98);
-
-      setForm((prevForm) => ({
-        ...prevForm,
-        issueMarkers: prevForm.issueMarkers.map((marker) =>
-          marker.id === activeMarkerId ? { ...marker, x, y } : marker
-        ),
-      }));
-    };
-
-    const handlePointerUp = () => setActiveMarkerId(null);
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [activeMarkerId]);
-
-  useEffect(() => {
     const typedName = String(form.customer || "").trim();
     if (!typedName) {
       setCustomerFieldError("");
@@ -419,7 +291,6 @@ export default function StaffBookings() {
   const closeModal = () => {
     setModal(null);
     setSelectedBookingId(null);
-    setActiveMarkerId(null);
     setIsCustomerMenuOpen(false);
     setCustomerFieldError("");
     setForm(createEmptyForm(serviceOptions[0]));
@@ -600,25 +471,54 @@ export default function StaffBookings() {
 
                 const matchedService = services.find((service) => service.name === form.service);
                 const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
+                const resolvedCustomer = modal === "edit" && selectedBooking
+                  ? { name: selectedBooking.customer, email: selectedBooking.customerEmail || "" }
+                  : matchedCustomer;
+                if (!resolvedCustomer) {
+                  setCustomerFieldError("Please select a registered customer from the list.");
+                  setIsCustomerMenuOpen(true);
+                  return;
+                }
+
                 const payload = {
                   ...form,
                   selectedCar: undefined,
                   placeSlot: Number(form.placeSlot || 0),
-                  customer: matchedCustomer.name,
-                  customerEmail: matchedCustomer.email || "",
+                  customer: resolvedCustomer.name,
+                  customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || 0),
                   amount: Number(resolvedPrice || 0),
-                  issueMarkers: form.issueMarkers.map((marker) => ({ ...marker })),
                 };
 
                 if (modal === "add") {
                   await createBooking(payload);
                 } else if (selectedBooking) {
-                  await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
+                  const saveEdit = async () => {
+                    await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
+                    setPage(1);
+                    closeModal();
+                  };
+                  const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
+                  const needsReschedulePin = form.status === "Rescheduled";
+                  if (needsCancelPin || needsReschedulePin) {
+                    setSecurityConfirm({
+                      mode: "pin",
+                      title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
+                      message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
+                      onConfirm: async () => {
+                        await saveEdit();
+                        setSecurityConfirm(null);
+                      },
+                    });
+                    return;
+                  }
+                  await saveEdit();
                 }
 
-                setPage(1);
-                closeModal();
+                if (modal === "add") {
+                  setPage(1);
+                  closeModal();
+                }
               }}
             >
               <div className="stBookModalTitle">
@@ -639,6 +539,7 @@ export default function StaffBookings() {
                       }}
                       placeholder="Choose a registered customer"
                       className={customerFieldError ? "stBookFieldInvalidInput" : ""}
+                      disabled={modal === "edit"}
                       required
                     />
                     {isCustomerMenuOpen && filteredCustomerOptions.length > 0 && (
@@ -680,6 +581,7 @@ export default function StaffBookings() {
                       value={form.selectedCar}
                       options={carOptions}
                       placeholder="Select registered car"
+                      disabled={modal === "edit"}
                       onSelect={(option) => {
                         const selectedCar = selectedCustomerCars.find((car) => `${car.vehicle} | ${car.plate}` === option);
                         setForm((prev) => ({
@@ -695,6 +597,7 @@ export default function StaffBookings() {
                     <input
                       value={form.vehicle}
                       onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }))}
+                      disabled={modal === "edit"}
                       required
                     />
                   )}
@@ -705,7 +608,7 @@ export default function StaffBookings() {
                   <input
                     value={form.plate}
                     onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))}
-                    readOnly={carOptions.length > 0}
+                    disabled={modal === "edit" || carOptions.length > 0}
                   />
                 </label>
 
@@ -715,6 +618,7 @@ export default function StaffBookings() {
                     value={form.service}
                     options={serviceOptions}
                     placeholder="Select service"
+                    disabled={modal === "edit"}
                     onSelect={(option) => setForm((prev) => ({ ...prev, service: option }))}
                   />
                 </label>
@@ -725,6 +629,7 @@ export default function StaffBookings() {
                     value={form.carSize}
                     options={CAR_SIZE_OPTIONS}
                     placeholder="Select car size"
+                    disabled={modal === "edit"}
                     onSelect={(option) => setForm((prev) => ({ ...prev, carSize: option }))}
                   />
                 </label>
@@ -745,6 +650,7 @@ export default function StaffBookings() {
                     type="date"
                     min={todayKey}
                     value={form.date}
+                    disabled={modal === "edit" && form.status !== "Rescheduled"}
                     onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
                     required
                   />
@@ -755,6 +661,7 @@ export default function StaffBookings() {
                   <input
                     type="time"
                     value={form.time}
+                    disabled={modal === "edit" && form.status !== "Rescheduled"}
                     onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
                     required
                   />
@@ -803,121 +710,11 @@ export default function StaffBookings() {
                 )}
               </div>
 
-              {modal === "edit" && (
-                <div className="stIssueSection">
-                  <div className="stIssueSectionHead">
-                    <div className="stIssueTitle">Problem Location</div>
-                    <div className="stIssueSub">
-                      Mark the exact area of the vehicle that needs attention.
-                    </div>
-                  </div>
-
-                  <div className="stIssueLayout">
-                    <div className="stIssueMapPanel" ref={mapRef}>
-                      <CarIssueMap
-                        markers={form.issueMarkers}
-                        onMarkerPointerDown={(event, markerId) => {
-                          event.preventDefault();
-                          setActiveMarkerId(markerId);
-                        }}
-                        onAddMarker={() =>
-                          setForm((prev) => {
-                            const nextId =
-                              prev.issueMarkers.reduce(
-                                (highest, marker) => Math.max(highest, marker.id),
-                                0
-                              ) + 1;
-                            return {
-                              ...prev,
-                              issueMarkers: [...prev.issueMarkers, { id: nextId, x: 50, y: 50, issueType: "" }],
-                            };
-                          })
-                        }
-                        onRemoveMarker={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            issueMarkers:
-                              prev.issueMarkers.length > 1
-                                ? prev.issueMarkers.slice(0, prev.issueMarkers.length - 1)
-                                : prev.issueMarkers,
-                            issueTypes:
-                              prev.issueMarkers.length > 1
-                                ? prev.issueMarkers
-                                    .slice(0, prev.issueMarkers.length - 1)
-                                    .map((marker) => marker.issueType)
-                                    .filter(Boolean)
-                                : prev.issueTypes,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="stIssueRightPanel">
-                      <div className="stBookField">
-                        <span>Marker Issue Type</span>
-                        <div className="stIssueMarkerFields">
-                          {form.issueMarkers.map((marker, index) => {
-                            const tone = getMarkerTone(index);
-                            return (
-                              <label key={marker.id} className="stIssueMarkerField">
-                                <div className="stIssueMarkerFieldLabel">
-                                  <span className="stIssueMarkerLegendDot" style={{ background: tone.fill }} />
-                                  <strong>Marker {marker.id}</strong>
-                                </div>
-                                <ModalSelect
-                                  value={marker.issueType || ""}
-                                  options={ISSUE_TYPES}
-                                  placeholder="Select issue type"
-                                  className="stIssueTypeSelect"
-                                  onSelect={(selectedType) =>
-                                    setForm((prev) => {
-                                      const nextMarkers = prev.issueMarkers.map((item) =>
-                                        item.id === marker.id ? { ...item, issueType: selectedType } : item
-                                      );
-                                      return {
-                                        ...prev,
-                                        issueMarkers: nextMarkers,
-                                        issueTypes: nextMarkers.map((item) => item.issueType).filter(Boolean),
-                                      };
-                                    })
-                                  }
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <label className="stBookField stIssueNoteField">
-                        <div className="stIssueNoteHead">
-                          <span>Issue Notes</span>
-                          <button
-                            className="stIssueGenerateBtn"
-                            type="button"
-                            disabled={!isAiIssueNotesEnabled}
-                            title="AI feature coming soon"
-                          >
-                            AI feature coming soon
-                          </button>
-                        </div>
-                        <div className="stIssueAiHint">Temporarily unavailable while a hosted AI provider is being prepared.</div>
-                        <textarea
-                          className="stIssueNoteTextarea"
-                          value={form.issueNote}
-                          onChange={(e) => setForm((prev) => ({ ...prev, issueNote: e.target.value }))}
-                          rows={6}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="stBookModalActions">
                 <button className="stBookTextBtn" type="button" onClick={closeModal}>
                   Cancel
                 </button>
-                <button className="stBookPrimaryBtn" type="submit" disabled={carOptions.length > 0 && !form.selectedCar}>
+                <button className="stBookPrimaryBtn" type="submit" disabled={modal === "add" && carOptions.length > 0 && !form.selectedCar}>
                   Save Booking
                 </button>
               </div>
@@ -946,6 +743,7 @@ export default function StaffBookings() {
           setPage(1);
         }}
       />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

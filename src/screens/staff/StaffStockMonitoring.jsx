@@ -74,14 +74,6 @@ export default function StaffStockMonitoring() {
     maxStock: "0",
     pricePerUnit: "0",
   });
-  const [soldForm, setSoldForm] = useState({
-    date: formatDateInput(),
-    customer: "",
-    itemId: "",
-    qtySold: "1",
-    soldBy: "Staff",
-    notes: "",
-  });
 
   const selectedItem = useMemo(
     () => stockMonitoring.find((item) => item.id === selectedItemId) || null,
@@ -111,50 +103,6 @@ export default function StaffStockMonitoring() {
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
-  const soldItemOptions = useMemo(
-    () => stockMonitoring.map((item) => ({ id: item.id, name: item.name, currentStock: Number(item.currentStock || 0), category: item.category })),
-    [stockMonitoring]
-  );
-  const customerBoughtItems = useMemo(() => {
-    const q = String(query || "").trim().toLowerCase();
-
-    return stockMonitoring
-      .flatMap((item) =>
-        (item.soldHistory || []).map((sale, index) => {
-          const percent = getStockPercent(item);
-          return {
-            id: `${item.id}-sale-${index}`,
-            customer: sale.customer || "-",
-            itemName: item.name,
-            category: item.category || "-",
-            qtyBought: Number(sale.qtySold || sale.quantity || 0),
-            remainingStock: Number(sale.remainingStockAfterSale ?? item.currentStock ?? 0),
-            percent,
-            tone: getStockTone(percent),
-            purchaseDate: sale.date || "-",
-            soldBy: sale.soldBy || "-",
-          };
-        })
-      )
-      .filter((row) => {
-        const matchesQuery =
-          !q ||
-          [
-            row.customer,
-            row.itemName,
-            row.category,
-            row.purchaseDate,
-            row.soldBy,
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(q);
-        const matchesCategory = !filters.category || row.category === filters.category;
-        return matchesQuery && matchesCategory;
-      })
-      .sort((left, right) => String(right.purchaseDate).localeCompare(String(left.purchaseDate)));
-  }, [filters.category, query, stockMonitoring]);
-  const selectedSoldItem = soldItemOptions.find((item) => item.id === soldForm.itemId) || null;
 
   const closeModal = () => {
     setModal(null);
@@ -227,9 +175,6 @@ export default function StaffStockMonitoring() {
         </div>
 
         <div className="stInvActions">
-          <button className="stInvAddBtn stInvDarkBtn" type="button" onClick={() => setModal("sold")}>
-            Add Sold Item
-          </button>
           <button className="stInvAddBtn" type="button" onClick={openAddModal}>
             Add New Item
           </button>
@@ -348,57 +293,6 @@ export default function StaffStockMonitoring() {
         >
           {">"}
         </button>
-      </div>
-
-      <div className="stInvSectionBlock">
-        <div className="stInvSectionTitle">Customer Bought Items</div>
-        <div className="stInvSectionSub">Monitoring log of sold items deducted from current inventory.</div>
-      </div>
-
-      <div className="stInvCard stInvCardSecondary">
-        <table className="stInvTbl">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Item Name</th>
-              <th>Category</th>
-              <th>Qty Bought</th>
-              <th>Remaining Stock</th>
-              <th>Stocks Percentage</th>
-              <th>Purchase Date</th>
-              <th>Sold By</th>
-            </tr>
-          </thead>
-          <tbody>
-            {customerBoughtItems.map((row) => (
-              <tr key={row.id}>
-                <td>{row.customer}</td>
-                <td>{row.itemName}</td>
-                <td>{row.category}</td>
-                <td>{row.qtyBought}</td>
-                <td className={`stInvStockValue ${row.tone}`}>{row.remainingStock}</td>
-                <td>
-                  <div className="stInvPercentCell">
-                    <div className="stInvPercentTrack">
-                      <div className={`stInvPercentFill ${row.tone}`} style={{ width: `${row.percent}%` }} />
-                    </div>
-                    <span>{row.percent}%</span>
-                  </div>
-                </td>
-                <td>{row.purchaseDate}</td>
-                <td>{row.soldBy}</td>
-              </tr>
-            ))}
-
-            {customerBoughtItems.length === 0 && (
-              <tr>
-                <td colSpan={8} className="stInvEmpty">
-                  No sold items found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
       </div>
 
       {modal && (
@@ -605,95 +499,6 @@ export default function StaffStockMonitoring() {
               </form>
             )}
 
-            {modal === "sold" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!selectedSoldItem) return;
-                  const qtySold = Math.max(1, clampNumber(soldForm.qtySold));
-                  const remainingStock = Math.max(0, selectedSoldItem.currentStock - qtySold);
-                  if (qtySold > selectedSoldItem.currentStock) return;
-                  const baseItem = stockMonitoring.find((item) => item.id === selectedSoldItem.id);
-                  if (!baseItem) return;
-                  updateStockMonitoringItem(baseItem.id, {
-                    ...baseItem,
-                    currentStock: remainingStock,
-                    soldHistory: [
-                      ...(baseItem.soldHistory || []),
-                      {
-                        date: soldForm.date,
-                        customer: soldForm.customer.trim(),
-                        qtySold,
-                        soldBy: soldForm.soldBy.trim() || "Staff",
-                        notes: soldForm.notes.trim(),
-                        remainingStockAfterSale: remainingStock,
-                      },
-                    ],
-                  });
-                  setSoldForm({ date: formatDateInput(), customer: "", itemId: "", qtySold: "1", soldBy: "Staff", notes: "" });
-                  closeModal();
-                }}
-              >
-                <div className="stInvModalTitle">Add Sold Item</div>
-
-                <label className="stInvField">
-                  <span>Purchase Date</span>
-                  <input type="date" value={soldForm.date} onChange={(e) => setSoldForm((prev) => ({ ...prev, date: e.target.value }))} required />
-                </label>
-
-                <label className="stInvField">
-                  <span>Customer Name</span>
-                  <input value={soldForm.customer} onChange={(e) => setSoldForm((prev) => ({ ...prev, customer: e.target.value }))} required />
-                </label>
-
-                <label className="stInvField">
-                  <span>Item</span>
-                  <select value={soldForm.itemId} onChange={(e) => setSoldForm((prev) => ({ ...prev, itemId: e.target.value }))} required>
-                    <option value="" disabled>Select item</option>
-                    {soldItemOptions.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} ({item.currentStock} left)
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="stInvFieldGrid">
-                  <label className="stInvField">
-                    <span>Qty Sold</span>
-                    <input type="number" min="1" value={soldForm.qtySold} onChange={(e) => setSoldForm((prev) => ({ ...prev, qtySold: e.target.value }))} required />
-                  </label>
-
-                  <label className="stInvField">
-                    <span>Sold By</span>
-                    <input value={soldForm.soldBy} onChange={(e) => setSoldForm((prev) => ({ ...prev, soldBy: e.target.value }))} required />
-                  </label>
-                </div>
-
-                <label className="stInvField">
-                  <span>Notes</span>
-                  <textarea rows={3} value={soldForm.notes} onChange={(e) => setSoldForm((prev) => ({ ...prev, notes: e.target.value }))} />
-                </label>
-
-                {selectedSoldItem && (
-                  <div className="stInvModalMeta">
-                    <div>Current Stock: {selectedSoldItem.currentStock}</div>
-                    <div>Remaining After Sale: {Math.max(0, selectedSoldItem.currentStock - clampNumber(soldForm.qtySold))}</div>
-                    {clampNumber(soldForm.qtySold) > selectedSoldItem.currentStock && <div>Quantity sold cannot be greater than current stock.</div>}
-                  </div>
-                )}
-
-                <div className="stInvModalActions">
-                  <button className="stInvTextBtn" type="button" onClick={closeModal}>
-                    Cancel
-                  </button>
-                  <button className="stInvPrimaryBtn" type="submit" disabled={!selectedSoldItem || clampNumber(soldForm.qtySold) > selectedSoldItem.currentStock}>
-                    Save Sold Item
-                  </button>
-                </div>
-              </form>
-            )}
-
             {modal === "restock" && selectedItem && (
               <form
                 onSubmit={(e) => {
@@ -702,6 +507,8 @@ export default function StaffStockMonitoring() {
                     ...restockForm,
                     qtyToAdd: clampNumber(restockForm.qtyToAdd),
                     costPerUnit: clampNumber(restockForm.costPerUnit),
+                    supplier: "",
+                    notes: "",
                   });
                   closeModal();
                 }}
@@ -761,23 +568,6 @@ export default function StaffStockMonitoring() {
                     />
                   </label>
                 </div>
-
-                <label className="stInvField">
-                  <span>Supplier</span>
-                  <input
-                    value={restockForm.supplier}
-                    onChange={(e) => setRestockForm((prev) => ({ ...prev, supplier: e.target.value }))}
-                  />
-                </label>
-
-                <label className="stInvField">
-                  <span>Notes</span>
-                  <textarea
-                    rows={3}
-                    value={restockForm.notes}
-                    onChange={(e) => setRestockForm((prev) => ({ ...prev, notes: e.target.value }))}
-                  />
-                </label>
 
                 <div className="stInvModalActions">
                   <button className="stInvTextBtn" type="button" onClick={closeModal}>

@@ -6,7 +6,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 const stars = (n = 0) => "★★★★★".slice(0, Math.max(0, Math.min(5, n)));
 
 export default function CustomerEngagement({ initialAction = null, onActionHandled }) {
-  const { reviews, promos, currentUser, createReview } = useAdminData();
+  const { reviews, promos, customerRewards, currentUser, createReview } = useAdminData();
   const getPromoMeta = (promo) => {
     const expiryMode = String(promo.expiryMode || "none").trim().toLowerCase();
     if (expiryMode === "date" && promo.expiresAt) {
@@ -38,6 +38,14 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
     [promos]
+  );
+  const myRewards = useMemo(
+    () => customerRewards.filter((reward) => {
+      const rewardEmail = String(reward.customerEmail || "").trim().toLowerCase();
+      const rewardName = String(reward.customerName || "").trim().toLowerCase();
+      return rewardEmail ? rewardEmail === customerEmail : rewardName === customerName;
+    }),
+    [customerRewards, customerEmail, customerName]
   );
 
   useEffect(() => {
@@ -114,6 +122,33 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
                     <div>{promo.message}</div>
                     <div className="clEngPromoMeta">{getPromoMeta(promo)}</div>
                   </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="clEngCard">
+          <div className="clEngHead">
+            <div>
+              <div className="clEngTitle">Rewards</div>
+              <div className="clEngSub">Available, used, and expired claims</div>
+            </div>
+          </div>
+          <div className="clEngTable clEngPromoTable">
+            <div className="clEngTableHead clEngPromoHead">
+              <div>Reward</div>
+              <div>Status</div>
+              <div>Claim</div>
+            </div>
+            {myRewards.length === 0 ? (
+              <div className="clEngEmptyRow">No rewards earned yet.</div>
+            ) : (
+              myRewards.map((reward) => (
+                <div key={reward.id} className="clEngTableRow clEngPromoRow">
+                  <div className="clEngPromoTitle">{reward.rewardName}<div className="clEngPromoMeta">{reward.rewardValue || reward.rewardType}</div></div>
+                  <div><span className="clEngPromoBadge">{reward.status}</span></div>
+                  <div><div>{reward.claimCode || "-"}</div><div className="clEngPromoMeta">{reward.expirationDate ? `Expires ${reward.expirationDate}` : "No expiration date"}</div></div>
                 </div>
               ))
             )}

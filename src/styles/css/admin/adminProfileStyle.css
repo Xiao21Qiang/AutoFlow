@@ -85,6 +85,72 @@
   color: #9ca3af;
 }
 
+.ap-editable-input {
+  cursor: text;
+  pointer-events: auto;
+  color: #111827;
+}
+
+.ap-security-card {
+  padding: 24px 28px;
+}
+
+.ap-security-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #edf0f4;
+  margin-bottom: 18px;
+}
+
+.ap-security-title {
+  font-size: 16px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.ap-security-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.ap-security-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ap-security-status span {
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #374151;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ap-security-form {
+  gap: 16px;
+}
+
+.ap-security-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ap-edit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .ap-pw-row {
   display: grid;
   grid-template-columns: 1fr 72px;

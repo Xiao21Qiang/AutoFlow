@@ -2,6 +2,7 @@ import "../../styles/css/staff/staffPaymentsStyle.css";
 
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -17,7 +18,7 @@ function isPaidStatus(status) {
 }
 
 export default function StaffPayments() {
-  const { payments, updatePayment, users } = useAdminData();
+  const { payments, updatePayment, users, currentUser } = useAdminData();
   const customerNameByEmail = useMemo(() => {
     const map = new Map();
     users
@@ -37,6 +38,7 @@ export default function StaffPayments() {
   const [filters, setFilters] = useState({ status: "", method: "" });
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [form, setForm] = useState({ status: "Pending", method: "", reference: "", notes: "" });
+  const [securityConfirm, setSecurityConfirm] = useState(null);
 
   const filtered = (() => {
     const q = String(query || "").trim().toLowerCase();
@@ -180,14 +182,30 @@ export default function StaffPayments() {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                await updatePayment(selectedPayment.id, {
+                const isMarkingPaid = form.status === "Paid" && !isPaidStatus(selectedPayment.status);
+                const savePayment = async () => {
+                  await updatePayment(selectedPayment.id, {
                   ...selectedPayment,
                   status: form.status,
                   method: form.method,
                   reference: form.reference,
                   notes: form.notes,
                 });
-                setSelectedPayment(null);
+                  setSelectedPayment(null);
+                };
+                if (isMarkingPaid) {
+                  setSecurityConfirm({
+                    mode: String(form.method || selectedPayment.method || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
+                    title: "Verify Payment",
+                    message: "Enter the required security confirmation before marking this payment as Paid.",
+                    onConfirm: async () => {
+                      await savePayment();
+                      setSecurityConfirm(null);
+                    },
+                  });
+                  return;
+                }
+                await savePayment();
               }}
             >
               <div className="stPayModalTitle">Review Payment</div>
@@ -279,6 +297,15 @@ export default function StaffPayments() {
           setFilters({ status: "", method: "" });
           setPage(1);
         }}
+      />
+      <SecurityConfirmModal
+        open={Boolean(securityConfirm)}
+        mode={securityConfirm?.mode || "pin"}
+        title={securityConfirm?.title}
+        message={securityConfirm?.message}
+        currentUser={currentUser}
+        onClose={() => setSecurityConfirm(null)}
+        onConfirm={securityConfirm?.onConfirm}
       />
     </div>
   );

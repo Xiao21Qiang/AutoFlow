@@ -1,10 +1,10 @@
 import "../../styles/css/admin/adminServicesStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
-import { requireFreshAdminAuth } from "../../utils/reauth";
 import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
 import {
   buildConsumablesBySizePayload,
@@ -52,7 +52,7 @@ function buildPriceBySizePayload(priceBySize) {
 }
 
 export default function AdminServices({ initialAction = null, onActionHandled }) {
-  const { services, stockMonitoring, createService, updateService, toggleService, deleteService } = useAdminData();
+  const { services, stockMonitoring, currentUser, createService, updateService, toggleService, deleteService } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -61,6 +61,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const [form, setForm] = useState({
     name: "",
     desc: "",
@@ -323,7 +324,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
                 ))}
               </ul>
-              <div className="cardActions"><button className="smallBtn smallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button><button className="smallBtn smallBtnOutline" type="button" onClick={() => toggleService(service)}>{service.enabled ? "Disable" : "Enable"}</button></div>
+              <div className="cardActions"><button className="smallBtn smallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button><button className="smallBtn smallBtnOutline" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Change Service Status", message: "Enter the special PIN before changing this service status.", onConfirm: async () => { await toggleService(service); setSecurityConfirm(null); } })}>{service.enabled ? "Disable" : "Enable"}</button></div>
             </div>
           ))}
         </div>
@@ -354,7 +355,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
               onSubmit={(e) => {
                 e.preventDefault();
                 const priceBySize = buildPriceBySizePayload(form.priceBySize);
-                updateService(selectedService.id, {
+                const payload = {
                   ...selectedService,
                   name: form.name.trim(),
                   desc: form.desc.trim(),
@@ -364,8 +365,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   priceBySize,
                   mins: Number(form.mins) || 0,
                   consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
-                });
-                setIsEditOpen(false);
+                };
+                setSecurityConfirm({ mode: "pin", title: "Save Service Changes", message: "Enter the special PIN before saving service edits.", onConfirm: async () => { await updateService(selectedService.id, payload); setSecurityConfirm(null); setIsEditOpen(false); } });
               }}
             >
               <div className="svcModalTitle">Edit Service</div>
@@ -421,7 +422,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
               onSubmit={(e) => {
                 e.preventDefault();
                 const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
-                createService({
+                const payload = {
                   name: addForm.name.trim(),
                   desc: "",
                   serviceType: addForm.serviceType,
@@ -431,9 +432,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   mins: (Number(addForm.durationHours) || 0) * 60,
                   enabled: addForm.status === "Active",
                   consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
-                });
-                setPage(1);
-                setIsAddOpen(false);
+                };
+                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); } });
               }}
             >
               <div className="svcModalTitle">Add Service</div>
@@ -491,16 +491,17 @@ export default function AdminServices({ initialAction = null, onActionHandled })
         cancelLabel="Cancel"
 	        onConfirm={async () => {
 	          if (!selectedService) return;
-	          if (!requireFreshAdminAuth("delete-service")) return;
-	          await deleteService(selectedService.id);
+	          setSecurityConfirm({ mode: "password", title: "Delete Service", message: "Enter the special password before deleting this service.", onConfirm: async () => { await deleteService(selectedService.id); setSecurityConfirm(null);
           setIsDeleteConfirmOpen(false);
           setIsEditOpen(false);
           setSelectedServiceId(null);
+            } });
         }}
         onClose={() => setIsDeleteConfirmOpen(false)}
       />
 
       <FilterModal open={isFilterOpen} title="Filter Services" fields={[{ key: "category", label: "Category", type: "select", options: CATEGORY_OPTIONS }, { key: "enabled", label: "Status", type: "select", options: ["Enabled", "Disabled"] }]} values={filters} onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))} onClose={() => setIsFilterOpen(false)} onApply={() => { setPage(1); setIsFilterOpen(false); }} onReset={() => { setFilters({ category: "", enabled: "" }); setPage(1); }} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

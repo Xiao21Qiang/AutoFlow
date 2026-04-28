@@ -49,12 +49,12 @@ function buildPriceBySizePayload(priceBySize) {
 }
 
 export default function StaffServices() {
-  const { services, stockMonitoring, createService, updateService, toggleService } = useAdminData();
+  const { services, stockMonitoring, createService, updateService } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ category: "", enabled: "" });
-  const [selectedServiceId, setSelectedServiceId] = useState(null);
+  const [selectedServiceId] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", consumablesBySize: {} });
@@ -87,20 +87,6 @@ export default function StaffServices() {
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
-
-  const openEditModal = (service) => {
-    setSelectedServiceId(service.id);
-    setForm({
-      name: service.name,
-      desc: service.desc,
-      serviceType: getServiceType(service),
-      category: service.category,
-      priceBySize: toPriceInputState(service),
-      mins: String(service.mins),
-      consumablesBySize: normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
-    });
-    setIsEditOpen(true);
-  };
 
   const toggleConsumable = (key, itemName) => {
     const name = String(itemName || "").trim();
@@ -279,8 +265,7 @@ export default function StaffServices() {
                 ))}
               </ul>
               <div className="stSvcCardActions">
-                <button className="stSvcSmallBtn stSvcSmallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button>
-                <button className="stSvcSmallBtn stSvcSmallBtnOutline" type="button" onClick={() => toggleService(service)}>{service.enabled ? "Disable" : "Enable"}</button>
+                <span className="stSvcSmallBtn stSvcSmallBtnOutline">View Only</span>
               </div>
             </div>
           ))}
@@ -306,11 +291,7 @@ export default function StaffServices() {
           <img src={icoFilter} alt="" className="stSvcFilterIcon" />
         </button>
 
-        <div className="stSvcActionBtns">
-          <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => setIsAddOpen(true)}>
-            Add New Service
-          </button>
-        </div>
+        <div className="stSvcActionBtns" />
       </div>
 
       <div className="stSvcBoard">

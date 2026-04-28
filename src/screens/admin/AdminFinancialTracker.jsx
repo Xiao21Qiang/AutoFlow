@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminFinancialTrackerStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 
 const CATEGORY_COLORS = {
   Materials: "violet",
@@ -37,7 +38,7 @@ function createExpenseForm() {
 }
 
 export default function AdminFinancialTracker() {
-  const { expenses, commissions, payments, users, createExpense } = useAdminData();
+  const { expenses, commissions, payments, users, createExpense, currentUser } = useAdminData();
   const [expenseQuery, setExpenseQuery] = useState("");
   const [expenseType, setExpenseType] = useState("All types");
   const [expensePage, setExpensePage] = useState(1);
@@ -48,6 +49,7 @@ export default function AdminFinancialTracker() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [expenseForm, setExpenseForm] = useState(createExpenseForm);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const aiInterpretationLines = [];
   const isAiFeatureEnabled = false;
 
@@ -173,7 +175,12 @@ export default function AdminFinancialTracker() {
 
     setSaving(true);
     setFormError("");
-    try {
+    setSecurityConfirm({
+      mode: "pin",
+      title: "Confirm Expense",
+      message: "Enter the special PIN before saving this expense.",
+      onConfirm: async () => {
+        try {
       await createExpense({
         ...expenseForm,
         description: expenseForm.description.trim(),
@@ -183,11 +190,14 @@ export default function AdminFinancialTracker() {
       });
       setModal(null);
       setFormError("");
-    } catch (error) {
-      setFormError(error.message || "Failed to save expense.");
-    } finally {
-      setSaving(false);
-    }
+          setSecurityConfirm(null);
+        } catch (error) {
+          setFormError(error.message || "Failed to save expense.");
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
   };
 
   return (
@@ -386,6 +396,15 @@ export default function AdminFinancialTracker() {
           </div>
         </div>
       )}
+      <SecurityConfirmModal
+        open={Boolean(securityConfirm)}
+        mode="pin"
+        title={securityConfirm?.title}
+        message={securityConfirm?.message}
+        currentUser={currentUser}
+        onClose={() => { setSecurityConfirm(null); setSaving(false); }}
+        onConfirm={securityConfirm?.onConfirm}
+      />
     </div>
   );
 }

@@ -18,6 +18,9 @@ const {
   QuoteRequest,
   Expense,
   Commission,
+  SecuritySetting,
+  Reward,
+  CustomerReward,
 } = require("./models");
 
 const app = express();
@@ -26,6 +29,9 @@ const CLIENT_APP_URL = String(process.env.CLIENT_APP_URL || "http://localhost:30
 const signupOtpStore = new Map();
 const passwordChangeOtpStore = new Map();
 const PASSWORD_PREFIX = "scrypt$";
+const SECURITY_SETTING_ID = "autoflow-security";
+const DEFAULT_SPECIAL_PIN = "2468";
+const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
 const GOOGLE_SMTP_EMAIL = String(process.env.GOOGLE_SMTP_EMAIL || "").trim();
 const GOOGLE_SMTP_APP_PASSWORD = String(process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
@@ -425,6 +431,36 @@ function verifyPassword(password, storedValue) {
   const savedBuffer = Buffer.from(savedHash, "hex");
   if (savedBuffer.length !== derivedKey.length) return false;
   return crypto.timingSafeEqual(derivedKey, savedBuffer);
+}
+
+async function getOrCreateSecuritySetting() {
+  let setting = await SecuritySetting.findOne({ id: SECURITY_SETTING_ID });
+  if (!setting) {
+    setting = await SecuritySetting.create({
+      id: SECURITY_SETTING_ID,
+      specialPinHash: hashPassword(DEFAULT_SPECIAL_PIN),
+      specialPasswordHash: hashPassword(DEFAULT_SPECIAL_PASSWORD),
+      updatedBy: "system",
+    });
+  }
+  return setting;
+}
+
+async function verifyAdminAccountPassword(email, currentPassword) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!normalizedEmail || !currentPassword) return null;
+
+  const user = await User.findOne({ email: normalizedEmail });
+  if (!user || normalizeUserType(user.userType, user.role) !== "admin") return null;
+  return verifyPassword(currentPassword, user.password) ? user : null;
+}
+
+async function validateSpecialCredential(mode, value) {
+  const setting = await getOrCreateSecuritySetting();
+  const credentialMode = String(mode || "pin").trim().toLowerCase();
+  const storedValue = credentialMode === "password" ? setting.specialPasswordHash : setting.specialPinHash;
+  const fallbackValue = credentialMode === "password" ? DEFAULT_SPECIAL_PASSWORD : DEFAULT_SPECIAL_PIN;
+  return verifyPassword(value, storedValue || hashPassword(fallbackValue));
 }
 
 function sanitizeUser(user) {
@@ -891,6 +927,41 @@ function isPaidStatus(status) {
   return String(status || "").trim().toLowerCase() === "paid";
 }
 
+function normalizeRewardPayload(body = {}, existing = {}) {
+  const name = String(body.name ?? existing.name ?? "").trim();
+  const type = String(body.type ?? existing.type ?? "Voucher").trim() || "Voucher";
+  const description = String(body.description ?? existing.description ?? "").trim();
+  const value = String(body.value ?? existing.value ?? "").trim();
+  const rarity = String(body.rarity ?? existing.rarity ?? "Common").trim() || "Common";
+  const weight = Math.max(0, Number(body.weight ?? existing.weight ?? 10) || 0);
+  const active = typeof body.active === "boolean" ? body.active : Boolean(existing.active ?? true);
+  const stock = Math.max(0, Number(body.stock ?? existing.stock ?? 0) || 0);
+  const expirationDays = Math.max(0, Number(body.expirationDays ?? existing.expirationDays ?? 30) || 0);
+
+  return { name, type, description, value, rarity, weight, active, stock, expirationDays };
+}
+
+function selectWeightedReward(rewards) {
+  const pool = rewards.filter((reward) => reward.active && Number(reward.weight || 0) > 0);
+  const totalWeight = pool.reduce((sum, reward) => sum + Number(reward.weight || 0), 0);
+  if (!pool.length || totalWeight <= 0) return null;
+  let cursor = Math.random() * totalWeight;
+  for (const reward of pool) {
+    cursor -= Number(reward.weight || 0);
+    if (cursor <= 0) return reward;
+  }
+  return pool[pool.length - 1];
+}
+
+function getQualifiedBookingStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "completed" || normalized === "successful";
+}
+
+function buildClaimCode() {
+  return crypto.randomBytes(4).toString("hex").toUpperCase();
+}
+
 function normalizePaymentMethodLabel(method) {
   const normalized = String(method || "").trim();
   if (!normalized) return "";
@@ -1254,6 +1325,50 @@ async function removeSeededEngagementData() {
   ]);
 }
 
+async function ensureDefaultRewardPool() {
+  const count = await Reward.countDocuments();
+  if (count > 0) return;
+
+  await Reward.insertMany([
+    {
+      id: "RWD-1001",
+      name: "Free Microfiber Towel",
+      type: "Item",
+      description: "Claim one microfiber towel on the next shop visit.",
+      value: "Free Towel",
+      rarity: "Common",
+      weight: 50,
+      active: true,
+      stock: 0,
+      expirationDays: 30,
+    },
+    {
+      id: "RWD-1002",
+      name: "5% Discount",
+      type: "Discount",
+      description: "Use this voucher for 5% off a future service.",
+      value: "5% Discount",
+      rarity: "Uncommon",
+      weight: 30,
+      active: true,
+      stock: 0,
+      expirationDays: 30,
+    },
+    {
+      id: "RWD-1003",
+      name: "Free Car Wash",
+      type: "Service",
+      description: "Claim one free car wash service.",
+      value: "Free Car Wash",
+      rarity: "Rare",
+      weight: 15,
+      active: true,
+      stock: 0,
+      expirationDays: 30,
+    },
+  ]);
+}
+
 async function migratePlaintextPasswords() {
   const usersWithPlaintextPasswords = await User.find({
     password: { $exists: true, $ne: "" },
@@ -1418,6 +1533,62 @@ async function syncCustomerSubtypeByEmail(email) {
   }
 }
 
+async function generateEligibleRewardsForBooking(booking, auditUser = "system") {
+  const customerEmail = String(booking?.customerEmail || "").trim().toLowerCase();
+  const customerName = String(booking?.customer || "").trim();
+  if (!customerEmail && !customerName) return [];
+
+  const bookingQuery = customerEmail ? { customerEmail } : { customer: customerName };
+  const qualifiedBookings = await Booking.find(bookingQuery).lean();
+  const completedCount = qualifiedBookings.filter((item) => getQualifiedBookingStatus(item.status)).length;
+  const earnedSlots = Math.floor(completedCount / 3);
+  if (earnedSlots <= 0) return [];
+
+  const existingRewards = await CustomerReward.countDocuments(customerEmail ? { customerEmail } : { customerName });
+  const missingRewards = Math.max(0, earnedSlots - existingRewards);
+  if (missingRewards <= 0) return [];
+
+  const activeRewards = await Reward.find({ active: true }).lean();
+  const createdRewards = [];
+  for (let index = 0; index < missingRewards; index += 1) {
+    const reward = selectWeightedReward(activeRewards);
+    if (!reward) break;
+
+    const expirationDays = Math.max(0, Number(reward.expirationDays || 0));
+    const expirationDate = expirationDays > 0
+      ? new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      : "";
+
+    const customerReward = await CustomerReward.create({
+      id: createId("CRW"),
+      customerId: String(booking.customerId || ""),
+      customerName,
+      customerEmail,
+      rewardId: reward.id,
+      rewardName: reward.name,
+      rewardType: reward.type,
+      rewardValue: reward.value,
+      dateEarned: toDateKey(),
+      sourceCompletedBookingsCount: completedCount,
+      status: "Unused",
+      expirationDate,
+      generatedBy: auditUser === "system" ? "System" : "Admin",
+      claimCode: buildClaimCode(),
+    });
+    createdRewards.push(customerReward);
+  }
+
+  if (createdRewards.length) {
+    await recordAudit(auditUser, "Generated customer reward", booking.id, {
+      customer: customerName,
+      customerEmail,
+      count: createdRewards.length,
+    });
+  }
+
+  return createdRewards;
+}
+
 async function migrateStockMonitoringCollection() {
   const legacyCollection = "inventoryitems";
   const targetCollection = "stockmonitoringitems";
@@ -1453,7 +1624,7 @@ async function migrateStockMonitoringCollection() {
 }
 
 async function loadBootstrapData() {
-  const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions] = await Promise.all([
+  const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions, rewards, customerRewards] = await Promise.all([
     Booking.find().sort({ createdAt: -1 }).lean(),
     Service.find().sort({ createdAt: -1 }).lean(),
     StockMonitoringItem.find().sort({ createdAt: -1 }).lean(),
@@ -1463,9 +1634,11 @@ async function loadBootstrapData() {
     AuditLog.find({ archived: true }).sort({ archivedAt: -1, createdAt: -1 }).limit(100).lean(),
     Review.find().sort({ createdAt: -1 }).lean(),
     Promo.find().sort({ createdAt: -1 }).lean(),
-    QuoteRequest.find().sort({ createdAt: -1 }).limit(25).lean(),
+    QuoteRequest.find().sort({ createdAt: -1 }).lean(),
     Expense.find().sort({ date: -1, createdAt: -1 }).lean(),
     Commission.find().sort({ date: -1, createdAt: -1 }).lean(),
+    Reward.find().sort({ createdAt: -1 }).lean(),
+    CustomerReward.find().sort({ createdAt: -1 }).lean(),
   ]);
 
   const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
@@ -1498,6 +1671,8 @@ async function loadBootstrapData() {
     quoteRequests,
     expenses,
     commissions,
+    rewards,
+    customerRewards,
     alerts,
     summary: {
       bookingsToday: bookings.filter((booking) => booking.date === toDateKey()).length,
@@ -1547,6 +1722,84 @@ app.get("/api/reference/vehicle-makes", async (_req, res, next) => {
 app.get("/api/admin/bootstrap", async (_req, res, next) => {
   try {
     res.json(await loadBootstrapData());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/security-controls", async (_req, res, next) => {
+  try {
+    const setting = await getOrCreateSecuritySetting();
+    res.json({
+      specialPinConfigured: Boolean(setting.specialPinHash),
+      specialPasswordConfigured: Boolean(setting.specialPasswordHash),
+      updatedAt: setting.updatedAt || "",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/security/validate", async (req, res, next) => {
+  try {
+    const mode = String(req.body.mode || "pin").trim().toLowerCase();
+    const value = String(req.body.value || "");
+    const valid = await validateSpecialCredential(mode, value);
+    if (!valid) {
+      res.status(401).json({ message: `Incorrect special ${mode === "password" ? "password" : "PIN"}.` });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/security/verify-password", async (req, res, next) => {
+  try {
+    const user = await verifyAdminAccountPassword(req.body.email, req.body.currentPassword);
+    if (!user) {
+      res.status(401).json({ message: "Current account password is incorrect." });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/security-controls", async (req, res, next) => {
+  try {
+    const user = await verifyAdminAccountPassword(req.body.email, req.body.currentPassword);
+    if (!user) {
+      res.status(401).json({ message: "Current account password is incorrect." });
+      return;
+    }
+
+    const setting = await getOrCreateSecuritySetting();
+    const nextPin = String(req.body.specialPin || "").trim();
+    const nextPassword = String(req.body.specialPassword || "");
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "specialPin")) {
+      if (!/^\d{4,8}$/.test(nextPin)) {
+        res.status(400).json({ message: "Special PIN must be 4 to 8 digits." });
+        return;
+      }
+      setting.specialPinHash = hashPassword(nextPin);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "specialPassword")) {
+      if (nextPassword.length < 8) {
+        res.status(400).json({ message: "Special password must be at least 8 characters." });
+        return;
+      }
+      setting.specialPasswordHash = hashPassword(nextPassword);
+    }
+
+    setting.updatedBy = user.email;
+    await setting.save();
+    await recordAudit(user.email, "Updated security controls", SECURITY_SETTING_ID);
+    res.json({ message: "Security controls updated.", specialPinConfigured: true, specialPasswordConfigured: true });
   } catch (error) {
     next(error);
   }
@@ -1603,7 +1856,7 @@ app.post("/api/public/quotes", async (req, res, next) => {
       estimatedAmount: finalEstimatedAmount,
       estimateLabel,
       message,
-      status: "New",
+      status: "Under Review",
       source: "landing-page",
     });
 
@@ -2055,6 +2308,7 @@ app.post("/api/admin/bookings", async (req, res, next) => {
       }
 
       await ensureBookingCommission(booking, req.body.auditUser);
+      await generateEligibleRewardsForBooking(booking, req.body.auditUser || "system");
     }
 
     await recordAudit(req.body.auditUser, "Created booking", booking.id, {
@@ -2182,6 +2436,12 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
 
     if (shouldCreateCommission) {
       await ensureBookingCommission(booking, req.body.auditUser);
+      await generateEligibleRewardsForBooking(booking, req.body.auditUser || "system");
+      await recordAudit("system", "Payment details requested", booking.id, {
+        customer: booking.customer,
+        customerEmail: booking.customerEmail || "",
+        message: "Please upload your payment details. You may disregard this notification if you have already uploaded your payment details.",
+      });
     }
 
     await recordAudit(req.body.auditUser, getBookingAuditAction(existingBooking, booking), booking.id, {
@@ -2202,6 +2462,15 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
 
 app.delete("/api/admin/bookings/:id", async (req, res, next) => {
   try {
+    const booking = await Booking.findOne({ id: req.params.id }).lean();
+    if (!booking) {
+      res.status(404).json({ message: "Booking not found" });
+      return;
+    }
+    if (String(booking.status || "").trim().toLowerCase() !== "cancelled") {
+      res.status(400).json({ message: "Only cancelled bookings can be deleted." });
+      return;
+    }
     await Booking.findOneAndDelete({ id: req.params.id });
     await Payment.findOneAndDelete({ bookingId: req.params.id });
     await recordAudit(req.query.auditUser, "Deleted booking", req.params.id);
@@ -2741,6 +3010,79 @@ app.post("/api/admin/promos/:id/use", async (req, res, next) => {
   }
 });
 
+app.post("/api/admin/rewards", async (req, res, next) => {
+  try {
+    const payload = normalizeRewardPayload(req.body);
+    if (!payload.name) {
+      res.status(400).json({ message: "Reward name is required." });
+      return;
+    }
+    if (payload.weight <= 0) {
+      res.status(400).json({ message: "Reward weight must be greater than zero." });
+      return;
+    }
+    const reward = await Reward.create({ id: createId("RWD"), ...payload });
+    await recordAudit(req.body.auditUser, "Created reward", reward.id, { name: reward.name });
+    res.status(201).json(reward);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/rewards/:id", async (req, res, next) => {
+  try {
+    const existingReward = await Reward.findOne({ id: req.params.id });
+    if (!existingReward) {
+      res.status(404).json({ message: "Reward not found." });
+      return;
+    }
+    const payload = normalizeRewardPayload(req.body, existingReward);
+    if (!payload.name) {
+      res.status(400).json({ message: "Reward name is required." });
+      return;
+    }
+    if (payload.weight <= 0) {
+      res.status(400).json({ message: "Reward weight must be greater than zero." });
+      return;
+    }
+    const reward = await Reward.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
+    await recordAudit(req.body.auditUser, "Updated reward", reward.id, { name: reward.name, weight: reward.weight, active: reward.active });
+    res.json(reward);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/rewards/:id", async (req, res, next) => {
+  try {
+    const reward = await Reward.findOneAndDelete({ id: req.params.id });
+    if (!reward) {
+      res.status(404).json({ message: "Reward not found." });
+      return;
+    }
+    await recordAudit(req.body.auditUser || req.query.auditUser, "Deleted reward", req.params.id, { name: reward.name });
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/rewards/generate", async (req, res, next) => {
+  try {
+    const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
+    const customerName = String(req.body.customerName || "").trim();
+    const booking = await Booking.findOne(customerEmail ? { customerEmail } : { customer: customerName }).sort({ createdAt: -1 }).lean();
+    if (!booking) {
+      res.status(404).json({ message: "No booking found for this customer." });
+      return;
+    }
+    const createdRewards = await generateEligibleRewardsForBooking(booking, req.body.auditUser || "Admin");
+    res.json({ createdRewards });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/expenses", async (req, res, next) => {
   try {
     const expense = await Expense.create({
@@ -2769,7 +3111,7 @@ app.post("/api/admin/commissions", async (_req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ message: error.message || "Unexpected server error" });
+  res.status(error.statusCode || 500).json({ message: error.message || "Unexpected server error" });
 });
 
 async function start() {
@@ -2781,6 +3123,7 @@ async function start() {
   await migrateServiceConsumablesBySize();
   await clearSeededServiceConsumables();
   await removeSeededEngagementData();
+  await ensureDefaultRewardPool();
   await migrateUsersToUserTypes();
   await migrateCustomerCars();
   await migratePromoChannels();

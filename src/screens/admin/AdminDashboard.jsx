@@ -34,6 +34,7 @@ export default function AdminDashboard({ goTo }) {
   const [view, setView] = useState(new Date());
   const [selected, setSelected] = useState(new Date());
   const [selectedQuoteRequest, setSelectedQuoteRequest] = useState(null);
+  const [selectedBooking, setSelectedBooking] = useState(null);
 
   const cal = useMemo(() => buildCalendarGrid(view, bookings), [view, bookings]);
   const todayKey = toKey(today);
@@ -41,7 +42,12 @@ export default function AdminDashboard({ goTo }) {
   const selectedKey = toKey(selected);
   const todays = bookings.filter((b) => b.date === selectedKey);
   const paidRevenue = summary?.paidRevenue || payments.filter((payment) => payment.status === "Paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const recentQuoteRequests = quoteRequests.slice(0, 4);
+  const recentQuoteRequests = quoteRequests;
+  const paymentByBookingId = useMemo(
+    () => new Map(payments.map((payment) => [payment.bookingId || payment.id, payment])),
+    [payments]
+  );
+  const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 
   return (
     <div className="adminDashWrap">
@@ -98,7 +104,8 @@ export default function AdminDashboard({ goTo }) {
       </div>
 
       {selectedQuoteRequest && (
-        <div className="adminDashCard adminQuoteDetailCard">
+        <div className="adminDetailModalOverlay" onClick={() => setSelectedQuoteRequest(null)}>
+        <div className="adminDashCard adminQuoteDetailCard adminDetailModalCard" onClick={(e) => e.stopPropagation()}>
           <div className="adminQuoteDetailHead">
             <div>
               <div className="adminDashTitle">Quote Request Details</div>
@@ -114,8 +121,36 @@ export default function AdminDashboard({ goTo }) {
             <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
             <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><strong>{selectedQuoteRequest.status || "New"}</strong></div>
+            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><strong>{quoteStatusLabel(selectedQuoteRequest.status)}</strong></div>
           </div>
+        </div>
+        </div>
+      )}
+
+      {selectedBooking && (
+        <div className="adminDetailModalOverlay" onClick={() => setSelectedBooking(null)}>
+        <div className="adminDashCard adminQuoteDetailCard adminDetailModalCard" onClick={(e) => e.stopPropagation()}>
+          <div className="adminQuoteDetailHead">
+            <div>
+              <div className="adminDashTitle">Booking Details</div>
+              <div className="adminDashSub">Selected booking summary.</div>
+            </div>
+            <button type="button" className="adminQuoteDetailClose" onClick={() => setSelectedBooking(null)}>Close</button>
+          </div>
+          <div className="adminQuoteDetailGrid">
+            <div className="adminQuoteDetailItem"><span>Booking ID</span><strong>{selectedBooking.id || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Customer</span><strong>{selectedBooking.customer || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Vehicle</span><strong>{selectedBooking.vehicle || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Plate Number</span><strong>{selectedBooking.plate || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedBooking.service || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Promo</span><strong>{selectedBooking.promoTitle || selectedBooking.promoId || "No promo"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Car Size</span><strong>{selectedBooking.carSize || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Date</span><strong>{selectedBooking.date || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Time</span><strong>{selectedBooking.time || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Status</span><strong>{selectedBooking.status || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Payment Status</span><strong>{paymentByBookingId.get(selectedBooking.id)?.status || "-"}</strong></div>
+          </div>
+        </div>
         </div>
       )}
 
@@ -157,7 +192,7 @@ export default function AdminDashboard({ goTo }) {
                 <div className="adminOverviewItem"><div className="adminOverviewName">No bookings</div><div className="adminOverviewMeta">No bookings on selected date.</div></div>
               ) : (
                 todays.map((b) => (
-                  <div className="adminOverviewItem" key={b.id}><div className="adminOverviewName">{b.customer} — {b.service}</div><div className="adminOverviewMeta">{b.vehicle} • Status: {b.status}</div></div>
+                  <button className="adminOverviewItem adminAttentionItemClickable" type="button" key={b.id} onClick={() => setSelectedBooking(b)}><div className="adminOverviewName">{b.customer} — {b.service}</div><div className="adminOverviewMeta">{b.vehicle} • Status: {b.status}</div></button>
                 ))
               )}
             </div>

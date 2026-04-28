@@ -10,6 +10,29 @@ const markerSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const warrantyChecklistItemSchema = new mongoose.Schema(
+  {
+    id: { type: String, default: "" },
+    label: { type: String, default: "" },
+    done: { type: Boolean, default: false },
+    doneBy: { type: String, default: "" },
+    notes: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const warrantyAcknowledgementSchema = new mongoose.Schema(
+  {
+    dateLocation: { type: String, default: "" },
+    carModelYearColor: { type: String, default: "" },
+    plateCsNumber: { type: String, default: "" },
+    serviceAvailed: { type: String, default: "" },
+    clientName: { type: String, default: "" },
+    clientSignature: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const servicePriceBySizeSchema = new mongoose.Schema(
   {
     sedanSmallCar: { type: Number, default: 0 },
@@ -54,6 +77,13 @@ const bookingSchema = new mongoose.Schema(
     issueNote: { type: String, default: "" },
     issueTypes: { type: [String], default: [] },
     issueMarkers: { type: [markerSchema], default: [] },
+    warrantyChecklist: { type: String, default: "" },
+    warrantyChecklistItems: { type: [warrantyChecklistItemSchema], default: [] },
+    warrantyCoveragePackage: { type: String, default: "" },
+    warrantyAcknowledgement: { type: warrantyAcknowledgementSchema, default: () => ({}) },
+    warrantyReleased: { type: Boolean, default: false },
+    warrantyReleasedAt: { type: String, default: "" },
+    warrantyQrCode: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
 );
@@ -246,8 +276,54 @@ const quoteRequestSchema = new mongoose.Schema(
     estimatedAmount: { type: Number, default: 0 },
     estimateLabel: { type: String, default: "" },
     message: { type: String, default: "" },
-    status: { type: String, default: "New" },
+    status: { type: String, default: "Under Review" },
     source: { type: String, default: "landing-page" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const securitySettingSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    specialPinHash: { type: String, default: "" },
+    specialPasswordHash: { type: String, default: "" },
+    updatedBy: { type: String, default: "" },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const rewardSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    name: { type: String, default: "" },
+    type: { type: String, default: "Voucher" },
+    description: { type: String, default: "" },
+    value: { type: String, default: "" },
+    rarity: { type: String, default: "Common" },
+    weight: { type: Number, default: 10 },
+    active: { type: Boolean, default: true },
+    stock: { type: Number, default: 0 },
+    expirationDays: { type: Number, default: 30 },
+  },
+  { timestamps: true, versionKey: false }
+);
+
+const customerRewardSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true },
+    customerId: { type: String, default: "" },
+    customerName: { type: String, default: "" },
+    customerEmail: { type: String, default: "" },
+    rewardId: { type: String, default: "" },
+    rewardName: { type: String, default: "" },
+    rewardType: { type: String, default: "" },
+    rewardValue: { type: String, default: "" },
+    dateEarned: { type: String, default: "" },
+    sourceCompletedBookingsCount: { type: Number, default: 0 },
+    status: { type: String, default: "Unused" },
+    expirationDate: { type: String, default: "" },
+    generatedBy: { type: String, default: "System" },
+    claimCode: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
 );
@@ -266,4 +342,7 @@ module.exports = {
   Expense: mongoose.models.Expense || mongoose.model("Expense", expenseSchema),
   Commission: mongoose.models.Commission || mongoose.model("Commission", commissionSchema),
   QuoteRequest: mongoose.models.QuoteRequest || mongoose.model("QuoteRequest", quoteRequestSchema),
+  SecuritySetting: mongoose.models.SecuritySetting || mongoose.model("SecuritySetting", securitySettingSchema),
+  Reward: mongoose.models.Reward || mongoose.model("Reward", rewardSchema),
+  CustomerReward: mongoose.models.CustomerReward || mongoose.model("CustomerReward", customerRewardSchema),
 };

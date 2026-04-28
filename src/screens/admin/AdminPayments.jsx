@@ -1,9 +1,9 @@
 import "../../styles/css/admin/adminPaymentsStyle.css";
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
-import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -19,7 +19,7 @@ function formatDate(dateStr) {
 }
 
 export default function AdminPayments() {
-  const { payments, updatePayment, users } = useAdminData();
+  const { payments, updatePayment, users, currentUser } = useAdminData();
   const customerNameByEmail = useMemo(() => {
     const map = new Map();
     users
@@ -39,6 +39,7 @@ export default function AdminPayments() {
   const [filters, setFilters] = useState({ status: "", method: "" });
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [form, setForm] = useState({ status: "Pending", method: "Cash", reference: "", notes: "" });
+  const [securityConfirm, setSecurityConfirm] = useState(null);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -155,17 +156,32 @@ export default function AdminPayments() {
           <div className="payModalCard" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button className="payModalClose" type="button" onClick={() => setSelectedPayment(null)}>x</button>
             <form
-	              onSubmit={async (e) => {
-	                e.preventDefault();
-	                if (!requireFreshAdminAuth("verify-payment")) return;
-	                await updatePayment(selectedPayment.id, {
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const isMarkingPaid = form.status === "Paid" && !isPaidStatus(selectedPayment.status);
+                const savePayment = async () => {
+                  await updatePayment(selectedPayment.id, {
                   ...selectedPayment,
                   status: form.status,
                   method: form.method,
                   reference: form.reference,
                   notes: form.notes,
                 });
-                setSelectedPayment(null);
+                  setSelectedPayment(null);
+                };
+                if (isMarkingPaid) {
+                  setSecurityConfirm({
+                    mode: String(form.method || selectedPayment.method || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
+                    title: "Verify Payment",
+                    message: "Enter the required security confirmation before marking this payment as Paid.",
+                    onConfirm: async () => {
+                      await savePayment();
+                      setSecurityConfirm(null);
+                    },
+                  });
+                  return;
+                }
+                await savePayment();
               }}
             >
               <div className="payModalTitle">Review Payment</div>
@@ -180,22 +196,6 @@ export default function AdminPayments() {
                 <div><strong>Method:</strong> {selectedPayment.method || "-"}</div>
                 {selectedPayment.reference && <div><strong>Reference:</strong> {selectedPayment.reference}</div>}
                 {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}
-              </div>
-
-              <div className="payRecordMeta">
-                <div className="payRecordMetaTitle">Database IDs</div>
-                <div className="payRecordMetaRow">
-                  <span>Mongo _id</span>
-                  <code>{selectedPayment._id || "-"}</code>
-                </div>
-                <div className="payRecordMetaRow">
-                  <span>Payment id</span>
-                  <code>{selectedPayment.id || "-"}</code>
-                </div>
-                <div className="payRecordMetaRow">
-                  <span>Booking id</span>
-                  <code>{selectedPayment.bookingId || "-"}</code>
-                </div>
               </div>
 
               {selectedPayment.proofImage && (
@@ -258,6 +258,15 @@ export default function AdminPayments() {
         onClose={() => setIsFilterOpen(false)}
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
         onReset={() => { setFilters({ status: "", method: "" }); setPage(1); }}
+      />
+      <SecurityConfirmModal
+        open={Boolean(securityConfirm)}
+        mode={securityConfirm?.mode || "pin"}
+        title={securityConfirm?.title}
+        message={securityConfirm?.message}
+        currentUser={currentUser}
+        onClose={() => setSecurityConfirm(null)}
+        onConfirm={securityConfirm?.onConfirm}
       />
     </div>
   );

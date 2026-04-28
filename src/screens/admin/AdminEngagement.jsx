@@ -2,12 +2,19 @@ import "../../styles/css/admin/adminEngagementStyle.css";
 import { useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 
 export default function AdminEngagement() {
-  const { reviews, promos, createPromo, updatePromo } = useAdminData();
+  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
+  const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
+  const [rewardError, setRewardError] = useState("");
   const [editingPromoId, setEditingPromoId] = useState("");
+  const [editingRewardId, setEditingRewardId] = useState("");
+  const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [rewardFilters, setRewardFilters] = useState({ query: "", rarity: "", active: "" });
+  const [manualRewardCustomerEmail, setManualRewardCustomerEmail] = useState("");
   const [promoForm, setPromoForm] = useState({
     title: "",
     status: "Draft",
@@ -18,6 +25,77 @@ export default function AdminEngagement() {
     expiresAt: "",
     usageLimit: "",
   });
+  const [rewardForm, setRewardForm] = useState({
+    name: "",
+    type: "Voucher",
+    description: "",
+    value: "",
+    rarity: "Common",
+    weight: "10",
+    active: true,
+    stock: "",
+    expirationDays: "30",
+  });
+
+  const resetRewardForm = () => {
+    setEditingRewardId("");
+    setRewardForm({
+      name: "",
+      type: "Voucher",
+      description: "",
+      value: "",
+      rarity: "Common",
+      weight: "10",
+      active: true,
+      stock: "",
+      expirationDays: "30",
+    });
+    setRewardError("");
+  };
+
+  const openEditRewardModal = (reward) => {
+    setEditingRewardId(reward.id || "");
+    setRewardForm({
+      name: reward.name || "",
+      type: reward.type || "Voucher",
+      description: reward.description || "",
+      value: reward.value || "",
+      rarity: reward.rarity || "Common",
+      weight: String(reward.weight || ""),
+      active: Boolean(reward.active),
+      stock: String(Number(reward.stock || 0) || ""),
+      expirationDays: String(Number(reward.expirationDays || 0) || ""),
+    });
+    setRewardError("");
+    setIsRewardModalOpen(true);
+  };
+
+  const filteredRewards = rewards
+    .filter((reward) => {
+      const q = rewardFilters.query.trim().toLowerCase();
+      const matchesQuery = !q || `${reward.name} ${reward.type} ${reward.description} ${reward.value}`.toLowerCase().includes(q);
+      const matchesRarity = !rewardFilters.rarity || reward.rarity === rewardFilters.rarity;
+      const matchesActive = !rewardFilters.active || (rewardFilters.active === "Enabled" ? reward.active : !reward.active);
+      return matchesQuery && matchesRarity && matchesActive;
+    })
+    .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+  const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
+
+  const saveReward = async () => {
+    const payload = {
+      ...rewardForm,
+      weight: Number(rewardForm.weight || 0),
+      stock: Number(rewardForm.stock || 0),
+      expirationDays: Number(rewardForm.expirationDays || 0),
+    };
+    if (editingRewardId) {
+      await updateReward(editingRewardId, payload);
+    } else {
+      await createReward(payload);
+    }
+    setIsRewardModalOpen(false);
+    resetRewardForm();
+  };
 
   const getPromoExpiryLabel = (promo) => {
     const expiryMode = String(promo.expiryMode || "none").toLowerCase();
@@ -186,6 +264,54 @@ export default function AdminEngagement() {
         </div>
       </div>
 
+      <div className="engCard engRewardCard">
+        <div className="engHead">
+          <div>
+            <div className="engTitle">Reward Pool Management</div>
+            <div className="engSub">Admin-managed weighted rewards for every 3 completed bookings.</div>
+          </div>
+          <button className="engBtnGold engBtnAuto" type="button" onClick={() => { resetRewardForm(); setIsRewardModalOpen(true); }}>Add Reward</button>
+        </div>
+        <div className="engRewardFilters">
+          <input value={rewardFilters.query} onChange={(event) => setRewardFilters((prev) => ({ ...prev, query: event.target.value }))} placeholder="Search reward" />
+          <select value={rewardFilters.rarity} onChange={(event) => setRewardFilters((prev) => ({ ...prev, rarity: event.target.value }))}><option value="">All rarity</option><option>Common</option><option>Uncommon</option><option>Rare</option></select>
+          <select value={rewardFilters.active} onChange={(event) => setRewardFilters((prev) => ({ ...prev, active: event.target.value }))}><option value="">All status</option><option>Enabled</option><option>Disabled</option></select>
+        </div>
+        <div className="engRewardTable">
+          <div className="engRewardHead"><div>Name</div><div>Type</div><div>Value</div><div>Rarity</div><div>Weight</div><div>Status</div><div>Actions</div></div>
+          {filteredRewards.map((reward) => (
+            <div className="engRewardRow" key={reward.id}>
+              <div><strong>{reward.name}</strong><span>{reward.description}</span></div>
+              <div>{reward.type}</div>
+              <div>{reward.value || "-"}</div>
+              <div>{reward.rarity}</div>
+              <div>{Number(reward.weight || 0)}</div>
+              <div><span className={`engStatusBadge ${reward.active ? "active" : "draft"}`}>{reward.active ? "Enabled" : "Disabled"}</span></div>
+              <div className="engRewardActions">
+                <button className="engBtnLight engBtnAuto" type="button" onClick={() => openEditRewardModal(reward)}>Edit</button>
+                <button className="engBtnLight engBtnAuto" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: reward.active ? "Disable Reward" : "Enable Reward", message: "Enter the special PIN before changing reward availability.", onConfirm: async () => { await updateReward(reward.id, { ...reward, active: !reward.active }); setSecurityConfirm(null); } })}>{reward.active ? "Disable" : "Enable"}</button>
+                <button className="engBtnLight engBtnAuto danger" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Reward", message: "Enter the special PIN before deleting this reward.", onConfirm: async () => { await deleteReward(reward.id); setSecurityConfirm(null); } })}>Delete</button>
+              </div>
+            </div>
+          ))}
+          {filteredRewards.length === 0 && <div className="engEmpty">No rewards found.</div>}
+        </div>
+        <div className="engRewardHistory">
+          <div className="engRewardHistoryHead">
+            <div className="engTitle">Reward History</div>
+            <div className="engManualReward">
+              <select value={manualRewardCustomerEmail} onChange={(event) => setManualRewardCustomerEmail(event.target.value)}>
+                <option value="">Select customer</option>
+                {customerOptions.map((user) => <option key={user.email} value={user.email}>{user.name || user.email}</option>)}
+              </select>
+              <button className="engBtnLight engBtnAuto" type="button" disabled={!manualRewardCustomerEmail} onClick={() => setSecurityConfirm({ mode: "pin", title: "Generate Reward", message: "Enter the special PIN before manually generating a reward.", onConfirm: async () => { const customer = customerOptions.find((user) => user.email === manualRewardCustomerEmail); await generateCustomerReward({ customerEmail: customer?.email || "", customerName: customer?.name || "" }); setSecurityConfirm(null); } })}>Generate</button>
+            </div>
+          </div>
+          {customerRewards.slice(0, 8).map((reward) => <div className="engRewardHistoryRow" key={reward.id}><span>{reward.customerName}</span><strong>{reward.rewardName}</strong><span>{reward.status}</span><code>{reward.claimCode}</code></div>)}
+          {customerRewards.length === 0 && <div className="engEmpty">No generated rewards yet.</div>}
+        </div>
+      </div>
+
       {isPromoModalOpen && (
         <div className="engModalOverlay" onMouseDown={(event) => {
           if (event.target.classList.contains("engModalOverlay")) {
@@ -350,6 +476,29 @@ export default function AdminEngagement() {
           </div>
         </div>
       )}
+
+      {isRewardModalOpen && (
+        <div className="engModalOverlay" onMouseDown={(event) => { if (event.target.classList.contains("engModalOverlay")) { setIsRewardModalOpen(false); resetRewardForm(); } }}>
+          <div className="engModalCard" role="dialog" aria-modal="true">
+            <div className="engModalHead"><div><div className="engTitle">{editingRewardId ? "Edit Reward" : "Add Reward"}</div><div className="engSub">Configure the reward pool item.</div></div><button className="engModalClose" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>x</button></div>
+            <form className="engModalBody" onSubmit={(event) => { event.preventDefault(); setRewardError(""); const weightChanged = editingRewardId && Number(rewardForm.weight || 0) !== Number(rewards.find((item) => item.id === editingRewardId)?.weight || 0); const action = async () => { try { await saveReward(); setSecurityConfirm(null); } catch (error) { setRewardError(error.message || "Failed to save reward."); } }; if (weightChanged) { setSecurityConfirm({ mode: "pin", title: "Change Reward Weight", message: "Enter the special PIN before changing a reward weight.", onConfirm: action }); return; } action(); }}>
+              <label className="engField"><span>Reward Name</span><input value={rewardForm.name} onChange={(event) => setRewardForm((prev) => ({ ...prev, name: event.target.value }))} required /></label>
+              <label className="engField"><span>Type</span><select value={rewardForm.type} onChange={(event) => setRewardForm((prev) => ({ ...prev, type: event.target.value }))}>{["Voucher", "Item", "Discount", "Service"].map((option) => <option key={option}>{option}</option>)}</select></label>
+              <label className="engField"><span>Description</span><textarea value={rewardForm.description} onChange={(event) => setRewardForm((prev) => ({ ...prev, description: event.target.value }))} required /></label>
+              <label className="engField"><span>Value</span><input value={rewardForm.value} onChange={(event) => setRewardForm((prev) => ({ ...prev, value: event.target.value }))} placeholder="5% Discount, Free Car Wash..." /></label>
+              <label className="engField"><span>Rarity</span><select value={rewardForm.rarity} onChange={(event) => setRewardForm((prev) => ({ ...prev, rarity: event.target.value }))}>{["Common", "Uncommon", "Rare"].map((option) => <option key={option}>{option}</option>)}</select></label>
+              <label className="engField"><span>Weight / Chance</span><input type="number" min="1" value={rewardForm.weight} onChange={(event) => setRewardForm((prev) => ({ ...prev, weight: event.target.value }))} required /></label>
+              <label className="engField"><span>Stock</span><input type="number" min="0" value={rewardForm.stock} onChange={(event) => setRewardForm((prev) => ({ ...prev, stock: event.target.value }))} /></label>
+              <label className="engField"><span>Expiration Days</span><input type="number" min="0" value={rewardForm.expirationDays} onChange={(event) => setRewardForm((prev) => ({ ...prev, expirationDays: event.target.value }))} /></label>
+              <label className="engCheckField"><input type="checkbox" checked={rewardForm.active} onChange={(event) => setRewardForm((prev) => ({ ...prev, active: event.target.checked }))} /> Enabled</label>
+              {rewardError && <div className="engModalError">{rewardError}</div>}
+              <div className="engModalActions"><button className="engBtnLight" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>Cancel</button><button className="engBtnGold" type="submit">Save Reward</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

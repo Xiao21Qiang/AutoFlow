@@ -1,0 +1,128 @@
+.secModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.secModalCard {
+  width: min(100%, 420px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+  padding: 20px;
+  position: relative;
+}
+
+.secModalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.secModalTitle {
+  font-size: 16px;
+  font-weight: 900;
+  color: #111827;
+  padding-right: 32px;
+}
+
+.secModalText {
+  margin: 8px 0 16px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+.secModalField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.secModalField span {
+  font-size: 11px;
+  font-weight: 900;
+  color: #111827;
+  text-transform: uppercase;
+}
+
+.secModalField input {
+  height: 40px;
+  border-radius: 9px;
+  border: 1px solid #d1d5db;
+  padding: 0 12px;
+  outline: none;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.secModalField input:focus {
+  border-color: #c79a2b;
+  box-shadow: 0 0 0 3px rgba(199, 154, 43, 0.14);
+}
+
+.secModalError {
+  margin-top: 12px;
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  color: #dc2626;
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.secModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.secTextBtn,
+.secPrimaryBtn {
+  min-height: 36px;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.secTextBtn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+}
+
+.secPrimaryBtn {
+  border: 1px solid #0b0f19;
+  background: #0b0f19;
+  color: #fff;
+}
+
+.secTextBtn:disabled,
+.secPrimaryBtn:disabled,
+.secModalClose:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

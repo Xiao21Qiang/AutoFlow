@@ -16,6 +16,8 @@ const INITIAL_DATA = {
   quoteRequests: [],
   expenses: [],
   commissions: [],
+  rewards: [],
+  customerRewards: [],
   alerts: [],
   summary: {},
 };
@@ -57,6 +59,7 @@ const PAYMENT_NOTIFICATION_TITLES = new Set([
   "Updated payment proof",
   "Updated payment method",
   "Updated payment",
+  "Payment details requested",
 ]);
 
 const STOCK_NOTIFICATION_TITLES = new Set([
@@ -472,6 +475,10 @@ export function AdminDataProvider({ children, session }) {
       }),
     createExpense: (payload) => mutate("/api/admin/expenses", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     createCommission: (payload) => mutate("/api/admin/commissions", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    createReward: (payload) => mutate("/api/admin/rewards", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateReward: (id, payload) => mutate("/api/admin/rewards/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    deleteReward: (id) => mutate("/api/admin/rewards/" + id, { method: "DELETE", body: JSON.stringify({ auditUser }) }),
+    generateCustomerReward: (payload) => mutate("/api/admin/rewards/generate", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     generateAnalyticsInterpretation: requestAnalyticsInterpretation,
     generateFinancialInterpretation: requestFinancialInterpretation,
     requestPasswordChangeOtp,

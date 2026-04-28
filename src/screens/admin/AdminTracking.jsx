@@ -1,13 +1,17 @@
 import "../../styles/css/admin/adminTrackingStyle.css";
-import { useMemo, useState } from "react";
+import "../../styles/css/admin/adminBookingsStyle.css";
+import { useEffect, useMemo, useRef, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import carDiagram from "../../assets/IMAGE/car.jpg";
+import { WARRANTY_COVERAGE_NOTES, WARRANTY_COVERAGE_OPTIONS, WARRANTY_ISSUE_TYPES, createWarrantyAcknowledgement, normalizeWarrantyChecklist } from "../../utils/warrantyChecklist";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
+const ISSUE_TYPES = WARRANTY_ISSUE_TYPES;
 
 const formatDateForInput = (value) => {
   const parsed = new Date(value);
@@ -25,7 +29,70 @@ const createEditForm = (row) => ({
   vehicle: row?.vehicle || "",
   status: row?.status || "Scheduled",
   assignedTo: row?.assigned || "",
+  issueNote: row?.issueNote || "",
+  issueTypes: row?.issueTypes || [],
+  issueMarkers: Array.isArray(row?.issueMarkers) && row.issueMarkers.length
+    ? row.issueMarkers.map((marker, index) => ({
+        id: marker.id || index + 1,
+        x: Number(marker.x || 50),
+        y: Number(marker.y || 50),
+        issueType: marker.issueType || row.issueTypes?.[index] || "",
+      }))
+    : [{ id: 1, x: 50, y: 50, issueType: "" }],
+  warrantyChecklist: row?.warrantyChecklist || "",
+  warrantyChecklistItems: normalizeWarrantyChecklist(row?.warrantyChecklistItems),
+  warrantyCoveragePackage: row?.warrantyCoveragePackage || WARRANTY_COVERAGE_OPTIONS[0],
+  warrantyAcknowledgement: createWarrantyAcknowledgement(row || {}),
+  warrantyReleased: Boolean(row?.warrantyReleased),
 });
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getMarkerTone(index) {
+  const tones = [
+    { fill: "#2563eb", shadow: "rgba(37, 99, 235, 0.45)" },
+    { fill: "#f97316", shadow: "rgba(249, 115, 22, 0.42)" },
+    { fill: "#10b981", shadow: "rgba(16, 185, 129, 0.4)" },
+    { fill: "#a855f7", shadow: "rgba(168, 85, 247, 0.4)" },
+    { fill: "#ef4444", shadow: "rgba(239, 68, 68, 0.4)" },
+    { fill: "#14b8a6", shadow: "rgba(20, 184, 166, 0.4)" },
+  ];
+  return tones[index % tones.length];
+}
+
+function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker }) {
+  return (
+    <div className="bookIssueMapShell">
+      <div className="bookIssueMap bookIssueMapImg" style={{ backgroundImage: `url(${carDiagram})` }}>
+        <img src={carDiagram} alt="Car diagram" className="bookCarDiagramImg" draggable={false} />
+        {markers.map((marker, index) => {
+          const tone = getMarkerTone(index);
+          return (
+            <button
+              key={marker.id}
+              className="bookIssueMarker"
+              type="button"
+              style={{ left: `${marker.x}%`, top: `${marker.y}%`, background: tone.fill, boxShadow: `0 4px 12px ${tone.shadow}` }}
+              onPointerDown={(event) => onMarkerPointerDown(event, marker.id)}
+              title={marker.issueType ? `Marker ${marker.id}: ${marker.issueType}` : `Marker ${marker.id}`}
+            >
+              {marker.id}
+            </button>
+          );
+        })}
+      </div>
+      <div className="bookIssueLegend">
+        <div className="bookIssueHint">Drag markers onto the car diagram to pinpoint separate issue spots.</div>
+        <div className="bookIssueActions">
+          <button className="bookIssueActionBtn" type="button" onClick={onAddMarker}>Add Marker</button>
+          {markers.length > 1 && <button className="bookIssueActionBtn ghost" type="button" onClick={onRemoveMarker}>Remove Last</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminTracking() {
   const { bookings, updateBooking } = useAdminData();
@@ -36,6 +103,30 @@ export default function AdminTracking() {
   const [modal, setModal] = useState(null);
   const [selectedRow, setSelectedRow] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
+  const [activeMarkerId, setActiveMarkerId] = useState(null);
+  const mapRef = useRef(null);
+
+  useEffect(() => {
+    if (!activeMarkerId) return undefined;
+    const handlePointerMove = (event) => {
+      const container = mapRef.current;
+      if (!container) return;
+      const bounds = container.getBoundingClientRect();
+      const x = clamp(((event.clientX - bounds.left) / bounds.width) * 100, 2, 98);
+      const y = clamp(((event.clientY - bounds.top) / bounds.height) * 100, 2, 98);
+      setEditForm((prev) => ({
+        ...prev,
+        issueMarkers: prev.issueMarkers.map((marker) => marker.id === activeMarkerId ? { ...marker, x, y } : marker),
+      }));
+    };
+    const handlePointerUp = () => setActiveMarkerId(null);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [activeMarkerId]);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -106,15 +197,79 @@ export default function AdminTracking() {
       {modal === "edit" && selectedRow && (
         <div className="usersModalOverlay" onClick={() => setModal(null)}>
           <div className="usersModalCard" onClick={(e) => e.stopPropagation()}>
-            <form onSubmit={(e) => { e.preventDefault(); updateBooking(selectedRow.id, { ...selectedRow, customer: editForm.customer, date: editForm.date, service: editForm.service, vehicle: editForm.vehicle, status: editForm.status, assigned: editForm.assignedTo }); setModal(null); }}>
-              <div className="usersModalTitle">Edit Tracking Row</div>
-              <label className="usersField"><span>Customer</span><input value={editForm.customer} onChange={(e) => setEditForm((prev) => ({ ...prev, customer: e.target.value }))} /></label>
-              <label className="usersField"><span>Date</span><input type="date" value={editForm.date} onChange={(e) => setEditForm((prev) => ({ ...prev, date: e.target.value }))} /></label>
-              <label className="usersField"><span>Service</span><input value={editForm.service} onChange={(e) => setEditForm((prev) => ({ ...prev, service: e.target.value }))} /></label>
-              <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} onChange={(e) => setEditForm((prev) => ({ ...prev, vehicle: e.target.value }))} /></label>
-              <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} onChange={(e) => setEditForm((prev) => ({ ...prev, assignedTo: e.target.value }))} /></label>
+            <form className="trackEditForm" onSubmit={(e) => { e.preventDefault(); const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased; updateBooking(selectedRow.id, { ...selectedRow, status: editForm.status, issueNote: editForm.issueNote, issueMarkers: editForm.issueMarkers, issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean), warrantyChecklist: editForm.warrantyChecklist, warrantyChecklistItems: editForm.warrantyChecklistItems, warrantyCoveragePackage: editForm.warrantyCoveragePackage, warrantyAcknowledgement: editForm.warrantyAcknowledgement, warrantyReleased: releaseAllowed, warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "", warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "" }); setModal(null); }}>
+              <div className="trackModalHead"><div className="usersModalTitle">Edit Tracking Row</div><button className="usersModalClose" type="button" onClick={() => setModal(null)}>x</button></div>
+              <div className="trackModalBody">
+              <label className="usersField"><span>Customer</span><input value={editForm.customer} readOnly disabled /></label>
+              <label className="usersField"><span>Date</span><input type="date" value={editForm.date} readOnly disabled /></label>
+              <label className="usersField"><span>Service</span><input value={editForm.service} readOnly disabled /></label>
+              <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} readOnly disabled /></label>
+              <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} readOnly disabled /></label>
               <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
-              <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save</button></div>
+              <div className="bookIssueSection">
+                <div className="bookIssueSectionHead"><div className="bookIssueTitle">Problem Location</div><div className="bookIssueSub">Issue details are managed in Service Tracking.</div></div>
+                <div className="bookIssueLayout">
+                  <div className="bookIssueMapPanel" ref={mapRef}>
+                    <IssueMap
+                      markers={editForm.issueMarkers}
+                      onMarkerPointerDown={(event, markerId) => { event.preventDefault(); setActiveMarkerId(markerId); }}
+                      onAddMarker={() => setEditForm((prev) => ({ ...prev, issueMarkers: [...prev.issueMarkers, { id: prev.issueMarkers.reduce((highest, marker) => Math.max(highest, marker.id), 0) + 1, x: 50, y: 50, issueType: "" }] }))}
+                      onRemoveMarker={() => setEditForm((prev) => ({ ...prev, issueMarkers: prev.issueMarkers.length > 1 ? prev.issueMarkers.slice(0, -1) : prev.issueMarkers }))}
+                    />
+                  </div>
+                  <div className="bookIssueRightPanel">
+                    <div className="bookField">
+                      <span>Marker Issue Type</span>
+                      <div className="bookIssueMarkerFields">
+                        {editForm.issueMarkers.map((marker, index) => {
+                          const tone = getMarkerTone(index);
+                          return (
+                            <label key={marker.id} className="bookIssueMarkerField">
+                              <div className="bookIssueMarkerFieldLabel"><span className="bookIssueMarkerLegendDot" style={{ background: tone.fill }} /><strong>Marker {marker.id}</strong></div>
+                              <select value={marker.issueType || ""} onChange={(event) => setEditForm((prev) => ({ ...prev, issueMarkers: prev.issueMarkers.map((item) => item.id === marker.id ? { ...item, issueType: event.target.value } : item) }))}>
+                                <option value="">Select issue type</option>
+                                {ISSUE_TYPES.map((option) => <option key={option}>{option}</option>)}
+                              </select>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <label className="bookField bookIssueNoteField"><span>Issue Notes</span><textarea className="bookIssueNoteTextarea" rows="5" value={editForm.issueNote} onChange={(e) => setEditForm((prev) => ({ ...prev, issueNote: e.target.value }))} /></label>
+                  </div>
+                </div>
+              </div>
+              <div className="bookIssueSection">
+                <div className="bookIssueSectionHead"><div className="bookIssueTitle">Warranty Document</div><div className="bookIssueSub">Use the official checklist.pdf as the warranty document. <a href="/checklist.pdf" target="_blank" rel="noreferrer">Open PDF</a></div></div>
+                <div className="warrantyGrid">
+                  {editForm.warrantyChecklistItems.map((item) => (
+                    <div className="warrantyItem" key={item.id}>
+                      <label><input type="checkbox" checked={item.done} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, done: event.target.checked } : entry) }))} /> <span>{item.label}</span></label>
+                      <input value={item.doneBy} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, doneBy: event.target.value } : entry) }))} placeholder="Done by" />
+                      <input value={item.notes} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, notes: event.target.value } : entry) }))} placeholder="Notes" />
+                    </div>
+                  ))}
+                </div>
+                <label className="usersField"><span>Warranty Coverage</span><select value={editForm.warrantyCoveragePackage} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyCoveragePackage: e.target.value }))}>{WARRANTY_COVERAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+                <details className="warrantyCoverage"><summary>Coverage Notes</summary>{WARRANTY_COVERAGE_NOTES.map((note) => <p key={note}>{note}</p>)}</details>
+                <div className="warrantyAckGrid">
+                  {[
+                    ["dateLocation", "Date / Location"],
+                    ["carModelYearColor", "Car Model / Year / Color"],
+                    ["plateCsNumber", "Plate / CS Number"],
+                    ["serviceAvailed", "Service Availed"],
+                    ["clientName", "Client Name"],
+                    ["clientSignature", "Client Signature"],
+                  ].map(([key, label]) => (
+                    <label className="usersField" key={key}><span>{label}</span><input value={editForm.warrantyAcknowledgement[key] || ""} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyAcknowledgement: { ...prev.warrantyAcknowledgement, [key]: event.target.value } }))} /></label>
+                  ))}
+                </div>
+                <label className="usersField"><span>Warranty Notes</span><textarea rows="3" value={editForm.warrantyChecklist} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyChecklist: e.target.value }))} /></label>
+                <label className="usersField"><span>Release Warranty QR</span><select value={editForm.warrantyReleased ? "Released" : "Hold"} disabled={editForm.status !== "Completed"} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyReleased: e.target.value === "Released" }))}><option>Hold</option><option>Released</option></select></label>
+                {editForm.status !== "Completed" && <div className="warrantyHint">Warranty release is locked until the booking status is Completed.</div>}
+              </div>
+              </div>
+              <div className="usersModalActions trackModalFoot"><button className="usersTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save</button></div>
             </form>
           </div>
         </div>

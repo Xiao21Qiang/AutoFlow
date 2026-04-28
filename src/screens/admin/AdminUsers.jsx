@@ -1,8 +1,8 @@
 import "../../styles/css/admin/adminUsersStyle.css";
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
-import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -52,7 +52,7 @@ const createEditForm = (user) => {
 };
 
 export default function AdminUsers() {
-  const { users, updateUser, deleteUser } = useAdminData();
+  const { users, currentUser, updateUser, deleteUser } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -60,6 +60,7 @@ export default function AdminUsers() {
   const [modal, setModal] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
+  const [securityConfirm, setSecurityConfirm] = useState(null);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -124,7 +125,7 @@ export default function AdminUsers() {
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
-              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); if (!requireFreshAdminAuth("update-user-role-or-status")) return; updateUser(selectedUser.id, { ...selectedUser, ...editForm }); closeModal(); }}>
+              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); setSecurityConfirm({ mode: "pin", title: "Update User", message: "Enter the special PIN before changing this account.", onConfirm: async () => { await updateUser(selectedUser.id, { ...selectedUser, ...editForm }); setSecurityConfirm(null); closeModal(); } }); }}>
                 <div className="usersModalTitle">Edit User</div>
                 <div className="usersFieldGroup">
                   <label className="usersField"><span>Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
@@ -164,7 +165,7 @@ export default function AdminUsers() {
                   </div>
                 ) : null}
                 <div className="usersFieldGrid usersFieldGridEven">
-                  <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} required><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+                  <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} required><option value="active">Active</option><option value="Deactivated">Deactivate</option></select></label>
                   <label className="usersField"><span>Phone</span><input value={editForm.phone} onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))} /></label>
                 </div>
                 <div className="usersFieldGroup">
@@ -180,7 +181,7 @@ export default function AdminUsers() {
                 <div className="usersModalTitle">Confirm Delete</div>
                 <p className="usersConfirmText">Delete this user account? This action cannot be undone.</p>
                 <div className="usersConfirmMeta"><div>{selectedUser.name}</div><div>{selectedUser.email}</div></div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => { if (!requireFreshAdminAuth("delete-user")) return; deleteUser(selectedUser.id); closeModal(); }}>Delete</button></div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete User", message: "Enter the special PIN before deleting this account.", onConfirm: async () => { await deleteUser(selectedUser.id); setSecurityConfirm(null); closeModal(); } })}>Delete</button></div>
               </div>
             )}
           </div>
@@ -200,6 +201,7 @@ export default function AdminUsers() {
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
         onReset={() => { setFilters({ userType: "", status: "" }); setPage(1); }}
       />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }
