@@ -1,6 +1,5 @@
 import "../../styles/css/staff/staffBookingsStyle.css";
 import FilterModal from "../../components/common/FilterModal";
-import { apiRequest } from "../../services/api";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
@@ -86,20 +85,6 @@ function normalizeCustomerCars(cars) {
       plate: String(car?.plate || "").trim().toUpperCase(),
     }))
     .filter((car) => car.vehicle && car.plate);
-}
-
-function formatGeneratedIssueNote(text) {
-  const raw = String(text || "").replace(/\r/g, "").trim();
-  if (!raw) return "";
-
-  return raw
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/\s+(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n$1")
-    .replace(/\n(?!\n)(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n\n$1")
-    .replace(/:\s+/g, ":\n")
-    .replace(/[ \t]+$/gm, "")
-    .trim();
 }
 
 function clamp(value, min, max) {
@@ -238,8 +223,7 @@ export default function StaffBookings() {
   const [activeMarkerId, setActiveMarkerId] = useState(null);
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
-  const [isGeneratingIssueNote, setIsGeneratingIssueNote] = useState(false);
-  const [issueNoteError, setIssueNoteError] = useState("");
+  const isAiIssueNotesEnabled = false;
   const mapRef = useRef(null);
   const todayKey = getTodayKey();
 
@@ -438,8 +422,6 @@ export default function StaffBookings() {
     setActiveMarkerId(null);
     setIsCustomerMenuOpen(false);
     setCustomerFieldError("");
-    setIsGeneratingIssueNote(false);
-    setIssueNoteError("");
     setForm(createEmptyForm(serviceOptions[0]));
   };
 
@@ -451,7 +433,6 @@ export default function StaffBookings() {
 
   const openEditModal = (booking) => {
     setSelectedBookingId(booking.id);
-    setIssueNoteError("");
     setForm({
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
@@ -478,30 +459,6 @@ export default function StaffBookings() {
           : [{ id: 1, x: 50, y: 50, issueType: "" }],
     });
     setModal("edit");
-  };
-
-  const generateIssueNotes = async () => {
-    setIsGeneratingIssueNote(true);
-    setIssueNoteError("");
-    try {
-      const result = await apiRequest("/api/admin/issue-note-suggestion", {
-        method: "POST",
-        body: JSON.stringify({
-          vehicle: form.vehicle,
-          service: form.service,
-          issueMarkers: form.issueMarkers.map((marker, index) => ({
-            ...marker,
-            issueType: marker.issueType || form.issueTypes[index] || "",
-          })),
-          issueTypes: form.issueTypes,
-        }),
-      });
-      setForm((prev) => ({ ...prev, issueNote: formatGeneratedIssueNote(result?.suggestion || prev.issueNote) }));
-    } catch (error) {
-      setIssueNoteError(error.message || "Failed to generate issue notes.");
-    } finally {
-      setIsGeneratingIssueNote(false);
-    }
   };
 
   return (
@@ -934,17 +891,22 @@ export default function StaffBookings() {
                       <label className="stBookField stIssueNoteField">
                         <div className="stIssueNoteHead">
                           <span>Issue Notes</span>
-                          <button className="stIssueGenerateBtn" type="button" onClick={generateIssueNotes} disabled={isGeneratingIssueNote}>
-                            {isGeneratingIssueNote ? "Generating..." : "Generate with Ollama"}
+                          <button
+                            className="stIssueGenerateBtn"
+                            type="button"
+                            disabled={!isAiIssueNotesEnabled}
+                            title="AI feature coming soon"
+                          >
+                            AI feature coming soon
                           </button>
                         </div>
+                        <div className="stIssueAiHint">Temporarily unavailable while a hosted AI provider is being prepared.</div>
                         <textarea
                           className="stIssueNoteTextarea"
                           value={form.issueNote}
                           onChange={(e) => setForm((prev) => ({ ...prev, issueNote: e.target.value }))}
                           rows={6}
                         />
-                        {issueNoteError && <div className="stBookFieldError">{issueNoteError}</div>}
                       </label>
                     </div>
                   </div>

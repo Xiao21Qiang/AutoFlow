@@ -2,7 +2,6 @@ import "../../styles/css/admin/adminBookingsStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
-import { apiRequest } from "../../services/api";
 import { requireFreshAdminAuth } from "../../utils/reauth";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -58,22 +57,6 @@ function normalizeCustomerCars(cars) {
       plate: String(car?.plate || "").trim().toUpperCase(),
     }))
     .filter((car) => car.vehicle && car.plate);
-}
-
-function formatGeneratedIssueNote(text) {
-  const raw = String(text || "").replace(/\r/g, "").trim();
-  if (!raw) return "";
-
-  const cleaned = raw
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/\s+(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n$1")
-    .replace(/\n(?!\n)(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n\n$1")
-    .replace(/:\s+/g, ":\n")
-    .replace(/[ \t]+$/gm, "")
-    .trim();
-
-  return cleaned;
 }
 
 function clamp(value, min, max) {
@@ -214,8 +197,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
-  const [isGeneratingIssueNote, setIsGeneratingIssueNote] = useState(false);
-  const [issueNoteError, setIssueNoteError] = useState("");
+  const isAiIssueNotesEnabled = false;
   const mapRef = useRef(null);
   const todayKey = getTodayKey();
   
@@ -383,8 +365,6 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     setActiveMarkerId(null);
     setIsCustomerMenuOpen(false);
     setCustomerFieldError("");
-    setIsGeneratingIssueNote(false);
-    setIssueNoteError("");
     setForm(createEmptyForm(serviceOptions[0]));
   };
 
@@ -396,30 +376,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
 
   const openEditModal = (booking) => {
     setSelectedBookingId(booking.id);
-    setIssueNoteError("");
     setForm({ customer: booking.customer, customerEmail: booking.customerEmail || "", selectedCar: "", vehicle: booking.vehicle, carSize: booking.carSize || "", plate: booking.plate || "", service: booking.service, promoId: booking.promoId || "", assigned: booking.assigned, date: booking.date, time: booking.time || "", placeSlot: booking.placeSlot || "", amount: booking.originalAmount || booking.amount || "", status: booking.status || "Scheduled", issueNote: booking.issueNote || "", issueTypes: booking.issueTypes || [], issueMarkers: booking.issueMarkers && booking.issueMarkers.length > 0 ? booking.issueMarkers.map((marker, index) => ({ id: marker.id || index + 1, x: marker.x, y: marker.y, issueType: marker.issueType || booking.issueTypes?.[index] || "" })) : [{ id: 1, x: 50, y: 50, issueType: "" }] });
     setModal("edit");
-  };
-
-  const generateIssueNotes = async () => {
-    setIsGeneratingIssueNote(true);
-    setIssueNoteError("");
-    try {
-      const result = await apiRequest("/api/admin/issue-note-suggestion", {
-        method: "POST",
-        body: JSON.stringify({
-          vehicle: form.vehicle,
-          service: form.service,
-          issueMarkers: form.issueMarkers,
-          issueTypes: form.issueMarkers.map((marker) => marker.issueType).filter(Boolean),
-        }),
-      });
-      setForm((prev) => ({ ...prev, issueNote: formatGeneratedIssueNote(result?.suggestion || prev.issueNote) }));
-    } catch (error) {
-      setIssueNoteError(error.message || "Failed to generate issue notes.");
-    } finally {
-      setIsGeneratingIssueNote(false);
-    }
   };
 
   const exportPdf = () =>
@@ -720,12 +678,17 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       <label className="bookField bookIssueNoteField">
                         <div className="bookIssueNoteHead">
                           <span>Issue Notes</span>
-                          <button className="bookIssueGenerateBtn" type="button" onClick={generateIssueNotes} disabled={isGeneratingIssueNote}>
-                            {isGeneratingIssueNote ? "Generating..." : "Generate with Ollama"}
+                          <button
+                            className="bookIssueGenerateBtn"
+                            type="button"
+                            disabled={!isAiIssueNotesEnabled}
+                            title="AI feature coming soon"
+                          >
+                            AI feature coming soon
                           </button>
                         </div>
+                        <div className="bookIssueAiHint">Temporarily unavailable while a hosted AI provider is being prepared.</div>
                         <textarea className="bookIssueNoteTextarea" rows="6" value={form.issueNote} onChange={(e) => setForm((prev) => ({ ...prev, issueNote: e.target.value }))} />
-                        {issueNoteError && <div className="bookFieldError">{issueNoteError}</div>}
                       </label>
                     </div>
                   </div>

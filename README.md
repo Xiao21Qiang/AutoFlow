@@ -6,6 +6,10 @@ This project was bootstrapped with [Create React App](https://github.com/faceboo
 
 In the project directory, you can run:
 
+## AI Provider Status
+
+AutoFlow's previous local AI provider has been disabled. AI-assisted insights and issue-note generation remain visible in the UI as unavailable features and will be connected later to a deployable hosted AI API.
+
 ### `npm start`
 
 Runs the app in the development mode.\

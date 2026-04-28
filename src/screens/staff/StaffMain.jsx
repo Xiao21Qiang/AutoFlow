@@ -43,7 +43,7 @@ const NAV_SECTIONS = [
   },
   {
     title: "Finance",
-    items: [{ key: "payments", label: "Payments", icon: icoPayments }],
+    items: [{ key: "payments", label: "Payment Tracking", icon: icoPayments }],
   },
   {
     title: "Engagement",

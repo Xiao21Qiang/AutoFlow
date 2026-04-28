@@ -36,36 +36,8 @@ function createExpenseForm() {
   };
 }
 
-function isInterpretationLead(line) {
-  const normalized = String(line || "").trim().toLowerCase();
-  return normalized.startsWith("here are") || normalized.startsWith("below are") || normalized.startsWith("based on the provided");
-}
-
-function normalizeInterpretationLines(lines) {
-  const directLines = Array.isArray(lines)
-    ? lines.map((line) => String(line || "").trim()).filter(Boolean)
-    : [];
-
-  if (!directLines.length) return [];
-
-  const expandedLines = directLines.flatMap((line) => {
-    const sentenceMatches = line.match(/[^.!?]+[.!?]?/g) || [];
-    const normalizedSentences = sentenceMatches
-      .map((sentence) => sentence.replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-
-    if (normalizedSentences.length >= 2 && line.length > 120) {
-      return normalizedSentences;
-    }
-
-    return [line];
-  });
-
-  return expandedLines.filter((line) => !isInterpretationLead(line)).slice(0, 4);
-}
-
 export default function AdminFinancialTracker() {
-  const { expenses, commissions, payments, users, createExpense, generateFinancialInterpretation } = useAdminData();
+  const { expenses, commissions, payments, users, createExpense } = useAdminData();
   const [expenseQuery, setExpenseQuery] = useState("");
   const [expenseType, setExpenseType] = useState("All types");
   const [expensePage, setExpensePage] = useState(1);
@@ -76,10 +48,8 @@ export default function AdminFinancialTracker() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [expenseForm, setExpenseForm] = useState(createExpenseForm);
-  const [aiInterpretationLines, setAiInterpretationLines] = useState([]);
-  const [interpretationLoading, setInterpretationLoading] = useState(false);
-  const [interpretationError, setInterpretationError] = useState("");
-  const [interpretationModel, setInterpretationModel] = useState("");
+  const aiInterpretationLines = [];
+  const isAiFeatureEnabled = false;
 
   const paidPayments = useMemo(
     () => payments.filter((item) => String(item.status || "").toLowerCase() === "paid"),
@@ -125,52 +95,8 @@ export default function AdminFinancialTracker() {
     });
   }, [commissions, workerQuery]);
 
-  const expensesByCategory = useMemo(() => {
-    const map = {};
-    for (const item of expenses) {
-      map[item.category] = (map[item.category] || 0) + Number(item.amount || 0);
-    }
-    return Object.entries(map).map(([name, amount]) => ({ name, amount }));
-  }, [expenses]);
-  const topExpenseCategories = useMemo(
-    () => [...expensesByCategory].sort((left, right) => right.amount - left.amount).slice(0, 5),
-    [expensesByCategory]
-  );
-
   const compareMax = useMemo(() => Math.max(totalRevenue, totalExpenses, 0), [totalRevenue, totalExpenses]);
-  const interpretationPayload = useMemo(
-    () => ({
-      totalRevenue,
-      totalExpenses,
-      totalCommissions,
-      paidTransactionCount: paidPayments.length,
-      expenseCount: expenses.length,
-      commissionCount: commissions.length,
-      netBalance: totalRevenue - totalExpenses,
-      topExpenseCategories,
-    }),
-    [commissions.length, expenses.length, paidPayments.length, topExpenseCategories, totalCommissions, totalExpenses, totalRevenue]
-  );
   const displayedInterpretationLines = aiInterpretationLines;
-
-  const handleGenerateInterpretation = async () => {
-    setInterpretationLoading(true);
-    setInterpretationError("");
-
-    try {
-      const response = await generateFinancialInterpretation(interpretationPayload);
-      setAiInterpretationLines(normalizeInterpretationLines(response?.insights));
-      setInterpretationModel(String(response?.model || "").trim());
-    } catch (_error) {
-      setAiInterpretationLines([]);
-      setInterpretationModel("");
-      setInterpretationError(
-        "Ollama interpretation is unavailable right now."
-      );
-    } finally {
-      setInterpretationLoading(false);
-    }
-  };
 
   const openExpenseModal = () => {
     setExpenseForm(createExpenseForm());
@@ -202,7 +128,7 @@ export default function AdminFinancialTracker() {
           title: "Interpretation",
           columns: ["Insight"],
           rows: displayedInterpretationLines.map((line) => [line]),
-          emptyMessage: "No Ollama interpretation has been generated yet.",
+          emptyMessage: "AI interpretation is temporarily unavailable.",
         },
         {
           title: "Filtered Expenses",
@@ -360,16 +286,19 @@ export default function AdminFinancialTracker() {
             <div className="finInterpretationHead">
               <div className="finCardTitle">Interpretation</div>
               <div className="finInterpretationMeta">
-                {interpretationModel ? <span className="finInterpretationStatus">Ollama-generated</span> : null}
-                <button className="finInterpretationBtn" type="button" onClick={handleGenerateInterpretation} disabled={interpretationLoading}>
-                  {interpretationLoading ? "Generating..." : interpretationModel ? "Regenerate with Ollama" : "Generate with Ollama"}
+                <button
+                  className="finInterpretationBtn"
+                  type="button"
+                  disabled={!isAiFeatureEnabled}
+                  title="AI feature coming soon"
+                >
+                  AI feature coming soon
                 </button>
               </div>
             </div>
-            {interpretationError ? <div className="finInterpretationError">{interpretationError}</div> : null}
             <div className="finInterpretationList">
               {displayedInterpretationLines.length === 0 ? (
-                <div className="finInterpretationEmpty">Generate with Ollama to create financial insights for this tracker.</div>
+                <div className="finInterpretationEmpty">AI insights are temporarily unavailable while a hosted provider is being prepared.</div>
               ) : (
                 displayedInterpretationLines.map((line) => (
                   <div key={line} className="finInterpretationItem">{line}</div>

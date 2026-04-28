@@ -30,13 +30,7 @@ const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
 const GOOGLE_SMTP_EMAIL = String(process.env.GOOGLE_SMTP_EMAIL || "").trim();
 const GOOGLE_SMTP_APP_PASSWORD = String(process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
 const GOOGLE_SMTP_FROM = String(process.env.GOOGLE_SMTP_FROM || GOOGLE_SMTP_EMAIL || "").trim();
-const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "").trim();
-const DEFAULT_OPENAI_ANALYTICS_MODEL = "gpt-5.2";
-const OPENAI_ANALYTICS_MODEL = normalizeOpenAiModelName(process.env.OPENAI_ANALYTICS_MODEL || DEFAULT_OPENAI_ANALYTICS_MODEL);
-const OLLAMA_BASE_URL = String(process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").trim().replace(/\/$/, "");
-const OLLAMA_MODEL = String(process.env.OLLAMA_MODEL || "llama3.2").trim();
-let cachedOllamaModelCatalog = null;
-let cachedOllamaModelCatalogExpiresAt = 0;
+const AI_PROVIDER_UNCONFIGURED_MESSAGE = "AI provider is not configured yet.";
 const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
@@ -53,74 +47,6 @@ app.use("/api", (_req, res, next) => {
 
 function createId(prefix) {
   return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
-}
-
-function normalizeOpenAiModelName(modelName) {
-  const normalized = String(modelName || "").trim();
-  if (!normalized) return DEFAULT_OPENAI_ANALYTICS_MODEL;
-
-  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(normalized)
-    ? normalized
-    : DEFAULT_OPENAI_ANALYTICS_MODEL;
-}
-
-async function listAvailableOllamaModels() {
-  const now = Date.now();
-  if (cachedOllamaModelCatalog && cachedOllamaModelCatalogExpiresAt > now) {
-    return cachedOllamaModelCatalog;
-  }
-
-  const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
-  if (!response.ok) {
-    throw new Error("Ollama model catalog request failed.");
-  }
-
-  const data = await response.json();
-  const models = Array.isArray(data?.models) ? data.models : [];
-  const names = Array.from(
-    new Set(
-      models
-        .map((entry) => String(entry?.name || "").trim())
-        .filter(Boolean)
-    )
-  );
-
-  cachedOllamaModelCatalog = names;
-  cachedOllamaModelCatalogExpiresAt = now + 30 * 1000;
-  return names;
-}
-
-async function resolveOllamaModelName(requestedModel) {
-  const normalizedRequestedModel = String(requestedModel || "").trim();
-  if (!normalizedRequestedModel) {
-    return { model: OLLAMA_MODEL, availableModels: [] };
-  }
-
-  let availableModels = [];
-  try {
-    availableModels = await listAvailableOllamaModels();
-  } catch (_error) {
-    return { model: normalizedRequestedModel, availableModels: [] };
-  }
-
-  if (!availableModels.length) {
-    return { model: normalizedRequestedModel, availableModels };
-  }
-
-  const exactMatch = availableModels.find(
-    (modelName) => modelName.toLowerCase() === normalizedRequestedModel.toLowerCase()
-  );
-  if (exactMatch) {
-    return { model: exactMatch, availableModels };
-  }
-
-  const requestedBaseName = normalizedRequestedModel.split(":")[0].toLowerCase();
-  const compatibleMatch = availableModels.find((modelName) => {
-    const lowered = modelName.toLowerCase();
-    return lowered === requestedBaseName || lowered.startsWith(`${requestedBaseName}:`);
-  });
-
-  return { model: compatibleMatch || normalizedRequestedModel, availableModels };
 }
 
 function toTimestamp() {
@@ -383,187 +309,14 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
   }
 }
 
-function sanitizeAnalyticsPayload(payload) {
-  const topServices = Array.isArray(payload?.topServices)
-    ? payload.topServices
-        .map((service) => ({
-          name: String(service?.name || "Unknown").trim() || "Unknown",
-          count: Math.max(0, Number(service?.count) || 0),
-        }))
-        .slice(0, 5)
-    : [];
-
-  const paymentSummaryEntries = Object.entries(payload?.paymentSummaryByMethod || {}).map(([method, value]) => [
-    String(method || "Unspecified").trim() || "Unspecified",
-    {
-      count: Math.max(0, Number(value?.count) || 0),
-      amount: Math.max(0, Number(value?.amount) || 0),
-    },
-  ]);
-
+function createAiUnavailablePayload(feature) {
   return {
-    totalSales: Math.max(0, Number(payload?.totalSales) || 0),
-    totalBookings: Math.max(0, Number(payload?.totalBookings) || 0),
-    avgRating: Math.max(0, Math.min(5, Number(payload?.avgRating) || 0)),
-    reviewCount: Math.max(0, Number(payload?.reviewCount) || 0),
-    topServices,
-    paymentSummaryByMethod: Object.fromEntries(paymentSummaryEntries),
-  };
-}
-
-function sanitizeFinancialPayload(payload) {
-  const topExpenseCategories = Array.isArray(payload?.topExpenseCategories)
-    ? payload.topExpenseCategories
-        .map((item) => ({
-          name: String(item?.name || "Uncategorized").trim() || "Uncategorized",
-          amount: Math.max(0, Number(item?.amount) || 0),
-        }))
-        .slice(0, 5)
-    : [];
-
-  return {
-    totalRevenue: Math.max(0, Number(payload?.totalRevenue) || 0),
-    totalExpenses: Math.max(0, Number(payload?.totalExpenses) || 0),
-    totalCommissions: Math.max(0, Number(payload?.totalCommissions) || 0),
-    paidTransactionCount: Math.max(0, Number(payload?.paidTransactionCount) || 0),
-    expenseCount: Math.max(0, Number(payload?.expenseCount) || 0),
-    commissionCount: Math.max(0, Number(payload?.commissionCount) || 0),
-    netBalance: Number.isFinite(Number(payload?.netBalance)) ? Number(payload.netBalance) : 0,
-    topExpenseCategories,
-  };
-}
-
-async function generateAnalyticsInterpretation(payload) {
-  const analytics = sanitizeAnalyticsPayload(payload);
-  const { model: resolvedModel, availableModels } = await resolveOllamaModelName(OLLAMA_MODEL);
-
-  let response;
-  try {
-    response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: resolvedModel,
-        stream: false,
-        prompt:
-          "You are an analytics assistant for a car service business. " +
-          "Write exactly 4 short interpretation lines based only on the provided metrics. " +
-          "Keep each line concise, practical, and easy for an admin to understand. " +
-          "Focus on sales, bookings, payment methods, services, and customer ratings. " +
-          "Do not add any introduction, heading, summary sentence, markdown bullets, or numbering. " +
-          "Return only the 4 interpretation lines, one line per insight.\n\n" +
-          `Analytics metrics: ${JSON.stringify(analytics)}`,
-      }),
-    });
-  } catch (error) {
-    const fallbackError = new Error("Ollama is unavailable right now.");
-    fallbackError.statusCode = 503;
-    throw fallbackError;
-  }
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    const rawMessage = String(data?.error || "Ollama could not generate analytics insights.").trim();
-    const isMissingModel = /model\s+['"]?.+['"]?\s+not found/i.test(rawMessage);
-    const availableModelMessage = availableModels.length
-      ? ` Available models: ${availableModels.join(", ")}.`
-      : "";
-
-    if (isMissingModel) {
-      const error = new Error(`Ollama model '${resolvedModel}' is not available.${availableModelMessage}`);
-      error.statusCode = 503;
-      throw error;
-    }
-
-    const error = new Error(rawMessage);
-    error.statusCode = response.status >= 500 ? 502 : response.status;
-    throw error;
-  }
-
-  const rawText = String(data?.response || "").trim();
-  const insights = rawText
-    .split(/\n+/)
-    .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
-    .filter(Boolean)
-    .slice(0, 5);
-
-  if (!insights.length) {
-    const error = new Error("Ollama returned an empty analytics interpretation.");
-    error.statusCode = 502;
-    throw error;
-  }
-
-  return {
-    insights,
-    model: resolvedModel,
-  };
-}
-
-async function generateFinancialInterpretation(payload) {
-  const financials = sanitizeFinancialPayload(payload);
-  const { model: resolvedModel, availableModels } = await resolveOllamaModelName(OLLAMA_MODEL);
-
-  let response;
-  try {
-    response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: resolvedModel,
-        stream: false,
-        prompt:
-          "You are a financial insights assistant for a car service business. " +
-          "Write exactly 4 short interpretation lines based only on the provided financial metrics. " +
-          "Keep each line concise, practical, and easy for an admin to understand. " +
-          "Focus on revenue, expenses, commissions, balance, and strongest expense categories. " +
-          "Do not add any introduction, heading, summary sentence, markdown bullets, or numbering. " +
-          "Return only the 4 interpretation lines, one line per insight.\n\n" +
-          `Financial metrics: ${JSON.stringify(financials)}`,
-      }),
-    });
-  } catch (error) {
-    const fallbackError = new Error("Ollama is unavailable right now.");
-    fallbackError.statusCode = 503;
-    throw fallbackError;
-  }
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    const rawMessage = String(data?.error || "Ollama could not generate financial insights.").trim();
-    const isMissingModel = /model\s+['"]?.+['"]?\s+not found/i.test(rawMessage);
-    const availableModelMessage = availableModels.length
-      ? ` Available models: ${availableModels.join(", ")}.`
-      : "";
-
-    if (isMissingModel) {
-      const error = new Error(`Ollama model '${resolvedModel}' is not available.${availableModelMessage}`);
-      error.statusCode = 503;
-      throw error;
-    }
-
-    const error = new Error(rawMessage);
-    error.statusCode = response.status >= 500 ? 502 : response.status;
-    throw error;
-  }
-
-  const rawText = String(data?.response || "").trim();
-  const insights = rawText
-    .split(/\n+/)
-    .map((line) => line.replace(/^[-*\d.\s]+/, "").trim())
-    .filter(Boolean)
-    .slice(0, 5);
-
-  if (!insights.length) {
-    const error = new Error("Ollama returned an empty financial interpretation.");
-    error.statusCode = 502;
-    throw error;
-  }
-
-  return {
-    insights,
-    model: resolvedModel,
+    available: false,
+    feature,
+    message: AI_PROVIDER_UNCONFIGURED_MESSAGE,
+    insights: [],
+    suggestion: "",
+    model: "",
   };
 }
 
@@ -1136,193 +889,6 @@ function isCompletedStatus(status) {
 
 function isPaidStatus(status) {
   return String(status || "").trim().toLowerCase() === "paid";
-}
-
-function getMarkerLocationLabel(marker) {
-  const x = Number(marker?.x || 50);
-  const y = Number(marker?.y || 50);
-  const horizontal = x < 34 ? "left" : x > 66 ? "right" : "center";
-  const vertical = y < 34 ? "front" : y > 66 ? "rear" : "middle";
-
-  if (horizontal === "center" && vertical === "middle") {
-    return "center body area";
-  }
-
-  if (horizontal === "center") {
-    return `${vertical} center area`;
-  }
-
-  if (vertical === "middle") {
-    return `${horizontal} side area`;
-  }
-
-  return `${vertical}-${horizontal} area`;
-}
-
-function sanitizeIssueMarkersForAi(markers, issueTypes = []) {
-  if (!Array.isArray(markers)) return [];
-
-  return markers
-    .map((marker, index) => {
-      const issueType = String(marker?.issueType || issueTypes[index] || "").trim();
-      const x = Number(marker?.x || 0);
-      const y = Number(marker?.y || 0);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-
-      return {
-        id: Number(marker?.id || index + 1),
-        x,
-        y,
-        location: getMarkerLocationLabel({ x, y }),
-        issueType: issueType || "Unspecified issue",
-      };
-    })
-    .filter(Boolean);
-}
-
-function formatIssueNoteSuggestion(text) {
-  const raw = String(text || "").replace(/\r/g, "").trim();
-  if (!raw) return "";
-
-  const cleaned = raw
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  if (/(Issue Summary|Likely Cause|Recommended Fix(?:es)?):/i.test(cleaned)) {
-    return cleaned
-      .replace(/\s+(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n$1")
-      .replace(/\n(?!\n)(Issue Summary:|Likely Cause:|Recommended Fix(?:es)?:)/gi, "\n\n$1")
-      .replace(/:\s+/g, ":\n")
-      .replace(/[ \t]+$/gm, "")
-      .trim();
-  }
-
-  const sentences = cleaned
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  if (!sentences.length) return cleaned;
-
-  const summary = sentences[0] || "";
-  const cause = sentences[1] || "";
-  const fix = sentences.slice(2).join(" ") || sentences[1] || "";
-
-  return [
-    summary ? `Issue Summary:\n${summary}` : "",
-    cause ? `Likely Cause:\n${cause}` : "",
-    fix ? `Recommended Fix:\n${fix}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-}
-
-function toTitleCase(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function buildIssueNoteSuggestionFallback(payload, markers, reason = "") {
-  const vehicle = String(payload?.vehicle || "").trim() || "Vehicle";
-  const service = String(payload?.service || "").trim() || "scheduled service";
-  const issueTypes = Array.from(
-    new Set(
-      markers
-        .map((marker) => toTitleCase(marker.issueType))
-        .filter(Boolean)
-    )
-  );
-  const issueTypeSummary = issueTypes.length ? issueTypes.join(", ") : "visible surface defects";
-  const markerSummary = markers
-    .map((marker) => `Marker ${marker.id} (${marker.location}): ${toTitleCase(marker.issueType)}`)
-    .join("; ");
-
-  const summary = `${vehicle} shows ${issueTypeSummary} requiring attention during ${service}. Affected areas: ${markerSummary}.`;
-  const cause = issueTypes.some((item) => /swirl/i.test(item))
-    ? "The selected areas may have light-to-moderate paint marring from washing friction, drying, or previous improper polishing."
-    : "The selected areas may be affected by normal wear, contamination, or previous handling that should be inspected before service starts.";
-  const fix = issueTypes.some((item) => /swirl/i.test(item))
-    ? "Inspect paint depth and finish condition, wash safely, decontaminate if needed, and recommend the least aggressive polishing or protection step that matches the defect severity."
-    : "Inspect the marked panels closely, confirm defect severity with the customer, and perform the appropriate cleaning, correction, or protection process for the selected service.";
-
-  return {
-    suggestion: `Issue Summary:\n${summary}\n\nLikely Cause:\n${cause}\n\nRecommended Fix:\n${fix}`.trim(),
-    markers,
-    model: "local-fallback",
-    fallbackReason: reason,
-  };
-}
-
-async function generateIssueNoteSuggestionWithOllama(payload) {
-  const markers = sanitizeIssueMarkersForAi(payload?.issueMarkers, payload?.issueTypes);
-  if (!markers.length) {
-    const error = new Error("Add at least one issue marker before generating notes.");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const promptPayload = {
-    vehicle: String(payload?.vehicle || "").trim() || "Vehicle",
-    service: String(payload?.service || "").trim() || "Unknown service",
-    markers,
-    extraIssueTypes: Array.isArray(payload?.issueTypes) ? payload.issueTypes.filter(Boolean) : [],
-  };
-
-  const { model: resolvedModel, availableModels } = await resolveOllamaModelName(OLLAMA_MODEL);
-
-  let response;
-  try {
-    response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: resolvedModel,
-        stream: false,
-        prompt:
-          "You are an expert car-care service advisor. Based on the vehicle issue markers and issue types, write a concise issue note for staff. " +
-          "Use plain text only and return exactly three labeled sections in this order: Issue Summary:, Likely Cause:, and Recommended Fix:. " +
-          "Place each label on its own line, keep the content brief and practical, and avoid markdown, numbering, or long paragraphs.\n\n" +
-          `Issue payload: ${JSON.stringify(promptPayload)}`,
-      }),
-    });
-  } catch (error) {
-    return buildIssueNoteSuggestionFallback(payload, markers, "ollama-unreachable");
-  }
-
-  const data = await response.json();
-  if (!response.ok) {
-    const rawMessage = String(data?.error || "Ollama could not generate issue notes.").trim();
-    const isMissingModel = /model\s+['"]?.+['"]?\s+not found/i.test(rawMessage);
-    const availableModelMessage = availableModels.length
-      ? ` Available models: ${availableModels.join(", ")}.`
-      : "";
-    if (isMissingModel) {
-      return buildIssueNoteSuggestionFallback(
-        payload,
-        markers,
-        `missing-model:${resolvedModel}${availableModelMessage ? `:${availableModelMessage}` : ""}`
-      );
-    }
-
-    const error = new Error(rawMessage);
-    error.statusCode = response.status >= 500 ? 502 : response.status;
-    throw error;
-  }
-
-  const suggestion = formatIssueNoteSuggestion(data?.response);
-  if (!suggestion) {
-    return buildIssueNoteSuggestionFallback(payload, markers, "empty-ollama-response");
-  }
-
-  return {
-    suggestion,
-    markers,
-    model: resolvedModel,
-  };
 }
 
 function normalizePaymentMethodLabel(method) {
@@ -2062,8 +1628,7 @@ app.post("/api/public/quotes", async (req, res, next) => {
 
 app.post("/api/admin/analytics/interpretation", async (req, res, next) => {
   try {
-    const result = await generateAnalyticsInterpretation(req.body || {});
-    res.json(result);
+    res.json(createAiUnavailablePayload("analytics-interpretation"));
   } catch (error) {
     if (error.statusCode) {
       res.status(error.statusCode).json({ message: error.message });
@@ -2076,8 +1641,7 @@ app.post("/api/admin/analytics/interpretation", async (req, res, next) => {
 
 app.post("/api/admin/financials/interpretation", async (req, res, next) => {
   try {
-    const result = await generateFinancialInterpretation(req.body || {});
-    res.json(result);
+    res.json(createAiUnavailablePayload("financial-interpretation"));
   } catch (error) {
     if (error.statusCode) {
       res.status(error.statusCode).json({ message: error.message });
@@ -2869,8 +2433,7 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
 
 app.post("/api/admin/issue-note-suggestion", async (req, res, next) => {
   try {
-    const result = await generateIssueNoteSuggestionWithOllama(req.body || {});
-    res.json(result);
+    res.json(createAiUnavailablePayload("issue-note-suggestion"));
   } catch (error) {
     next(error);
   }

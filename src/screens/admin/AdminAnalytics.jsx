@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
@@ -15,40 +15,10 @@ function normalizePaymentMethod(method) {
   return null;
 }
 
-function normalizeInterpretationLines(lines) {
-  const directLines = Array.isArray(lines)
-    ? lines.map((line) => String(line || "").trim()).filter(Boolean)
-    : [];
-
-  if (!directLines.length) return [];
-
-  const expandedLines = directLines.flatMap((line) => {
-    const sentenceMatches = line.match(/[^.!?]+[.!?]?/g) || [];
-    const normalizedSentences = sentenceMatches
-      .map((sentence) => sentence.replace(/\s+/g, " ").trim())
-      .filter(Boolean);
-
-    if (normalizedSentences.length >= 2 && line.length > 120) {
-      return normalizedSentences;
-    }
-
-    return [line];
-  });
-
-  return expandedLines
-    .filter((line) => {
-      const normalized = line.toLowerCase();
-      return !normalized.startsWith("here are") && !normalized.startsWith("below are") && !normalized.startsWith("based on the provided");
-    })
-    .slice(0, 4);
-}
-
 export default function AdminAnalytics() {
-  const { payments, bookings, reviews, generateAnalyticsInterpretation } = useAdminData();
-  const [aiInterpretationLines, setAiInterpretationLines] = useState([]);
-  const [interpretationLoading, setInterpretationLoading] = useState(false);
-  const [interpretationError, setInterpretationError] = useState("");
-  const [interpretationModel, setInterpretationModel] = useState("");
+  const { payments, bookings, reviews } = useAdminData();
+  const aiInterpretationLines = [];
+  const isAiFeatureEnabled = false;
   const paidPayments = useMemo(
     () => payments.filter((payment) => String(payment.status || "").toLowerCase() === "paid"),
     [payments]
@@ -111,35 +81,6 @@ export default function AdminAnalytics() {
     [avgRating]
   );
 
-  const interpretationPayload = useMemo(
-    () => ({
-      totalSales,
-      totalBookings,
-      avgRating,
-      reviewCount: reviews.length,
-      topServices,
-      paymentSummaryByMethod,
-    }),
-    [avgRating, paymentSummaryByMethod, reviews.length, topServices, totalBookings, totalSales]
-  );
-
-  const handleGenerateInterpretation = async () => {
-    setInterpretationLoading(true);
-    setInterpretationError("");
-
-    try {
-      const response = await generateAnalyticsInterpretation(interpretationPayload);
-      setAiInterpretationLines(normalizeInterpretationLines(response?.insights));
-      setInterpretationModel(String(response?.model || "").trim());
-    } catch (_error) {
-      setAiInterpretationLines([]);
-      setInterpretationModel("");
-      setInterpretationError("Ollama interpretation is unavailable right now.");
-    } finally {
-      setInterpretationLoading(false);
-    }
-  };
-
   const exportPdf = () =>
     exportTabularPdf({
       title: "Admin Analytics Report",
@@ -172,7 +113,7 @@ export default function AdminAnalytics() {
           title: "Interpretation",
           columns: ["Insight"],
           rows: aiInterpretationLines.map((line) => [line]),
-          emptyMessage: "No Ollama interpretation has been generated yet.",
+          emptyMessage: "AI interpretation is temporarily unavailable.",
         },
       ],
     });
@@ -240,16 +181,19 @@ export default function AdminAnalytics() {
               <div className="anaInterpretationHead">
                 <div className="anaInterpretationTitle">Interpretation</div>
                 <div className="anaInterpretationMeta">
-                  {interpretationModel ? <span className="anaInterpretationStatus">Ollama-generated</span> : null}
-                  <button className="anaInterpretationBtn" type="button" onClick={handleGenerateInterpretation} disabled={interpretationLoading}>
-                    {interpretationLoading ? "Generating..." : interpretationModel ? "Regenerate with Ollama" : "Generate with Ollama"}
+                  <button
+                    className="anaInterpretationBtn"
+                    type="button"
+                    disabled={!isAiFeatureEnabled}
+                    title="AI feature coming soon"
+                  >
+                    AI feature coming soon
                   </button>
                 </div>
               </div>
-              {interpretationError ? <div className="anaInterpretationError">{interpretationError}</div> : null}
               <div className="anaInterpretationList">
                 {aiInterpretationLines.length === 0 ? (
-                  <div className="anaInterpretationEmpty">Generate with Ollama to create analytics insights for this module.</div>
+                  <div className="anaInterpretationEmpty">AI insights are temporarily unavailable while a hosted provider is being prepared.</div>
                 ) : (
                   aiInterpretationLines.map((line) => (
                     <div key={line} className="anaInterpretationItem">{line}</div>
