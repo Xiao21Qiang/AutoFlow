@@ -1,4 +1,6 @@
-require("dotenv").config();
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+}
 
 const path = require("path");
 const express = require("express");
@@ -25,7 +27,7 @@ const {
 } = require("./models");
 
 const app = express();
-const PORT = Number(process.env.API_PORT || process.env.PORT || 4000);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 const CLIENT_APP_URL = String(process.env.CLIENT_APP_URL || "http://localhost:3000").trim();
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const BUILD_DIR = path.resolve(__dirname, "..", "build");
@@ -42,6 +44,7 @@ const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
 const DEFAULT_STAFF_SPECIAL_PIN = "1357";
 const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
 const INVOICE_TAX_RATE = 0.12;
+const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || "7d").trim();
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
 const GOOGLE_SMTP_EMAIL = String(process.env.EMAIL_USER || process.env.GOOGLE_SMTP_EMAIL || "").trim();
 const GOOGLE_SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
@@ -51,6 +54,92 @@ const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
 let otpMailTransportPromise = null;
+
+function base64UrlEncode(value) {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 ? "=".repeat(4 - (normalized.length % 4)) : "";
+  return Buffer.from(`${normalized}${padding}`, "base64").toString("utf8");
+}
+
+function getJwtSecret() {
+  const secret = String(process.env.JWT_SECRET || "").trim();
+  if (secret) return secret;
+  if (IS_PRODUCTION) {
+    throw new Error("Missing JWT_SECRET. Add a strong JWT secret to the production environment.");
+  }
+  return "autoflow-local-development-jwt-secret";
+}
+
+function parseJwtExpirySeconds(value) {
+  const raw = String(value || "7d").trim();
+  const match = raw.match(/^(\d+)\s*([smhd])?$/i);
+  if (!match) return 7 * 24 * 60 * 60;
+
+  const amount = Math.max(1, Number(match[1]) || 1);
+  const unit = String(match[2] || "s").toLowerCase();
+  if (unit === "m") return amount * 60;
+  if (unit === "h") return amount * 60 * 60;
+  if (unit === "d") return amount * 24 * 60 * 60;
+  return amount;
+}
+
+function signJwt(payload) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "HS256", typ: "JWT" };
+  const body = {
+    ...payload,
+    iat: now,
+    exp: now + parseJwtExpirySeconds(JWT_EXPIRES_IN),
+  };
+  const encodedHeader = base64UrlEncode(JSON.stringify(header));
+  const encodedPayload = base64UrlEncode(JSON.stringify(body));
+  const signature = crypto
+    .createHmac("sha256", getJwtSecret())
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function verifyJwt(token) {
+  const [encodedHeader, encodedPayload, signature] = String(token || "").split(".");
+  if (!encodedHeader || !encodedPayload || !signature) {
+    throw new Error("Invalid token.");
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", getJwtSecret())
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+
+  const provided = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+    throw new Error("Invalid token.");
+  }
+
+  const payload = JSON.parse(base64UrlDecode(encodedPayload));
+  if (Number(payload.exp || 0) <= Math.floor(Date.now() / 1000)) {
+    const error = new Error("Session expired. Please log in again.");
+    error.statusCode = 401;
+    throw error;
+  }
+
+  return payload;
+}
 
 function isAllowedCorsOrigin(origin, req) {
   if (!origin) return true;
@@ -84,6 +173,63 @@ app.use("/api", (_req, res, next) => {
   res.set("Expires", "0");
   next();
 });
+
+async function authenticateApi(req, res, next) {
+  try {
+    const authHeader = String(req.get("authorization") || "").trim();
+    const token = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+
+    if (!token) {
+      res.status(401).json({ message: "Authentication required." });
+      return;
+    }
+
+    const payload = verifyJwt(token);
+    const user = await User.findOne({ id: payload.sub, email: String(payload.email || "").toLowerCase() }).lean();
+    if (!user) {
+      res.status(401).json({ message: "Authentication required." });
+      return;
+    }
+
+    if (String(user.status || "active").toLowerCase() !== "active") {
+      res.status(403).json({ message: "This account is inactive." });
+      return;
+    }
+
+    req.authUser = {
+      id: user.id,
+      email: user.email,
+      userType: normalizeUserType(user.userType, user.role),
+      role: normalizeSubtype(user.userType, user.role),
+      name: user.name || `${user.first || ""} ${user.last || ""}`.trim(),
+    };
+    next();
+  } catch (error) {
+    res.status(error.statusCode || 401).json({ message: error.message || "Invalid or expired session." });
+  }
+}
+
+function requireAdminUser(req, res, next) {
+  if (normalizeUserType(req.authUser?.userType, req.authUser?.role) !== "admin") {
+    res.status(403).json({ message: "Admin access required." });
+    return;
+  }
+  next();
+}
+
+function requireRoles(...allowedRoles) {
+  const allowed = new Set(allowedRoles.map((role) => String(role || "").toLowerCase()));
+  return (req, res, next) => {
+    const userType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    if (!allowed.has(userType)) {
+      res.status(403).json({ message: "You do not have permission to perform this action." });
+      return;
+    }
+    next();
+  };
+}
 
 function createId(prefix) {
   return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
@@ -426,13 +572,21 @@ function toDisplaySubtype(userType, role) {
 
 function buildAuthPayload(user) {
   const userType = normalizeUserType(user.userType, user.role);
+  const role = normalizeSubtype(user.userType, user.role);
+  const token = signJwt({
+    sub: user.id,
+    email: user.email,
+    userType,
+    role,
+  });
+
   return {
-    token: `${userType}-session`,
+    token,
     user: {
       id: user.id,
       email: user.email,
       userType,
-      role: normalizeSubtype(user.userType, user.role),
+      role,
       name: user.name || `${user.first || ""} ${user.last || ""}`.trim(),
       first: user.first || "",
       last: user.last || "",
@@ -663,7 +817,7 @@ function maskPhone(phone) {
 async function getOtpMailTransport() {
   if (!GOOGLE_SMTP_EMAIL || !GOOGLE_SMTP_APP_PASSWORD || !GOOGLE_SMTP_FROM) {
     const error = new Error(
-      "Google SMTP is not configured. Add GOOGLE_SMTP_EMAIL, GOOGLE_SMTP_APP_PASSWORD, and GOOGLE_SMTP_FROM to the server environment."
+      "SMTP is not configured. Add EMAIL_USER, EMAIL_PASS, and EMAIL_FROM to the server environment. Legacy GOOGLE_SMTP_EMAIL, GOOGLE_SMTP_APP_PASSWORD, and GOOGLE_SMTP_FROM names are also supported."
     );
     error.statusCode = 503;
     throw error;
@@ -1901,12 +2055,73 @@ async function loadBootstrapData() {
   };
 }
 
+function filterBootstrapDataForRole(data, authUser = {}) {
+  const userType = normalizeUserType(authUser.userType, authUser.role);
+  if (userType === "admin") return data;
+
+  const email = String(authUser.email || "").trim().toLowerCase();
+  const ownUser = data.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
+
+  if (userType === "customer") {
+    return {
+      ...data,
+      bookings: data.bookings.filter((booking) => String(booking.customerEmail || "").trim().toLowerCase() === email),
+      payments: data.payments.filter((payment) => String(payment.customerEmail || "").trim().toLowerCase() === email),
+      users: ownUser ? [ownUser] : [],
+      stockMonitoring: [],
+      auditLogs: [],
+      archivedAuditLogs: [],
+      quoteRequests: [],
+      expenses: [],
+      commissions: [],
+      promos: data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
+      rewards: data.rewards.filter((reward) => reward.active !== false),
+      customerRewards: data.customerRewards.filter((reward) => String(reward.customerEmail || "").trim().toLowerCase() === email),
+      alerts: [],
+    };
+  }
+
+  if (userType === "staff") {
+    return {
+      ...data,
+      users: data.users.filter((user) => normalizeUserType(user.userType, user.role) !== "admin"),
+      auditLogs: [],
+      archivedAuditLogs: [],
+      quoteRequests: [],
+      expenses: [],
+      commissions: [],
+      customerRewards: data.customerRewards,
+      rewards: data.rewards,
+    };
+  }
+
+  return {
+    ...data,
+    bookings: [],
+    payments: [],
+    users: ownUser ? [ownUser] : [],
+    stockMonitoring: [],
+    auditLogs: [],
+    archivedAuditLogs: [],
+    quoteRequests: [],
+    expenses: [],
+    commissions: [],
+    customerRewards: [],
+    alerts: [],
+  };
+}
+
 function sendHealth(res) {
   res.json({
     status: "ok",
     database: getDatabaseState(),
     timestamp: new Date().toISOString(),
   });
+}
+
+function validateProductionEnvironment() {
+  if (!IS_PRODUCTION) return;
+  getJwtSecret();
 }
 
 app.get("/health", (_req, res) => {
@@ -1941,15 +2156,26 @@ app.get("/api/reference/vehicle-makes", async (_req, res, next) => {
   }
 });
 
-app.get("/api/admin/bootstrap", async (_req, res, next) => {
+app.get("/api/public/services", async (_req, res, next) => {
   try {
-    res.json(await loadBootstrapData());
+    const services = await Service.find({}).sort({ createdAt: 1 }).lean();
+    res.json({ services: services.map((service) => hydrateService(service)).filter((service) => service.enabled !== false) });
   } catch (error) {
     next(error);
   }
 });
 
-app.get("/api/admin/security-controls", async (_req, res, next) => {
+app.use("/api/admin", authenticateApi);
+
+app.get("/api/admin/bootstrap", async (_req, res, next) => {
+  try {
+    res.json(filterBootstrapDataForRole(await loadBootstrapData(), _req.authUser));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/security-controls", requireAdminUser, async (_req, res, next) => {
   try {
     const setting = await getOrCreateSecuritySetting();
     res.json({
@@ -1968,11 +2194,11 @@ app.get("/api/admin/security-controls", async (_req, res, next) => {
   }
 });
 
-app.post("/api/admin/security/validate", async (req, res, next) => {
+app.post("/api/admin/security/validate", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const mode = String(req.body.mode || "pin").trim().toLowerCase();
     const scope = String(req.body.scope || "admin").trim().toLowerCase() === "staff" ? "staff" : "admin";
-    const actorType = normalizeUserType(req.body.actorUserType, req.body.actorRole);
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     if (actorType === "staff" && scope === "admin") {
       res.status(403).json({ message: "Staff actions must use staff security credentials." });
       return;
@@ -1989,7 +2215,7 @@ app.post("/api/admin/security/validate", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/security/verify-password", async (req, res, next) => {
+app.post("/api/admin/security/verify-password", requireAdminUser, async (req, res, next) => {
   try {
     const user = await verifyAdminAccountPassword(req.body.email, req.body.currentPassword);
     if (!user) {
@@ -2002,7 +2228,7 @@ app.post("/api/admin/security/verify-password", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/security-controls", async (req, res, next) => {
+app.put("/api/admin/security-controls", requireAdminUser, async (req, res, next) => {
   try {
     const user = await verifyAdminAccountPassword(req.body.email, req.body.currentPassword);
     if (!user) {
@@ -2122,7 +2348,7 @@ app.post("/api/public/quotes", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/quote-requests/:id", async (req, res, next) => {
+app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const status = normalizeQuoteStatus(req.body.status);
     const quoteRequest = await QuoteRequest.findOneAndUpdate(
@@ -2141,7 +2367,7 @@ app.put("/api/admin/quote-requests/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/analytics/interpretation", async (req, res, next) => {
+app.post("/api/admin/analytics/interpretation", requireAdminUser, async (req, res, next) => {
   try {
     res.json(createAiUnavailablePayload("analytics-interpretation"));
   } catch (error) {
@@ -2154,7 +2380,7 @@ app.post("/api/admin/analytics/interpretation", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/financials/interpretation", async (req, res, next) => {
+app.post("/api/admin/financials/interpretation", requireAdminUser, async (req, res, next) => {
   try {
     res.json(createAiUnavailablePayload("financial-interpretation"));
   } catch (error) {
@@ -2539,17 +2765,19 @@ app.post("/api/auth/password-change/reset", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/bookings", async (req, res, next) => {
+app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
     const bookingDate = String(req.body.date || "").trim();
     const bookingTime = String(req.body.time || "").trim();
-    const hasActorType = Object.prototype.hasOwnProperty.call(req.body, "actorUserType") || Object.prototype.hasOwnProperty.call(req.body, "actorRole");
-    const actorType = hasActorType ? normalizeUserType(req.body.actorUserType, req.body.actorRole) : "";
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     const isCustomerRequested =
-      req.body.customerRequested === true ||
-      String(req.body.customerRequested || "").toLowerCase() === "true" ||
-      String(req.body.bookingSource || "").trim().toLowerCase() === "customer" ||
       actorType === "customer";
+    const bookingCustomerEmail = isCustomerRequested
+      ? String(req.authUser?.email || "").trim().toLowerCase()
+      : String(req.body.customerEmail || "").trim().toLowerCase();
+    const bookingCustomerName = isCustomerRequested
+      ? (req.authUser?.name || req.body.customer || "")
+      : (req.body.customer || "");
 
     if (isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
@@ -2577,8 +2805,8 @@ app.post("/api/admin/bookings", async (req, res, next) => {
     await enforcePromoUsagePerUserLimit({
       promo: promoResolution?.hydratedPromo || null,
       promoId: promoResolution?.hydratedPromo?.id || "",
-      customerEmail: req.body.customerEmail,
-      customerName: req.body.customer,
+      customerEmail: bookingCustomerEmail,
+      customerName: bookingCustomerName,
     });
     const baseAmount = await resolveBookingBaseAmount(
       req.body.service,
@@ -2591,8 +2819,8 @@ app.post("/api/admin/bookings", async (req, res, next) => {
     );
     const rewardPricing = await validateCustomerRewardForUse({
       rewardId: req.body.rewardId,
-      customerEmail: req.body.customerEmail,
-      customerName: req.body.customer,
+      customerEmail: bookingCustomerEmail,
+      customerName: bookingCustomerName,
       baseAmount: pricing.amount,
     });
 
@@ -2600,6 +2828,8 @@ app.post("/api/admin/bookings", async (req, res, next) => {
       id: createId("B"),
       plate: "",
       ...req.body,
+      customer: bookingCustomerName,
+      customerEmail: bookingCustomerEmail,
       time: bookingTime || "Pending Assignment",
       status: bookingTime ? (req.body.status || "Scheduled") : (req.body.status || "Pending Confirmation"),
       placeSlot: bookingTime ? Number(req.body.placeSlot || 0) : 0,
@@ -2668,7 +2898,7 @@ app.post("/api/admin/bookings", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/bookings/:id", async (req, res, next) => {
+app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const existingBooking = await Booking.findOne({ id: req.params.id });
 
@@ -2880,7 +3110,7 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/admin/bookings/:id", async (req, res, next) => {
+app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) => {
   try {
     const booking = await Booking.findOne({ id: req.params.id }).lean();
     if (!booking) {
@@ -2900,7 +3130,7 @@ app.delete("/api/admin/bookings/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/services", async (req, res, next) => {
+app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
   try {
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
     const consumablesBySize = buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables);
@@ -2920,7 +3150,7 @@ app.post("/api/admin/services", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/services/:id", async (req, res, next) => {
+app.put("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
   try {
     const service = await Service.findOne({ id: req.params.id });
     const existingService = service?.toObject ? service.toObject() : null;
@@ -2962,7 +3192,7 @@ app.put("/api/admin/services/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/admin/services/:id", async (req, res, next) => {
+app.delete("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
   try {
     await Service.findOneAndDelete({ id: req.params.id });
     await recordAudit(req.body?.auditUser || req.query.auditUser, "Deleted service", req.params.id);
@@ -2972,7 +3202,7 @@ app.delete("/api/admin/services/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/stock-monitoring", async (req, res, next) => {
+app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.create({ id: createId("INV"), ...req.body });
     const initialStock = Number(req.body.currentStock || 0);
@@ -2998,7 +3228,7 @@ app.post("/api/admin/stock-monitoring", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/stock-monitoring/:id", async (req, res, next) => {
+app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, req.body, { new: true });
     await recordAudit(req.body.auditUser, "Updated stock monitoring item", req.params.id);
@@ -3008,7 +3238,7 @@ app.put("/api/admin/stock-monitoring/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/stock-monitoring/:id/restock", async (req, res, next) => {
+app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.findOne({ id: req.params.id });
     if (!item) {
@@ -3052,7 +3282,7 @@ app.post("/api/admin/stock-monitoring/:id/restock", async (req, res, next) => {
   }
 });
 
-app.delete("/api/admin/stock-monitoring/:id", async (req, res, next) => {
+app.delete("/api/admin/stock-monitoring/:id", requireAdminUser, async (req, res, next) => {
   try {
     await StockMonitoringItem.findOneAndDelete({ id: req.params.id });
     await recordAudit(req.query.auditUser, "Deleted stock monitoring item", req.params.id);
@@ -3062,7 +3292,7 @@ app.delete("/api/admin/stock-monitoring/:id", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/payments/:id", async (req, res, next) => {
+app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
     const existingPayment = await Payment.findOne({ id: req.params.id }).lean();
     if (!existingPayment) {
@@ -3079,10 +3309,19 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
       return;
     }
 
-    const actorEmail = String(req.body.auditUser || "").trim().toLowerCase();
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const actorEmail = String(req.authUser?.email || "").trim().toLowerCase();
     const customerEmail = String(existingPayment.customerEmail || "").trim().toLowerCase();
-    const isCustomerSubmittingOwnPayment = Boolean(actorEmail && customerEmail && actorEmail === customerEmail);
+    const isCustomerSubmittingOwnPayment = actorType === "customer" && Boolean(actorEmail && customerEmail && actorEmail === customerEmail);
     const nextStatus = String(req.body.status || "");
+    if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
+      res.status(403).json({ message: "You can only update your own payment records." });
+      return;
+    }
+    if (actorType === "customer" && nextStatus && nextStatus !== "For Verification") {
+      res.status(403).json({ message: "Customers can only submit payments for verification." });
+      return;
+    }
     const rewardId = Object.prototype.hasOwnProperty.call(req.body, "rewardId")
       ? String(req.body.rewardId || "").trim()
       : String(existingPayment.rewardId || "").trim();
@@ -3112,18 +3351,29 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
           excludePaymentId: existingPayment.id,
         });
     const reviewFields =
-      nextStatus === "Paid" || nextStatus === "Rejected"
+      actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected")
         ? {
             reviewedAt: new Date().toISOString(),
-            reviewedBy: req.body.auditUser || "",
+            reviewedBy: req.authUser?.email || req.body.auditUser || "",
           }
         : {};
     const nextPayload = isCustomerSubmittingOwnPayment
-      ? { ...req.body, ...reviewFields, ...rewardPricing, method: normalizePaymentMethodLabel(req.body.method) }
+      ? {
+          method: normalizePaymentMethodLabel(req.body.method || existingPayment.method),
+          reference: req.body.reference || "",
+          notes: req.body.notes || "",
+          proofImage: req.body.proofImage || existingPayment.proofImage || "",
+          proofFileName: req.body.proofFileName || existingPayment.proofFileName || "",
+          proofSubmittedAt: req.body.proofSubmittedAt || new Date().toISOString(),
+          status: "For Verification",
+          auditUser: actorEmail,
+          ...rewardPricing,
+        }
       : {
           ...req.body,
           ...reviewFields,
           ...rewardPricing,
+          auditUser: req.authUser?.email || req.body.auditUser || "",
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
         };
@@ -3134,7 +3384,7 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
       { new: true }
     );
     await recordAudit(
-      req.body.auditUser,
+      req.authUser?.email || req.body.auditUser,
       getPaymentAuditAction(existingPayment, nextPayload),
       req.params.id,
       {
@@ -3185,7 +3435,7 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/issue-note-suggestion", async (req, res, next) => {
+app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     res.json(createAiUnavailablePayload("issue-note-suggestion"));
   } catch (error) {
@@ -3196,19 +3446,47 @@ app.post("/api/admin/issue-note-suggestion", async (req, res, next) => {
 app.put("/api/admin/users/:id", async (req, res, next) => {
   try {
     const existingUser = await User.findOne({ id: req.params.id }).lean();
-    const nextUserType = toDisplayUserType(req.body.userType, req.body.role);
-    const payload = {
-      ...req.body,
-      userType: nextUserType,
-      role: toDisplaySubtype(nextUserType, req.body.role),
-      name: req.body.name || (String(req.body.first || "") + " " + String(req.body.last || "")).trim(),
-    };
+    if (!existingUser) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const isSelfUpdate = String(req.authUser?.id || "") === String(req.params.id || "");
+    if (actorType !== "admin" && !isSelfUpdate) {
+      res.status(403).json({ message: "You can only update your own profile." });
+      return;
+    }
+
+    const nextUserType = actorType === "admin"
+      ? toDisplayUserType(req.body.userType, req.body.role)
+      : existingUser.userType;
+    const payload = actorType === "admin"
+      ? {
+          ...req.body,
+          userType: nextUserType,
+          role: toDisplaySubtype(nextUserType, req.body.role),
+          name: req.body.name || (String(req.body.first || "") + " " + String(req.body.last || "")).trim(),
+        }
+      : {
+          first: req.body.first ?? existingUser.first,
+          last: req.body.last ?? existingUser.last,
+          name: req.body.name || `${String(req.body.first ?? existingUser.first ?? "")} ${String(req.body.last ?? existingUser.last ?? "")}`.trim() || existingUser.name,
+          email: req.body.email ?? existingUser.email,
+          phone: req.body.phone ?? existingUser.phone,
+          userType: existingUser.userType,
+          role: existingUser.role,
+          status: existingUser.status,
+        };
+    if (actorType !== "admin" && Object.prototype.hasOwnProperty.call(req.body, "password")) {
+      payload.password = req.body.password;
+    }
 
     if (nextUserType === "Customer") {
-      const bookingCount = await Booking.countDocuments({ customerEmail: String(req.body.email || "").trim().toLowerCase() });
+      const bookingCount = await Booking.countDocuments({ customerEmail: String(payload.email || "").trim().toLowerCase() });
       payload.role = bookingCount >= 2 ? "Returning" : "New";
-      payload.cars = normalizeCustomerCars(req.body.cars);
-    } else {
+      payload.cars = normalizeCustomerCars(req.body.cars ?? existingUser.cars);
+    } else if (actorType === "admin") {
       payload.cars = [];
     }
 
@@ -3221,7 +3499,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     }
 
     const user = await User.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
-    await recordAudit(req.body.auditUser, getUserAuditAction(existingUser, payload), req.params.id, {
+    await recordAudit(req.authUser?.email || req.body.auditUser, getUserAuditAction(existingUser, payload), req.params.id, {
       email: payload.email,
       status: payload.status,
     });
@@ -3231,7 +3509,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/admin/users/:id", async (req, res, next) => {
+app.delete("/api/admin/users/:id", requireAdminUser, async (req, res, next) => {
   try {
     await User.findOneAndDelete({ id: req.params.id });
     await recordAudit(req.query.auditUser, "Deleted user", req.params.id);
@@ -3241,7 +3519,7 @@ app.delete("/api/admin/users/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/audit-logs/archive", async (req, res, next) => {
+app.post("/api/admin/audit-logs/archive", requireAdminUser, async (req, res, next) => {
   try {
     const auditUser = req.body?.auditUser || req.query?.auditUser || "system";
     const archivedAt = new Date().toISOString();
@@ -3275,7 +3553,7 @@ app.post("/api/admin/audit-logs/archive", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/audit-logs/unarchive", async (req, res, next) => {
+app.post("/api/admin/audit-logs/unarchive", requireAdminUser, async (req, res, next) => {
   try {
     const auditUser = req.body?.auditUser || req.query?.auditUser || "system";
 
@@ -3298,24 +3576,25 @@ app.post("/api/admin/audit-logs/unarchive", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/reviews", async (req, res, next) => {
+app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     const review = await Review.create({
       id: createId("REV"),
-      customer: req.body.customer || "Customer",
-      customerEmail: req.body.customerEmail || "",
+      customer: actorType === "customer" ? (req.authUser?.name || "Customer") : (req.body.customer || "Customer"),
+      customerEmail: actorType === "customer" ? (req.authUser?.email || "") : (req.body.customerEmail || ""),
       rating: Number(req.body.rating || 5),
       comment: req.body.comment || "",
     });
-    await recordAudit(req.body.auditUser, "Created review", review.id, { customer: review.customer });
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Created review", review.id, { customer: review.customer });
     res.status(201).json(review);
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/admin/promos", async (req, res, next) => {
+app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const title = String(req.body.title || "").trim();
@@ -3387,7 +3666,7 @@ app.post("/api/admin/promos", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/promos/:id", async (req, res, next) => {
+app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const existingPromo = await Promo.findOne({ id: req.params.id });
@@ -3469,7 +3748,7 @@ app.put("/api/admin/promos/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/promos/:id/use", async (req, res, next) => {
+app.post("/api/admin/promos/:id/use", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const promo = await Promo.findOne({ id: req.params.id });
@@ -3499,7 +3778,7 @@ app.post("/api/admin/promos/:id/use", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/rewards", async (req, res, next) => {
+app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const payload = normalizeRewardPayload(req.body);
@@ -3519,7 +3798,7 @@ app.post("/api/admin/rewards", async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/rewards/:id", async (req, res, next) => {
+app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const existingReward = await Reward.findOne({ id: req.params.id });
@@ -3544,7 +3823,7 @@ app.put("/api/admin/rewards/:id", async (req, res, next) => {
   }
 });
 
-app.delete("/api/admin/rewards/:id", async (req, res, next) => {
+app.delete("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const reward = await Reward.findOneAndDelete({ id: req.params.id });
@@ -3559,7 +3838,7 @@ app.delete("/api/admin/rewards/:id", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/rewards/generate", async (req, res, next) => {
+app.post("/api/admin/rewards/generate", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
@@ -3576,7 +3855,7 @@ app.post("/api/admin/rewards/generate", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/expenses", async (req, res, next) => {
+app.post("/api/admin/expenses", requireAdminUser, async (req, res, next) => {
   try {
     const expense = await Expense.create({
       id: createId("E"),
@@ -3598,7 +3877,7 @@ app.post("/api/admin/expenses", async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/commissions", async (_req, res) => {
+app.post("/api/admin/commissions", requireAdminUser, async (_req, res) => {
   res.status(403).json({ message: "Commission entries are generated automatically when a staff-assigned booking is marked completed." });
 });
 
@@ -3621,6 +3900,7 @@ app.use((error, _req, res, _next) => {
 });
 
 async function start() {
+  validateProductionEnvironment();
   await connectToDatabase();
   await migrateStockMonitoringCollection();
   await ensureSeedData();

@@ -12,41 +12,8 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function mapTrackingRecord(booking) {
-  if (!booking) return null;
-
-  return {
-    id: booking.id,
-    customer: booking.customer,
-    vehicle: booking.vehicle,
-    plate: booking.plate || "",
-    service: booking.service,
-    assigned: booking.assigned || "",
-    date: booking.date,
-    time: booking.time || "",
-    status: booking.status,
-    issueNote: booking.issueNote || "",
-    issueTypes: booking.issueTypes || [],
-    issueMarkers: booking.issueMarkers || [],
-    updatedAt: booking.updatedAt,
-  };
-}
-
 async function loadTrackingRecord(bookingId) {
-  try {
-    return await apiRequest(`/api/tracking/${encodeURIComponent(bookingId)}`);
-  } catch (_trackingError) {
-    const bootstrap = await apiRequest("/api/admin/bootstrap");
-    const booking = Array.isArray(bootstrap?.bookings)
-      ? bootstrap.bookings.find((item) => String(item?.id || "") === bookingId)
-      : null;
-
-    if (!booking) {
-      throw new Error("Tracking record not found.");
-    }
-
-    return mapTrackingRecord(booking);
-  }
+  return await apiRequest(`/api/tracking/${encodeURIComponent(bookingId)}`);
 }
 
 export default function CustomerTrackingView() {

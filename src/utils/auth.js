@@ -83,8 +83,27 @@ export function touchAuthActivity() {
   localStorage.setItem(AUTH_LAST_ACTIVITY_KEY, String(Date.now()));
 }
 
+function decodeJwtPayload(token) {
+  try {
+    const [, payload] = String(token || "").split(".");
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    return JSON.parse(window.atob(padded));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isTokenExpired(token) {
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return true;
+  return Number(payload.exp) * 1000 <= Date.now();
+}
+
 export function isAuthExpired(auth = getStoredAuth()) {
   if (!canUseStorage() || !auth) return false;
+  if (isTokenExpired(auth.token)) return true;
 
   const lastActivity = Number(localStorage.getItem(AUTH_LAST_ACTIVITY_KEY) || Date.now());
   return Date.now() - lastActivity > getSessionTimeoutMs(auth.user);

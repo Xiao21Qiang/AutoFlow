@@ -3,10 +3,10 @@ const mongoose = require("mongoose");
 let connectionPromise;
 
 function connectToDatabase() {
-  const mongoUri = String(process.env.MONGO_URI || process.env.MONGO_URL || process.env.MONGODB_URI || "").trim();
+  const mongoUri = String(process.env.MONGO_URI || process.env.MONGODB_URI || process.env.MONGO_URL || "").trim();
 
   if (!mongoUri) {
-    throw new Error("Missing MONGO_URI or MONGO_URL. Add a MongoDB connection string to the server environment before starting AutoFlow.");
+    throw new Error("Missing MONGO_URI, MONGODB_URI, or MONGO_URL. Add a MongoDB connection string to the server environment before starting AutoFlow.");
   }
 
   if (!connectionPromise) {

@@ -42,6 +42,11 @@ function appendCacheBust(url) {
   return `${url}${url.includes("?") ? "&" : "?"}_ts=${Date.now()}`;
 }
 
+function getStoredToken() {
+  if (typeof window === "undefined" || !window.localStorage) return "";
+  return localStorage.getItem("token") || "";
+}
+
 export async function apiRequest(path, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
   let requestUrl = buildRequestUrl(path);
@@ -52,13 +57,20 @@ export async function apiRequest(path, options = {}) {
   let response;
 
   try {
+    const token = getStoredToken();
+    const headers = {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    };
+
+    if (token && !headers.Authorization && !headers.authorization) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     response = await fetch(requestUrl, {
       cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
       ...options,
+      headers,
     });
   } catch (error) {
     const target = API_BASE_URL || "the same-origin API";
@@ -71,6 +83,11 @@ export async function apiRequest(path, options = {}) {
 
   const data = await response.json();
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined" && window.localStorage) {
+      ["token", "user", "session", "currentUser", "authLoginAt", "authLastActivity"].forEach((key) => {
+        localStorage.removeItem(key);
+      });
+    }
     throw new Error(data.message || "Request failed");
   }
 

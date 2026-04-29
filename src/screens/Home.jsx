@@ -94,7 +94,7 @@ export default function Home() {
 
     const loadServices = async () => {
       try {
-        const payload = await apiRequest("/api/admin/bootstrap");
+        const payload = await apiRequest("/api/public/services");
         if (!active) return;
         setServiceCatalog(Array.isArray(payload?.services) ? payload.services.filter((service) => service?.enabled !== false) : []);
       } catch (_error) {

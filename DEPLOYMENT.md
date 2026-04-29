@@ -38,6 +38,7 @@ npm start
 NODE_ENV=production
 PORT=
 MONGO_URI=
+MONGODB_URI=
 JWT_SECRET=
 JWT_EXPIRES_IN=
 CORS_ORIGIN=
@@ -49,7 +50,7 @@ EMAIL_FROM=
 Notes:
 
 - Railway injects `PORT` automatically. Leave it blank unless you have a special reason.
-- Use `MONGO_URI` or `MONGO_URL` for the production MongoDB connection string.
+- Use `MONGO_URI`, `MONGODB_URI`, or `MONGO_URL` for the production MongoDB connection string.
 - `CORS_ORIGIN` is optional for same-service deployment. If you later add a custom frontend domain or separate frontend service, set it to that origin. Multiple origins can be comma-separated.
 - `EMAIL_USER`, `EMAIL_PASS`, and `EMAIL_FROM` are used for OTP email delivery. The older `GOOGLE_SMTP_EMAIL`, `GOOGLE_SMTP_APP_PASSWORD`, and `GOOGLE_SMTP_FROM` names still work as aliases.
 - `REACT_APP_API_URL` should usually be blank in Railway so React uses same-origin `/api/...` calls.
@@ -61,8 +62,10 @@ Notes:
 2. Create a database user with a strong password.
 3. Add Railway outbound access to Atlas Network Access. For a simple student/project deployment, `0.0.0.0/0` works, but a narrower allowlist is better when available.
 4. Copy the Atlas connection string.
-5. Set it as `MONGO_URI` in Railway.
+5. Set it as `MONGO_URI` or `MONGODB_URI` in Railway.
 6. Do not commit the real connection string.
+
+On first production startup, AutoFlow seeds default records when the database is empty. After deploying, sign in with the seeded admin account only long enough to create/update your real admin account, then change the default password immediately from the profile/security screens.
 
 ## Domain Setup Later
 
@@ -111,7 +114,7 @@ Railway sets `PORT` automatically. Locally, the server falls back to `4000`.
 
 ### Missing MONGO_URI
 
-The server fails clearly if no MongoDB URI is configured. Set `MONGO_URI` or `MONGO_URL`.
+The server fails clearly if no MongoDB URI is configured. Set `MONGO_URI`, `MONGODB_URI`, or `MONGO_URL`.
 
 ### Localhost API Errors In Production
 
