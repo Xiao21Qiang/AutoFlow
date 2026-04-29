@@ -8,7 +8,7 @@ const cors = require("cors");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
-const { connectToDatabase, getDatabaseState } = require("./db");
+const { connectToDatabase, getDatabaseName, getDatabaseState, getMongoEnvName } = require("./db");
 const {
   Booking,
   Service,
@@ -43,6 +43,10 @@ const DEFAULT_SPECIAL_PIN = "2468";
 const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
 const DEFAULT_STAFF_SPECIAL_PIN = "1357";
 const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
+const ADMIN_SEED_EMAIL = String(process.env.ADMIN_SEED_EMAIL || "").trim().toLowerCase();
+const ADMIN_SEED_PASSWORD = String(process.env.ADMIN_SEED_PASSWORD || "");
+const ADMIN_SEED_NAME = String(process.env.ADMIN_SEED_NAME || "Production Admin").trim();
+const ADMIN_SEED_PHONE = String(process.env.ADMIN_SEED_PHONE || "").trim();
 const INVOICE_TAX_RATE = 0.12;
 const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || "7d").trim();
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
@@ -860,6 +864,7 @@ async function getSmtpMailTransport() {
 async function sendEmail({ to, subject, text, html }) {
   if (!EMAIL_FROM) {
     const error = new Error("Email sender is not configured. Add EMAIL_FROM to the server environment.");
+    error.publicMessage = "Email provider configuration is missing. EMAIL_FROM is not set.";
     error.statusCode = 503;
     throw error;
   }
@@ -870,6 +875,7 @@ async function sendEmail({ to, subject, text, html }) {
       const error = new Error(
         "Resend email is not configured. Add EMAIL_PROVIDER=resend, RESEND_API_KEY, and EMAIL_FROM to the server environment."
       );
+      error.publicMessage = "Email provider configuration is missing. RESEND_API_KEY is not set.";
       error.statusCode = 503;
       throw error;
     }
@@ -898,9 +904,19 @@ async function sendEmail({ to, subject, text, html }) {
         details = await response.text().catch(() => "");
       }
 
+      console.error("[email] Resend rejected send request.", {
+        status: response.status,
+        provider,
+        from: EMAIL_FROM,
+        to: maskEmail(to),
+        details,
+      });
       const error = new Error(
         `Resend email send failed. Check RESEND_API_KEY, EMAIL_FROM/domain verification, and recipient address.${details ? ` Provider response: ${details}` : ""}`
       );
+      error.publicMessage = details
+        ? `Email provider rejected the send request: ${details}`
+        : "Email provider rejected the send request.";
       error.statusCode = 503;
       throw error;
     }
@@ -916,6 +932,15 @@ async function sendEmail({ to, subject, text, html }) {
     text,
     html,
   });
+}
+
+function wrapEmailDeliveryError(label, error) {
+  console.error(`[email] ${label} failed:`, error.message || error);
+  const wrappedError = new Error(
+    error.publicMessage || `Could not send the ${label}. Check the configured email provider settings.`
+  );
+  wrappedError.statusCode = error.statusCode || 503;
+  return wrappedError;
 }
 
 async function sendSignupOtpEmail({ email, otp }) {
@@ -944,12 +969,7 @@ async function sendSignupOtpEmail({ email, otp }) {
       `,
     });
   } catch (error) {
-    console.error("Failed to send signup OTP email:", error.message || error);
-    const serviceError = new Error(
-      "Could not send the signup OTP email. Check the configured email provider settings."
-    );
-    serviceError.statusCode = 503;
-    throw serviceError;
+    throw wrapEmailDeliveryError("signup OTP email", error);
   }
 
   return {
@@ -982,12 +1002,7 @@ async function sendPasswordChangeOtpEmail({ email, otp }) {
       `,
     });
   } catch (error) {
-    console.error("Failed to send password change OTP email:", error.message || error);
-    const wrappedError = new Error(
-      "Could not send the password change OTP email. Check the configured email provider settings."
-    );
-    wrappedError.statusCode = 503;
-    throw wrappedError;
+    throw wrapEmailDeliveryError("password change OTP email", error);
   }
 
   return {
@@ -1687,6 +1702,50 @@ async function ensureSeedData() {
 
 }
 
+async function ensureProductionAdminFromEnv() {
+  if (!ADMIN_SEED_EMAIL && !ADMIN_SEED_PASSWORD) return;
+
+  if (!ADMIN_SEED_EMAIL || !ADMIN_SEED_PASSWORD) {
+    console.warn("[startup] ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD must both be set to create a production admin.");
+    return;
+  }
+
+  if (ADMIN_SEED_PASSWORD.length < 8) {
+    console.warn("[startup] ADMIN_SEED_PASSWORD must be at least 8 characters. Production admin was not created.");
+    return;
+  }
+
+  const existing = await User.findOne({ email: ADMIN_SEED_EMAIL }).lean();
+  if (existing) {
+    console.log("[startup] Production admin seed skipped; account already exists.", {
+      email: ADMIN_SEED_EMAIL,
+    });
+    return;
+  }
+
+  const nameParts = (ADMIN_SEED_NAME || "Production Admin").split(/\s+/).filter(Boolean);
+  const first = nameParts[0] || "Production";
+  const last = nameParts.slice(1).join(" ") || "Admin";
+  const user = await User.create({
+    id: createId("USR-ADMIN"),
+    name: ADMIN_SEED_NAME || "Production Admin",
+    first,
+    last,
+    userType: "Admin",
+    role: "Owner",
+    email: ADMIN_SEED_EMAIL,
+    phone: ADMIN_SEED_PHONE,
+    password: hashPassword(ADMIN_SEED_PASSWORD),
+    status: "active",
+  });
+
+  await recordAudit(user.email, "Created production admin from environment seed", user.id);
+  console.log("[startup] Production admin seed created.", {
+    email: user.email,
+    id: user.id,
+  });
+}
+
 async function migrateServiceTypes() {
   const services = await Service.find({
     $or: [
@@ -2184,6 +2243,7 @@ function sendHealth(res) {
   res.json({
     status: "ok",
     database: getDatabaseState(),
+    databaseName: getDatabaseName() || "unknown",
     timestamp: new Date().toISOString(),
   });
 }
@@ -2191,6 +2251,32 @@ function sendHealth(res) {
 function validateProductionEnvironment() {
   if (!IS_PRODUCTION) return;
   getJwtSecret();
+}
+
+function isDatabaseConnected() {
+  return getDatabaseState() === "connected";
+}
+
+function logProductionConfiguration() {
+  console.log("[startup] MongoDB", {
+    state: getDatabaseState(),
+    database: getDatabaseName() || "unknown",
+    env: getMongoEnvName() || "not-selected",
+  });
+  console.log("[startup] Email", {
+    provider: getConfiguredEmailProvider(),
+    hasResendApiKey: Boolean(RESEND_API_KEY),
+    from: EMAIL_FROM || "missing",
+    smtpFallbackConfigured: Boolean(SMTP_EMAIL && SMTP_APP_PASSWORD),
+  });
+}
+
+function respondIfDatabaseUnavailable(res) {
+  if (isDatabaseConnected()) return false;
+  res.status(503).json({
+    message: "Database is not connected. Please check the production MongoDB environment variable and Railway deploy logs.",
+  });
+  return true;
 }
 
 app.get("/health", (_req, res) => {
@@ -2539,6 +2625,8 @@ app.get("/api/tracking/:id", async (req, res, next) => {
 
 app.post("/api/auth/login", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = String(req.body.password || "");
     const user = await User.findOne({ email });
@@ -2566,6 +2654,8 @@ app.post("/api/auth/login", async (req, res, next) => {
 
 app.post("/api/auth/signup/request-otp", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const payload = {
       first: String(req.body.firstName || "").trim(),
       last: String(req.body.lastName || "").trim(),
@@ -2629,6 +2719,8 @@ app.post("/api/auth/signup/request-otp", async (req, res, next) => {
 
 app.post("/api/auth/signup/verify-otp", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const verificationId = String(req.body.verificationId || "").trim();
     const otp = String(req.body.otp || "").trim();
     const pendingSignup = signupOtpStore.get(verificationId);
@@ -2694,6 +2786,8 @@ app.post("/api/auth/signup/verify-otp", async (req, res, next) => {
 
 app.post("/api/auth/password-change/request-otp", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const email = String(req.body.email || "").trim().toLowerCase();
     const channel = String(req.body.channel || "").trim().toLowerCase();
 
@@ -2745,6 +2839,8 @@ app.post("/api/auth/password-change/request-otp", async (req, res, next) => {
 
 app.post("/api/auth/password-change/verify-otp", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const verificationId = String(req.body.verificationId || "").trim();
     const otp = String(req.body.otp || "").trim();
     const pendingChange = passwordChangeOtpStore.get(verificationId);
@@ -2787,6 +2883,8 @@ app.post("/api/auth/password-change/verify-otp", async (req, res, next) => {
 
 app.post("/api/auth/password-change/reset", async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const verificationId = String(req.body.verificationId || "").trim();
     const password = String(req.body.password || "");
     const pendingChange = passwordChangeOtpStore.get(verificationId);
@@ -3971,8 +4069,10 @@ app.use((error, _req, res, _next) => {
 async function start() {
   validateProductionEnvironment();
   await connectToDatabase();
+  logProductionConfiguration();
   await migrateStockMonitoringCollection();
   await ensureSeedData();
+  await ensureProductionAdminFromEnv();
   await migrateServiceTypes();
   await migrateServicePricing();
   await migrateServiceConsumablesBySize();
