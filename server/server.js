@@ -46,14 +46,18 @@ const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
 const INVOICE_TAX_RATE = 0.12;
 const JWT_EXPIRES_IN = String(process.env.JWT_EXPIRES_IN || "7d").trim();
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
-const GOOGLE_SMTP_EMAIL = String(process.env.EMAIL_USER || process.env.GOOGLE_SMTP_EMAIL || "").trim();
-const GOOGLE_SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
-const GOOGLE_SMTP_FROM = String(process.env.EMAIL_FROM || process.env.GOOGLE_SMTP_FROM || GOOGLE_SMTP_EMAIL || "").trim();
+const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || (IS_PRODUCTION ? "resend" : "smtp"))
+  .trim()
+  .toLowerCase();
+const RESEND_API_KEY = String(process.env.RESEND_API_KEY || "").trim();
+const SMTP_EMAIL = String(process.env.EMAIL_USER || process.env.GOOGLE_SMTP_EMAIL || "").trim();
+const SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
+const EMAIL_FROM = String(process.env.EMAIL_FROM || process.env.GOOGLE_SMTP_FROM || SMTP_EMAIL || "").trim();
 const AI_PROVIDER_UNCONFIGURED_MESSAGE = "AI provider is not configured yet.";
 const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
-let otpMailTransportPromise = null;
+let smtpMailTransportPromise = null;
 
 function base64UrlEncode(value) {
   return Buffer.from(value)
@@ -814,42 +818,109 @@ function maskPhone(phone) {
   return `${digits.slice(0, 2)}******${digits.slice(-3)}`;
 }
 
-async function getOtpMailTransport() {
-  if (!GOOGLE_SMTP_EMAIL || !GOOGLE_SMTP_APP_PASSWORD || !GOOGLE_SMTP_FROM) {
+function getConfiguredEmailProvider() {
+  if (EMAIL_PROVIDER === "resend") return "resend";
+  if (EMAIL_PROVIDER === "smtp" || EMAIL_PROVIDER === "gmail" || EMAIL_PROVIDER === "nodemailer") {
+    return "smtp";
+  }
+
+  return IS_PRODUCTION ? "resend" : "smtp";
+}
+
+async function getSmtpMailTransport() {
+  if (!SMTP_EMAIL || !SMTP_APP_PASSWORD || !EMAIL_FROM) {
     const error = new Error(
-      "SMTP is not configured. Add EMAIL_USER, EMAIL_PASS, and EMAIL_FROM to the server environment. Legacy GOOGLE_SMTP_EMAIL, GOOGLE_SMTP_APP_PASSWORD, and GOOGLE_SMTP_FROM names are also supported."
+      "SMTP email is not configured. Add EMAIL_PROVIDER=smtp, EMAIL_USER, EMAIL_PASS, and EMAIL_FROM to the server environment. Legacy GOOGLE_SMTP_EMAIL, GOOGLE_SMTP_APP_PASSWORD, and GOOGLE_SMTP_FROM names are also supported."
     );
     error.statusCode = 503;
     throw error;
   }
 
-  if (!otpMailTransportPromise) {
-    otpMailTransportPromise = (async () => {
+  if (!smtpMailTransportPromise) {
+    smtpMailTransportPromise = (async () => {
       const transport = nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: GOOGLE_SMTP_EMAIL,
-          pass: GOOGLE_SMTP_APP_PASSWORD,
+          user: SMTP_EMAIL,
+          pass: SMTP_APP_PASSWORD,
         },
       });
 
       await transport.verify();
       return transport;
     })().catch((error) => {
-      otpMailTransportPromise = null;
+      smtpMailTransportPromise = null;
       throw error;
     });
   }
 
-  return otpMailTransportPromise;
+  return smtpMailTransportPromise;
+}
+
+async function sendEmail({ to, subject, text, html }) {
+  if (!EMAIL_FROM) {
+    const error = new Error("Email sender is not configured. Add EMAIL_FROM to the server environment.");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const provider = getConfiguredEmailProvider();
+  if (provider === "resend") {
+    if (!RESEND_API_KEY) {
+      const error = new Error(
+        "Resend email is not configured. Add EMAIL_PROVIDER=resend, RESEND_API_KEY, and EMAIL_FROM to the server environment."
+      );
+      error.statusCode = 503;
+      throw error;
+    }
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [to],
+        subject,
+        text,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      let details = "";
+      try {
+        const data = await response.json();
+        details = data?.message || data?.error || JSON.stringify(data);
+      } catch (error) {
+        details = await response.text().catch(() => "");
+      }
+
+      const error = new Error(
+        `Resend email send failed. Check RESEND_API_KEY, EMAIL_FROM/domain verification, and recipient address.${details ? ` Provider response: ${details}` : ""}`
+      );
+      error.statusCode = 503;
+      throw error;
+    }
+
+    return response.json().catch(() => ({}));
+  }
+
+  const transport = await getSmtpMailTransport();
+  return transport.sendMail({
+    from: EMAIL_FROM,
+    to,
+    subject,
+    text,
+    html,
+  });
 }
 
 async function sendSignupOtpEmail({ email, otp }) {
   try {
-    const transport = await getOtpMailTransport();
-
-    await transport.sendMail({
-      from: GOOGLE_SMTP_FROM,
+    await sendEmail({
       to: email,
       subject: "Your All Pro-Tec signup verification code",
       text: [
@@ -873,8 +944,9 @@ async function sendSignupOtpEmail({ email, otp }) {
       `,
     });
   } catch (error) {
+    console.error("Failed to send signup OTP email:", error.message || error);
     const serviceError = new Error(
-      "Could not send the signup OTP email. Check your Google SMTP credentials and app password."
+      "Could not send the signup OTP email. Check the configured email provider settings."
     );
     serviceError.statusCode = 503;
     throw serviceError;
@@ -887,11 +959,8 @@ async function sendSignupOtpEmail({ email, otp }) {
 }
 
 async function sendPasswordChangeOtpEmail({ email, otp }) {
-  const transport = await getOtpMailTransport();
-
   try {
-    await transport.sendMail({
-      from: GOOGLE_SMTP_FROM,
+    await sendEmail({
       to: email,
       subject: "Your AllProtec password change verification code",
       text: [
@@ -913,9 +982,9 @@ async function sendPasswordChangeOtpEmail({ email, otp }) {
       `,
     });
   } catch (error) {
-    console.error("Failed to send password change OTP email:", error);
+    console.error("Failed to send password change OTP email:", error.message || error);
     const wrappedError = new Error(
-      "Could not send the password change OTP email. Check your Google SMTP credentials and app password."
+      "Could not send the password change OTP email. Check the configured email provider settings."
     );
     wrappedError.statusCode = 503;
     throw wrappedError;

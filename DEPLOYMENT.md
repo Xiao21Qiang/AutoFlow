@@ -42,8 +42,8 @@ MONGODB_URI=
 JWT_SECRET=
 JWT_EXPIRES_IN=
 CORS_ORIGIN=
-EMAIL_USER=
-EMAIL_PASS=
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=
 EMAIL_FROM=
 ```
 
@@ -52,9 +52,40 @@ Notes:
 - Railway injects `PORT` automatically. Leave it blank unless you have a special reason.
 - Use `MONGO_URI`, `MONGODB_URI`, or `MONGO_URL` for the production MongoDB connection string.
 - `CORS_ORIGIN` is optional for same-service deployment. If you later add a custom frontend domain or separate frontend service, set it to that origin. Multiple origins can be comma-separated.
-- `EMAIL_USER`, `EMAIL_PASS`, and `EMAIL_FROM` are used for OTP email delivery. The older `GOOGLE_SMTP_EMAIL`, `GOOGLE_SMTP_APP_PASSWORD`, and `GOOGLE_SMTP_FROM` names still work as aliases.
+- Railway Hobby blocks outbound SMTP. Use Resend HTTPS email in production with `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, and `EMAIL_FROM`.
+- `EMAIL_USER` and `EMAIL_PASS` are optional local SMTP fallback variables only when using `EMAIL_PROVIDER=smtp`. Do not rely on SMTP for Railway Hobby.
 - `REACT_APP_API_URL` should usually be blank in Railway so React uses same-origin `/api/...` calls.
 - `REACT_APP_PUBLIC_CLIENT_URL` can be set to your public Railway/custom domain if QR codes must encode a fixed domain.
+
+## Email / OTP on Railway Hobby
+
+AutoFlow sends signup verification and password-change OTP emails through one backend email sender.
+
+For Railway Hobby:
+
+1. Create a Resend account.
+2. Create an API key in Resend.
+3. Verify your sending domain or configure an allowed sender address.
+4. Add these Railway variables:
+
+```bash
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_...
+EMAIL_FROM=All Pro-Tec <noreply@yourdomain.com>
+```
+
+5. Redeploy after saving the variables.
+
+For local development only, SMTP can still be used if you set:
+
+```bash
+EMAIL_PROVIDER=smtp
+EMAIL_USER=your.gmail@example.com
+EMAIL_PASS=your-google-app-password
+EMAIL_FROM=All Pro-Tec <your.gmail@example.com>
+```
+
+SMTP is optional and should not be used as the production email path on Railway Hobby.
 
 ## MongoDB Atlas Setup
 
@@ -94,6 +125,10 @@ MONGO_URI=mongodb+srv://...
 API_PORT=4000
 CLIENT_PORT=3000
 REACT_APP_API_URL=http://localhost:4000
+EMAIL_PROVIDER=smtp
+EMAIL_USER=your.gmail@example.com
+EMAIL_PASS=your-google-app-password
+EMAIL_FROM=All Pro-Tec <your.gmail@example.com>
 ```
 
 ## Troubleshooting
