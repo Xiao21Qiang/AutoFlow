@@ -37,6 +37,11 @@ function buildTrackingUrl(bookingId) {
   return `${publicClientUrl}/tracking/${safeId}`;
 }
 
+function buildWarrantyUrl(bookingId) {
+  const trackingUrl = buildTrackingUrl(bookingId);
+  return trackingUrl ? `${trackingUrl}/warranty` : "";
+}
+
 const statusMeta = (status) => {
   const s = String(status || "").toLowerCase();
   if (s.includes("in progress")) return { cls: "progress", label: "In Progress" };
@@ -105,7 +110,7 @@ export default function CustomerTracking() {
   const qrImageUrl = selectedRow
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrValue)}`
     : "";
-  const warrantyQrValue = selectedRow?.warrantyReleased ? `${qrValue}?warranty=1` : "";
+  const warrantyQrValue = selectedRow?.warrantyReleased ? buildWarrantyUrl(selectedRow.id) : "";
   const warrantyQrImageUrl = warrantyQrValue
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(warrantyQrValue)}`
     : "";
@@ -219,21 +224,23 @@ export default function CustomerTracking() {
                 </div>
               </div>
             </div>
-            {selectedRow.warrantyReleased && (
-              <div className="clTrackQrCard">
-                <div className="clTrackQrHead">
-                  <div className="clTrackQrTitle">Warranty Checklist</div>
-                  <div className="clTrackQrSub">Released warranty document, checklist, acknowledgement details, and service notes.</div>
-                </div>
+            <div className="clTrackQrCard">
+              <div className="clTrackQrHead">
+                <div className="clTrackQrTitle">Warranty Checklist</div>
+                <div className="clTrackQrSub">Released warranty document, checklist, acknowledgement details, and service notes.</div>
+              </div>
+              {selectedRow.warrantyReleased ? (
                 <div className="clTrackQrBody">
                   <img className="clTrackQrImage" src={warrantyQrImageUrl} alt={`Warranty QR code for booking ${selectedRow.id}`} />
                   <div className="clTrackQrMeta">
                     <a href={warrantyQrValue} target="_blank" rel="noreferrer" className="clTrackQrLink">Open warranty document</a>
-                    <code>{selectedRow.warrantyQrCode || warrantyQrValue}</code>
+                    <code>{warrantyQrValue}</code>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="clTrackQrUnavailable">Warranty document will be available once released by staff/admin.</div>
+              )}
+            </div>
             <div className="clTrackModalActions">
               <button className="clTrackPrimaryBtn" type="button" onClick={() => setSelectedRow(null)}>
                 Close

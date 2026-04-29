@@ -29,7 +29,7 @@ function buildCalendarGrid(viewDate, bookings = []) {
 }
 
 export default function AdminDashboard({ goTo }) {
-  const { bookings, stockMonitoring, payments, alerts, quoteRequests, summary } = useAdminData();
+  const { bookings, stockMonitoring, payments, alerts, quoteRequests, summary, updateQuoteRequest } = useAdminData();
   const [today] = useState(() => new Date());
   const [view, setView] = useState(new Date());
   const [selected, setSelected] = useState(new Date());
@@ -90,16 +90,18 @@ export default function AdminDashboard({ goTo }) {
         <div className="adminDashCard">
           <div className="adminDashTitle">Recent Quote Requests</div>
           <div className="adminDashSub">Landing-page quote requests from potential customers.</div>
+          <div className="adminQuoteRequestList">
           {recentQuoteRequests.length === 0 ? (
             <div className="adminAttentionItem"><div className="adminAttentionName">No quote requests yet</div><div className="adminAttentionDesc">New quote requests from the landing page will show here.</div></div>
           ) : (
             recentQuoteRequests.map((request) => (
               <button className="adminAttentionItem adminAttentionItemClickable" type="button" key={request.id} onClick={() => setSelectedQuoteRequest(request)}>
-                <div className="adminAttentionName">{request.fullName} — {request.service}</div>
+                <div className="adminAttentionName">{request.fullName} — {request.service}<span className={`adminQuoteStatus ${quoteStatusLabel(request.status) === "Received" ? "received" : "review"}`}>{quoteStatusLabel(request.status)}</span></div>
                 <div className="adminAttentionDesc">{request.vehicleType} • {request.carSize} • {request.phone}</div>
               </button>
             ))
           )}
+          </div>
         </div>
       </div>
 
@@ -121,7 +123,7 @@ export default function AdminDashboard({ goTo }) {
             <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
             <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><strong>{quoteStatusLabel(selectedQuoteRequest.status)}</strong></div>
+            <label className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><select value={quoteStatusLabel(selectedQuoteRequest.status)} onChange={async (event) => { await updateQuoteRequest(selectedQuoteRequest.id, { status: event.target.value }); setSelectedQuoteRequest((prev) => ({ ...prev, status: event.target.value })); }}><option>Under Review</option><option>Received</option></select></label>
           </div>
         </div>
         </div>
@@ -146,7 +148,7 @@ export default function AdminDashboard({ goTo }) {
             <div className="adminQuoteDetailItem"><span>Promo</span><strong>{selectedBooking.promoTitle || selectedBooking.promoId || "No promo"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Car Size</span><strong>{selectedBooking.carSize || "-"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Date</span><strong>{selectedBooking.date || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Time</span><strong>{selectedBooking.time || "-"}</strong></div>
+            <div className="adminQuoteDetailItem"><span>Time</span><strong>{selectedBooking.time || "No time selected"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Status</span><strong>{selectedBooking.status || "-"}</strong></div>
             <div className="adminQuoteDetailItem"><span>Payment Status</span><strong>{paymentByBookingId.get(selectedBooking.id)?.status || "-"}</strong></div>
           </div>

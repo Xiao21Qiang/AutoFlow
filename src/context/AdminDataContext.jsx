@@ -424,7 +424,15 @@ export function AdminDataProvider({ children, session }) {
     loading,
     error,
     reload: loadAdminData,
-    createBooking: (payload) => mutate("/api/admin/bookings", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    createBooking: (payload) => mutate("/api/admin/bookings", {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        auditUser,
+        actorUserType: currentUser?.userType || session?.userType || currentRole,
+        actorRole: currentUser?.role || session?.role || "",
+      }),
+    }),
     updateBooking: (id, payload) => mutate("/api/admin/bookings/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     deleteBooking: (id) => mutate("/api/admin/bookings/" + id + "?auditUser=" + encodeURIComponent(auditUser), { method: "DELETE" }),
     createService: (payload) => mutate("/api/admin/services", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
@@ -468,6 +476,7 @@ export function AdminDataProvider({ children, session }) {
     createReview: (payload) => mutate("/api/admin/reviews", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     createPromo: (payload) => mutate("/api/admin/promos", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updatePromo: (id, payload) => mutate("/api/admin/promos/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateQuoteRequest: (id, payload) => mutate("/api/admin/quote-requests/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     usePromo: (promoId) =>
       mutate("/api/admin/promos/" + promoId + "/use", {
         method: "POST",

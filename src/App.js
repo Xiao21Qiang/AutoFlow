@@ -8,6 +8,7 @@ import AdminMain from "./screens/admin/AdminMain";
 import StaffMain from "./screens/staff/StaffMain";
 import CustomerMain from "./screens/customer/CustomerMain";
 import CustomerTrackingView from "./screens/customer/CustomerTrackingView";
+import CustomerWarrantyView from "./screens/customer/CustomerWarrantyView";
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["staff"]}><StaffMain /></ProtectedRoute>} />
         <Route path="/client" element={<ProtectedRoute allowedRoles={["customer"]}><CustomerMain /></ProtectedRoute>} />
         <Route path="/customer" element={<ProtectedRoute allowedRoles={["customer"]}><Navigate to="/client" replace /></ProtectedRoute>} />
+        <Route path="/tracking/:bookingId/warranty" element={<CustomerWarrantyView />} />
         <Route path="/tracking/:bookingId" element={<CustomerTrackingView />} />
       </Routes>
     </BrowserRouter>

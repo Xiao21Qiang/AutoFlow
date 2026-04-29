@@ -214,6 +214,39 @@
   min-width: 0;
 }
 
+.clBookFieldError {
+  margin-top: 2px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff5f5;
+  color: #b91c1c;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.clBookRewardPreview {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clBookRewardPreview strong {
+  color: #111827;
+}
+
+.clBookRewardPreview small {
+  color: #64748b;
+}
+
 .clBookSelectWrap {
   position: relative;
 }

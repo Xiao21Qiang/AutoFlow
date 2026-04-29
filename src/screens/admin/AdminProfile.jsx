@@ -25,10 +25,11 @@ export default function AdminProfile({ session }) {
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
       const [passError, setPassError] = useState("");
-  const [securityForm, setSecurityForm] = useState({ pin: "", password: "", currentPassword: "" });
+  const [securityForm, setSecurityForm] = useState({ adminPin: "", adminPassword: "", staffPin: "", staffPassword: "", currentPassword: "" });
   const [securityMessage, setSecurityMessage] = useState("");
   const [securityStatus, setSecurityStatus] = useState({});
   const [securitySaving, setSecuritySaving] = useState("");
+  const [revealedSecurity, setRevealedSecurity] = useState({});
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
 
@@ -144,34 +145,29 @@ export default function AdminProfile({ session }) {
   };
 
   const canSave = pwStep === "idle" || pwStep === "newpass";
-  const saveSecurityControl = async (type) => {
+  const saveSecurityControl = async (field) => {
     setSecurityMessage("");
     if (!securityForm.currentPassword.trim()) {
       setSecurityMessage("Enter your current account password before saving security controls.");
       return;
     }
 
-    setSecuritySaving(type);
+    setSecuritySaving(field);
     try {
-      if (type === "pin") {
-        const result = await updateSecurityControls({
-          email: saved.email,
-          currentPassword: securityForm.currentPassword,
-          specialPin: securityForm.pin,
-        });
-        setSecurityForm((prev) => ({ ...prev, pin: "", currentPassword: "" }));
-        setSecurityStatus(result || {});
-        setSecurityMessage("Special PIN updated.");
-      } else {
-        const result = await updateSecurityControls({
-          email: saved.email,
-          currentPassword: securityForm.currentPassword,
-          specialPassword: securityForm.password,
-        });
-        setSecurityForm((prev) => ({ ...prev, password: "", currentPassword: "" }));
-        setSecurityStatus(result || {});
-        setSecurityMessage("Special password updated.");
-      }
+      const payloadByField = {
+        adminPin: { adminSpecialPin: securityForm.adminPin },
+        adminPassword: { adminSpecialPassword: securityForm.adminPassword },
+        staffPin: { staffSpecialPin: securityForm.staffPin },
+        staffPassword: { staffSpecialPassword: securityForm.staffPassword },
+      };
+      const result = await updateSecurityControls({
+        email: saved.email,
+        currentPassword: securityForm.currentPassword,
+        ...payloadByField[field],
+      });
+      setSecurityForm((prev) => ({ ...prev, [field]: "", currentPassword: "" }));
+      setSecurityStatus(result || {});
+      setSecurityMessage("Security credential updated.");
     } catch (error) {
       setSecurityMessage(error.message || "Could not update security controls.");
     } finally {
@@ -187,33 +183,59 @@ export default function AdminProfile({ session }) {
           <div className="ap-security-head">
             <div>
               <div className="ap-security-title">Security Controls</div>
-              <div className="ap-security-sub">Manage special confirmation credentials for sensitive admin actions.</div>
+              <div className="ap-security-sub">Manage separate Admin and Staff confirmation credentials.</div>
             </div>
             <div className="ap-security-status">
-              <span>PIN: {getSpecialPinStatus(securityStatus)}</span>
-              <span>Password: {getSpecialPasswordStatus(securityStatus)}</span>
+              <span>Admin PIN: {getSpecialPinStatus(securityStatus)}</span>
+              <span>Admin Password: {getSpecialPasswordStatus(securityStatus)}</span>
+              <span>Staff PIN: {securityStatus.staffSpecialPinConfigured === false ? "Not configured" : "Configured"}</span>
+              <span>Staff Password: {securityStatus.staffSpecialPasswordConfigured === false ? "Not configured" : "Configured"}</span>
             </div>
           </div>
           <div className="ap-form ap-security-form">
-            <div className="ap-row2">
-              <div className="ap-field">
-                <div className="ap-label">New Special PIN</div>
-                <input className="ap-input ap-editable-input" type="password" value={securityForm.pin} onChange={(e) => setSecurityForm((prev) => ({ ...prev, pin: e.target.value.replace(/\D/g, "").slice(0, 8) }))} placeholder="4 to 8 digits" />
+            {[
+              ["Admin Security Credentials", "adminPin", "adminPassword", "adminSpecialPin", "adminSpecialPassword"],
+              ["Staff Security Credentials", "staffPin", "staffPassword", "staffSpecialPin", "staffSpecialPassword"],
+            ].map(([title, pinField, passwordField, pinStatusKey, passwordStatusKey]) => (
+              <div className="ap-security-section" key={title}>
+                <div className="ap-security-section-title">{title}</div>
+                <div className="ap-row2">
+                  <div className="ap-field">
+                    <div className="ap-label">Current PIN</div>
+                    <div className="ap-reveal-row">
+                      <input className="ap-input" readOnly type={revealedSecurity[pinStatusKey] ? "text" : "password"} value={securityStatus[pinStatusKey] || ""} />
+                      <button type="button" onClick={() => setRevealedSecurity((prev) => ({ ...prev, [pinStatusKey]: !prev[pinStatusKey] }))}>{revealedSecurity[pinStatusKey] ? "Hide" : "View"}</button>
+                    </div>
+                  </div>
+                  <div className="ap-field">
+                    <div className="ap-label">Current Password</div>
+                    <div className="ap-reveal-row">
+                      <input className="ap-input" readOnly type={revealedSecurity[passwordStatusKey] ? "text" : "password"} value={securityStatus[passwordStatusKey] || ""} />
+                      <button type="button" onClick={() => setRevealedSecurity((prev) => ({ ...prev, [passwordStatusKey]: !prev[passwordStatusKey] }))}>{revealedSecurity[passwordStatusKey] ? "Hide" : "View"}</button>
+                    </div>
+                  </div>
+                </div>
+                <div className="ap-row2">
+                  <div className="ap-field">
+                    <div className="ap-label">New PIN</div>
+                    <input className="ap-input ap-editable-input" type="password" value={securityForm[pinField]} onChange={(e) => setSecurityForm((prev) => ({ ...prev, [pinField]: e.target.value.replace(/\D/g, "").slice(0, 8) }))} placeholder="4 to 8 digits" />
+                  </div>
+                  <div className="ap-field">
+                    <div className="ap-label">New Password</div>
+                    <input className="ap-input ap-editable-input" type="password" value={securityForm[passwordField]} onChange={(e) => setSecurityForm((prev) => ({ ...prev, [passwordField]: e.target.value }))} placeholder="Min. 8 characters" />
+                  </div>
+                </div>
+                <div className="ap-actions ap-security-actions">
+                  <button className="ap-edit-btn" type="button" disabled={Boolean(securitySaving)} onClick={() => saveSecurityControl(pinField)}>{securitySaving === pinField ? "Updating..." : "Update PIN"}</button>
+                  <button className="ap-edit-btn" type="button" disabled={Boolean(securitySaving)} onClick={() => saveSecurityControl(passwordField)}>{securitySaving === passwordField ? "Updating..." : "Update Password"}</button>
+                </div>
               </div>
-              <div className="ap-field">
-                <div className="ap-label">New Special Password</div>
-                <input className="ap-input ap-editable-input" type="password" value={securityForm.password} onChange={(e) => setSecurityForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="Min. 8 characters" />
-              </div>
-            </div>
+            ))}
             <div className="ap-field">
               <div className="ap-label">Current Account Password</div>
               <input className="ap-input ap-editable-input" type="password" value={securityForm.currentPassword} onChange={(e) => setSecurityForm((prev) => ({ ...prev, currentPassword: e.target.value }))} placeholder="Required before saving" />
             </div>
             {securityMessage && <div className="err-msg">{securityMessage}</div>}
-            <div className="ap-actions ap-security-actions">
-              <button className="ap-edit-btn" type="button" disabled={Boolean(securitySaving)} onClick={() => saveSecurityControl("pin")}>{securitySaving === "pin" ? "Updating..." : "Update PIN"}</button>
-              <button className="ap-edit-btn" type="button" disabled={Boolean(securitySaving)} onClick={() => saveSecurityControl("password")}>{securitySaving === "password" ? "Updating..." : "Update Password"}</button>
-            </div>
           </div>
         </div>
       </div>

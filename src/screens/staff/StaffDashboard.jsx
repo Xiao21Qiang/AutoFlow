@@ -67,7 +67,8 @@ export default function StaffDashboard({ goTo }) {
   const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
   const pendingPaymentsCount = payments.filter((payment) => payment.status !== "Paid").length;
   const pendingPaymentsTotal = payments.filter((payment) => payment.status !== "Paid").reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-  const recentQuoteRequests = quoteRequests.slice(0, 4);
+  const recentQuoteRequests = quoteRequests;
+  const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 
   const alerts = useMemo(() => {
     const out = [];
@@ -93,7 +94,7 @@ export default function StaffDashboard({ goTo }) {
         <div className="stDashCard">
           <div className="stDashTitle">Attention Needed</div>
           <div className="stDashSub">Quick alerts that need review.</div>
-          <div className="stDashStack">
+          <div className="stDashStack stQuoteRequestList">
             {alerts.length === 0 ? (
               <div className="stAttentionItem"><div className="stAttentionName">No alerts</div><div className="stAttentionDesc">Everything looks good.</div></div>
             ) : (
@@ -124,7 +125,7 @@ export default function StaffDashboard({ goTo }) {
             ) : (
               recentQuoteRequests.map((request) => (
                 <button key={request.id} className="stAttentionItem stAttentionItemClickable" type="button" onClick={() => setSelectedQuoteRequest(request)}>
-                  <div className="stAttentionName">{request.fullName} — {request.service}</div>
+                  <div className="stAttentionName">{request.fullName} — {request.service}<span className={`stQuoteStatus ${quoteStatusLabel(request.status) === "Received" ? "received" : "review"}`}>{quoteStatusLabel(request.status)}</span></div>
                   <div className="stAttentionDesc">{request.vehicleType} • {request.carSize} • {request.phone}</div>
                 </button>
               ))
@@ -150,7 +151,7 @@ export default function StaffDashboard({ goTo }) {
             <div className="stQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
             <div className="stQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
             <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Status</span><strong>{selectedQuoteRequest.status || "New"}</strong></div>
+            <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Status</span><strong>{quoteStatusLabel(selectedQuoteRequest.status)}</strong></div>
           </div>
         </div>
       )}

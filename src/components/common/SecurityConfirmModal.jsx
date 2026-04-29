@@ -35,6 +35,7 @@ export default function SecurityConfirmModal({
   title = "Security Confirmation",
   message = "Confirm this sensitive action before continuing.",
   currentUser,
+  scope,
   onClose,
   onConfirm,
 }) {
@@ -43,6 +44,7 @@ export default function SecurityConfirmModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const copy = MODE_COPY[mode] || MODE_COPY.pin;
+  const resolvedScope = scope || (String(currentUser?.userType || currentUser?.role || "").trim().toLowerCase() === "staff" ? "staff" : "admin");
 
   useEffect(() => {
     if (!open) return;
@@ -63,7 +65,7 @@ export default function SecurityConfirmModal({
       if (mode === "currentPassword") {
         await verifyCurrentPassword(currentUser?.email, secret);
       } else {
-        await validateSpecialCredential(mode === "password" ? "password" : "pin", secret);
+        await validateSpecialCredential(mode === "password" ? "password" : "pin", secret, resolvedScope, currentUser);
       }
 
       if (mode === "cash" && String(accountName || "").trim().toLowerCase() !== expectedName) {

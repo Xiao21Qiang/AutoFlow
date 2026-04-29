@@ -610,6 +610,79 @@
   color: #92400e;
 }
 
+.clTrackQrUnavailable {
+  padding: 14px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.warrantyDocCard {
+  max-width: 1120px;
+}
+
+.warrantyDocDetails {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.warrantyDocSection {
+  margin-top: 18px;
+}
+
+.warrantyDocSection h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 950;
+  color: #111827;
+}
+
+.warrantyDocTable {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.warrantyDocHead,
+.warrantyDocRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) 110px minmax(120px, 0.7fr) minmax(180px, 1fr);
+  gap: 10px;
+  padding: 11px 14px;
+  font-size: 12px;
+  align-items: center;
+}
+
+.warrantyDocHead {
+  background: #f8fafc;
+  font-weight: 950;
+  color: #111827;
+}
+
+.warrantyDocRow {
+  border-top: 1px solid #e2e8f0;
+  color: #334155;
+  font-weight: 750;
+}
+
+.warrantyDocPanel {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 13px;
+  color: #334155;
+  font-weight: 750;
+  white-space: pre-wrap;
+}
+
+.warrantyDocPanel p {
+  margin: 8px 0 0;
+}
+
 @media (max-width: 900px) {
   .clTrackModalCard,
   .clTrackStandaloneCard {
@@ -618,7 +691,10 @@
 
   .issueViewLayout,
   .clTrackStandaloneDetails,
-  .clTrackStandaloneTimeline {
+  .clTrackStandaloneTimeline,
+  .warrantyDocDetails,
+  .warrantyDocHead,
+  .warrantyDocRow {
     grid-template-columns: 1fr;
   }
 

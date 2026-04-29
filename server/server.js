@@ -32,6 +32,9 @@ const PASSWORD_PREFIX = "scrypt$";
 const SECURITY_SETTING_ID = "autoflow-security";
 const DEFAULT_SPECIAL_PIN = "2468";
 const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
+const DEFAULT_STAFF_SPECIAL_PIN = "1357";
+const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
+const INVOICE_TAX_RATE = 0.12;
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
 const GOOGLE_SMTP_EMAIL = String(process.env.GOOGLE_SMTP_EMAIL || "").trim();
 const GOOGLE_SMTP_APP_PASSWORD = String(process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
@@ -440,9 +443,39 @@ async function getOrCreateSecuritySetting() {
       id: SECURITY_SETTING_ID,
       specialPinHash: hashPassword(DEFAULT_SPECIAL_PIN),
       specialPasswordHash: hashPassword(DEFAULT_SPECIAL_PASSWORD),
+      adminSpecialPinHash: hashPassword(DEFAULT_SPECIAL_PIN),
+      adminSpecialPasswordHash: hashPassword(DEFAULT_SPECIAL_PASSWORD),
+      staffSpecialPinHash: hashPassword(DEFAULT_STAFF_SPECIAL_PIN),
+      staffSpecialPasswordHash: hashPassword(DEFAULT_STAFF_SPECIAL_PASSWORD),
+      adminSpecialPin: DEFAULT_SPECIAL_PIN,
+      adminSpecialPassword: DEFAULT_SPECIAL_PASSWORD,
+      staffSpecialPin: DEFAULT_STAFF_SPECIAL_PIN,
+      staffSpecialPassword: DEFAULT_STAFF_SPECIAL_PASSWORD,
       updatedBy: "system",
     });
   }
+  let changed = false;
+  if (!setting.adminSpecialPinHash) {
+    setting.adminSpecialPinHash = setting.specialPinHash || hashPassword(DEFAULT_SPECIAL_PIN);
+    setting.adminSpecialPin = setting.adminSpecialPin || DEFAULT_SPECIAL_PIN;
+    changed = true;
+  }
+  if (!setting.adminSpecialPasswordHash) {
+    setting.adminSpecialPasswordHash = setting.specialPasswordHash || hashPassword(DEFAULT_SPECIAL_PASSWORD);
+    setting.adminSpecialPassword = setting.adminSpecialPassword || DEFAULT_SPECIAL_PASSWORD;
+    changed = true;
+  }
+  if (!setting.staffSpecialPinHash) {
+    setting.staffSpecialPinHash = hashPassword(DEFAULT_STAFF_SPECIAL_PIN);
+    setting.staffSpecialPin = DEFAULT_STAFF_SPECIAL_PIN;
+    changed = true;
+  }
+  if (!setting.staffSpecialPasswordHash) {
+    setting.staffSpecialPasswordHash = hashPassword(DEFAULT_STAFF_SPECIAL_PASSWORD);
+    setting.staffSpecialPassword = DEFAULT_STAFF_SPECIAL_PASSWORD;
+    changed = true;
+  }
+  if (changed) await setting.save();
   return setting;
 }
 
@@ -455,11 +488,30 @@ async function verifyAdminAccountPassword(email, currentPassword) {
   return verifyPassword(currentPassword, user.password) ? user : null;
 }
 
-async function validateSpecialCredential(mode, value) {
+async function getRequestActorType(req) {
+  const actorEmail = String(req.body?.auditUser || req.query?.auditUser || "").trim().toLowerCase();
+  if (!actorEmail) return "";
+  const actor = await User.findOne({ email: actorEmail }).lean();
+  return actor ? normalizeUserType(actor.userType, actor.role) : "";
+}
+
+async function blockStaffEngagementMutation(req, res) {
+  const actorType = await getRequestActorType(req);
+  if (actorType !== "staff") return false;
+  res.status(403).json({ message: "Staff engagement access is view-only." });
+  return true;
+}
+
+async function validateSpecialCredential(mode, value, scope = "admin") {
   const setting = await getOrCreateSecuritySetting();
   const credentialMode = String(mode || "pin").trim().toLowerCase();
-  const storedValue = credentialMode === "password" ? setting.specialPasswordHash : setting.specialPinHash;
-  const fallbackValue = credentialMode === "password" ? DEFAULT_SPECIAL_PASSWORD : DEFAULT_SPECIAL_PIN;
+  const credentialScope = String(scope || "admin").trim().toLowerCase() === "staff" ? "staff" : "admin";
+  const storedValue = credentialScope === "staff"
+    ? (credentialMode === "password" ? setting.staffSpecialPasswordHash : setting.staffSpecialPinHash)
+    : (credentialMode === "password" ? setting.adminSpecialPasswordHash : setting.adminSpecialPinHash);
+  const fallbackValue = credentialScope === "staff"
+    ? (credentialMode === "password" ? DEFAULT_STAFF_SPECIAL_PASSWORD : DEFAULT_STAFF_SPECIAL_PIN)
+    : (credentialMode === "password" ? DEFAULT_SPECIAL_PASSWORD : DEFAULT_SPECIAL_PIN);
   return verifyPassword(value, storedValue || hashPassword(fallbackValue));
 }
 
@@ -923,8 +975,27 @@ function isCompletedStatus(status) {
   return String(status || "").trim().toLowerCase() === "completed";
 }
 
+function isCancelledStatus(status) {
+  return String(status || "").trim().toLowerCase() === "cancelled";
+}
+
 function isPaidStatus(status) {
   return String(status || "").trim().toLowerCase() === "paid";
+}
+
+function normalizeWorkflowStatus(status, fallback = "Scheduled") {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "completed" || normalized === "successful") return "Completed";
+  if (normalized === "cancelled" || normalized === "canceled") return "Cancelled";
+  if (normalized === "in progress") return "In Progress";
+  if (normalized === "rescheduled") return "Rescheduled";
+  if (normalized === "pending") return "Pending";
+  if (normalized === "scheduled") return "Scheduled";
+  return fallback;
+}
+
+function normalizeQuoteStatus(status) {
+  return String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 }
 
 function normalizeRewardPayload(body = {}, existing = {}) {
@@ -951,6 +1022,118 @@ function selectWeightedReward(rewards) {
     if (cursor <= 0) return reward;
   }
   return pool[pool.length - 1];
+}
+
+function parseRewardDiscount(value, amount) {
+  const raw = String(value || "").trim();
+  const baseAmount = Math.max(0, Number(amount || 0));
+  if (!raw || baseAmount <= 0) return 0;
+
+  const percentMatch = raw.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (percentMatch) {
+    const percent = Math.min(100, Math.max(0, Number(percentMatch[1]) || 0));
+    return Math.min(baseAmount, Number(((baseAmount * percent) / 100).toFixed(2)));
+  }
+
+  const fixedMatch = raw.replace(/,/g, "").match(/(?:php|p|₱)?\s*(\d+(?:\.\d+)?)/i);
+  if (fixedMatch && /discount|off|php|₱|p\s*\d/i.test(raw)) {
+    return Math.min(baseAmount, Number((Number(fixedMatch[1]) || 0).toFixed(2)));
+  }
+
+  return 0;
+}
+
+function roundMoney(value) {
+  return Number((Number(value || 0)).toFixed(2));
+}
+
+function buildInvoiceSnapshot(finalAmount, rewardDiscountAmount = 0) {
+  const normalizedFinalAmount = Math.max(0, roundMoney(finalAmount));
+  const subtotalAfterDiscount = roundMoney(normalizedFinalAmount / (1 + INVOICE_TAX_RATE));
+  const taxAmount = roundMoney(normalizedFinalAmount - subtotalAfterDiscount);
+  return {
+    discountAmount: roundMoney(rewardDiscountAmount),
+    subtotalAfterDiscount,
+    taxAmount,
+    finalAmount: normalizedFinalAmount,
+  };
+}
+
+function buildRewardPricing(baseAmount, customerReward) {
+  const rewardDiscountAmount = parseRewardDiscount(customerReward?.rewardValue, baseAmount);
+  const amount = Math.max(0, roundMoney(Number(baseAmount || 0) - rewardDiscountAmount));
+  return {
+    rewardId: customerReward?.id || "",
+    rewardName: customerReward?.rewardName || "",
+    rewardType: customerReward?.rewardType || "",
+    rewardValue: customerReward?.rewardValue || "",
+    rewardClaimCode: customerReward?.claimCode || "",
+    rewardDiscountAmount,
+    ...buildInvoiceSnapshot(amount, rewardDiscountAmount),
+    amount,
+  };
+}
+
+function isRewardExpired(customerReward) {
+  const expirationDate = String(customerReward?.expirationDate || "").trim();
+  return Boolean(expirationDate && expirationDate < toDateKey());
+}
+
+async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "", customerName = "", baseAmount = 0, excludePaymentId = "" }) {
+  const normalizedRewardId = String(rewardId || "").trim();
+  if (!normalizedRewardId) {
+    return buildRewardPricing(baseAmount, null);
+  }
+
+  const customerReward = await CustomerReward.findOne({ id: normalizedRewardId }).lean();
+  if (!customerReward) {
+    const error = new Error("Reward not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const ownerEmail = String(customerReward.customerEmail || "").trim().toLowerCase();
+  const ownerName = String(customerReward.customerName || "").trim().toLowerCase();
+  const requestEmail = String(customerEmail || "").trim().toLowerCase();
+  const requestName = String(customerName || "").trim().toLowerCase();
+  const belongsToCustomer = ownerEmail ? ownerEmail === requestEmail : ownerName && ownerName === requestName;
+  if (!belongsToCustomer) {
+    const error = new Error("Reward does not belong to your account.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  if (String(customerReward.status || "").trim().toLowerCase() !== "unused") {
+    const error = new Error("This reward has already been used.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existingActivePayment = await Payment.findOne({
+    rewardId: normalizedRewardId,
+    id: { $ne: String(excludePaymentId || "") },
+    status: { $nin: ["Rejected"] },
+  }).lean();
+  if (existingActivePayment) {
+    const error = new Error("This reward has already been used.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (isRewardExpired(customerReward)) {
+    const error = new Error("Reward expired.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const reward = await Reward.findOne({ id: customerReward.rewardId }).lean();
+  if (!reward || !reward.active) {
+    const error = new Error("Reward is no longer active.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return buildRewardPricing(baseAmount, customerReward);
 }
 
 function getQualifiedBookingStatus(status) {
@@ -1731,8 +1914,14 @@ app.get("/api/admin/security-controls", async (_req, res, next) => {
   try {
     const setting = await getOrCreateSecuritySetting();
     res.json({
-      specialPinConfigured: Boolean(setting.specialPinHash),
-      specialPasswordConfigured: Boolean(setting.specialPasswordHash),
+      adminSpecialPinConfigured: Boolean(setting.adminSpecialPinHash),
+      adminSpecialPasswordConfigured: Boolean(setting.adminSpecialPasswordHash),
+      staffSpecialPinConfigured: Boolean(setting.staffSpecialPinHash),
+      staffSpecialPasswordConfigured: Boolean(setting.staffSpecialPasswordHash),
+      adminSpecialPin: setting.adminSpecialPin || "",
+      adminSpecialPassword: setting.adminSpecialPassword || "",
+      staffSpecialPin: setting.staffSpecialPin || "",
+      staffSpecialPassword: setting.staffSpecialPassword || "",
       updatedAt: setting.updatedAt || "",
     });
   } catch (error) {
@@ -1743,10 +1932,16 @@ app.get("/api/admin/security-controls", async (_req, res, next) => {
 app.post("/api/admin/security/validate", async (req, res, next) => {
   try {
     const mode = String(req.body.mode || "pin").trim().toLowerCase();
+    const scope = String(req.body.scope || "admin").trim().toLowerCase() === "staff" ? "staff" : "admin";
+    const actorType = normalizeUserType(req.body.actorUserType, req.body.actorRole);
+    if (actorType === "staff" && scope === "admin") {
+      res.status(403).json({ message: "Staff actions must use staff security credentials." });
+      return;
+    }
     const value = String(req.body.value || "");
-    const valid = await validateSpecialCredential(mode, value);
+    const valid = await validateSpecialCredential(mode, value, scope);
     if (!valid) {
-      res.status(401).json({ message: `Incorrect special ${mode === "password" ? "password" : "PIN"}.` });
+      res.status(401).json({ message: `Incorrect ${scope} special ${mode === "password" ? "password" : "PIN"}.` });
       return;
     }
     res.json({ ok: true });
@@ -1777,29 +1972,38 @@ app.put("/api/admin/security-controls", async (req, res, next) => {
     }
 
     const setting = await getOrCreateSecuritySetting();
-    const nextPin = String(req.body.specialPin || "").trim();
-    const nextPassword = String(req.body.specialPassword || "");
+    const updates = [
+      ["adminSpecialPin", "adminSpecialPinHash", /^\d{4,8}$/, "Admin special PIN must be 4 to 8 digits."],
+      ["staffSpecialPin", "staffSpecialPinHash", /^\d{4,8}$/, "Staff special PIN must be 4 to 8 digits."],
+      ["adminSpecialPassword", "adminSpecialPasswordHash", /^.{8,}$/, "Admin special password must be at least 8 characters."],
+      ["staffSpecialPassword", "staffSpecialPasswordHash", /^.{8,}$/, "Staff special password must be at least 8 characters."],
+    ];
 
-    if (Object.prototype.hasOwnProperty.call(req.body, "specialPin")) {
-      if (!/^\d{4,8}$/.test(nextPin)) {
-        res.status(400).json({ message: "Special PIN must be 4 to 8 digits." });
+    for (const [field, hashField, rule, message] of updates) {
+      if (!Object.prototype.hasOwnProperty.call(req.body, field)) continue;
+      const nextValue = String(req.body[field] || "").trim();
+      if (!rule.test(nextValue)) {
+        res.status(400).json({ message });
         return;
       }
-      setting.specialPinHash = hashPassword(nextPin);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(req.body, "specialPassword")) {
-      if (nextPassword.length < 8) {
-        res.status(400).json({ message: "Special password must be at least 8 characters." });
-        return;
-      }
-      setting.specialPasswordHash = hashPassword(nextPassword);
+      setting[field] = nextValue;
+      setting[hashField] = hashPassword(nextValue);
     }
 
     setting.updatedBy = user.email;
     await setting.save();
     await recordAudit(user.email, "Updated security controls", SECURITY_SETTING_ID);
-    res.json({ message: "Security controls updated.", specialPinConfigured: true, specialPasswordConfigured: true });
+    res.json({
+      message: "Security controls updated.",
+      adminSpecialPinConfigured: Boolean(setting.adminSpecialPinHash),
+      adminSpecialPasswordConfigured: Boolean(setting.adminSpecialPasswordHash),
+      staffSpecialPinConfigured: Boolean(setting.staffSpecialPinHash),
+      staffSpecialPasswordConfigured: Boolean(setting.staffSpecialPasswordHash),
+      adminSpecialPin: setting.adminSpecialPin || "",
+      adminSpecialPassword: setting.adminSpecialPassword || "",
+      staffSpecialPin: setting.staffSpecialPin || "",
+      staffSpecialPassword: setting.staffSpecialPassword || "",
+    });
   } catch (error) {
     next(error);
   }
@@ -1856,7 +2060,7 @@ app.post("/api/public/quotes", async (req, res, next) => {
       estimatedAmount: finalEstimatedAmount,
       estimateLabel,
       message,
-      status: "Under Review",
+      status: normalizeQuoteStatus(req.body.status || "Under Review"),
       source: "landing-page",
     });
 
@@ -1874,6 +2078,25 @@ app.post("/api/public/quotes", async (req, res, next) => {
       estimateLabel,
       estimatedAmount: finalEstimatedAmount,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/quote-requests/:id", async (req, res, next) => {
+  try {
+    const status = normalizeQuoteStatus(req.body.status);
+    const quoteRequest = await QuoteRequest.findOneAndUpdate(
+      { id: req.params.id },
+      { status },
+      { new: true }
+    );
+    if (!quoteRequest) {
+      res.status(404).json({ message: "Quote request not found." });
+      return;
+    }
+    await recordAudit(req.body.auditUser, "Updated quote request status", quoteRequest.id, { status });
+    res.json(quoteRequest);
   } catch (error) {
     next(error);
   }
@@ -1901,6 +2124,51 @@ app.post("/api/admin/financials/interpretation", async (req, res, next) => {
       return;
     }
 
+    next(error);
+  }
+});
+
+app.get("/api/tracking/:id/warranty", async (req, res, next) => {
+  try {
+    const booking = await Booking.findOne({ id: req.params.id }).lean();
+
+    if (!booking) {
+      res.status(404).json({ message: "Tracking record not found." });
+      return;
+    }
+
+    const released = isCompletedStatus(booking.status) && Boolean(booking.warrantyReleased);
+    if (!released) {
+      res.json({
+        id: booking.id,
+        status: booking.status,
+        warrantyReleased: false,
+        message: "Warranty document will be available once released by staff/admin.",
+      });
+      return;
+    }
+
+    res.json({
+      id: booking.id,
+      customer: booking.customer,
+      vehicle: booking.vehicle,
+      carSize: booking.carSize || "",
+      plate: booking.plate || "",
+      service: booking.service,
+      assigned: booking.assigned || "",
+      date: booking.date,
+      time: booking.time || "",
+      status: booking.status,
+      warrantyChecklist: booking.warrantyChecklist || "",
+      warrantyChecklistItems: booking.warrantyChecklistItems || [],
+      warrantyCoveragePackage: booking.warrantyCoveragePackage || "",
+      warrantyAcknowledgement: booking.warrantyAcknowledgement || {},
+      warrantyReleased: true,
+      warrantyReleasedAt: booking.warrantyReleasedAt || "",
+      warrantyQrCode: booking.warrantyQrCode || "",
+      updatedAt: booking.updatedAt,
+    });
+  } catch (error) {
     next(error);
   }
 });
@@ -2235,18 +2503,33 @@ app.post("/api/auth/password-change/reset", async (req, res, next) => {
 app.post("/api/admin/bookings", async (req, res, next) => {
   try {
     const bookingDate = String(req.body.date || "").trim();
+    const bookingTime = String(req.body.time || "").trim();
+    const hasActorType = Object.prototype.hasOwnProperty.call(req.body, "actorUserType") || Object.prototype.hasOwnProperty.call(req.body, "actorRole");
+    const actorType = hasActorType ? normalizeUserType(req.body.actorUserType, req.body.actorRole) : "";
+    const isCustomerRequested =
+      req.body.customerRequested === true ||
+      String(req.body.customerRequested || "").toLowerCase() === "true" ||
+      String(req.body.bookingSource || "").trim().toLowerCase() === "customer" ||
+      actorType === "customer";
 
     if (isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
       return;
     }
 
-    await validateBookingSlotAvailability({
-      date: bookingDate,
-      time: req.body.time,
-      service: req.body.service,
-      placeSlot: req.body.placeSlot,
-    });
+    if (!bookingTime && !isCustomerRequested) {
+      res.status(400).json({ message: "Please assign a booking time before creating this booking." });
+      return;
+    }
+
+    if (bookingTime) {
+      await validateBookingSlotAvailability({
+        date: bookingDate,
+        time: bookingTime,
+        service: req.body.service,
+        placeSlot: req.body.placeSlot,
+      });
+    }
 
     const promoResolution = await resolvePromoById(req.body.promoId).catch((error) => {
       if (!String(req.body.promoId || "").trim()) return null;
@@ -2267,12 +2550,22 @@ app.post("/api/admin/bookings", async (req, res, next) => {
       baseAmount,
       promoResolution?.hydratedPromo || null
     );
+    const rewardPricing = await validateCustomerRewardForUse({
+      rewardId: req.body.rewardId,
+      customerEmail: req.body.customerEmail,
+      customerName: req.body.customer,
+      baseAmount: pricing.amount,
+    });
 
     const booking = await Booking.create({
       id: createId("B"),
       plate: "",
       ...req.body,
+      time: bookingTime || "Pending Assignment",
+      status: bookingTime ? (req.body.status || "Scheduled") : (req.body.status || "Pending Confirmation"),
+      placeSlot: bookingTime ? Number(req.body.placeSlot || 0) : 0,
       ...pricing,
+      ...rewardPricing,
       consumablesApplied: Boolean(req.body.consumablesApplied) || isCompletedStatus(req.body.status),
     });
 
@@ -2289,6 +2582,16 @@ app.post("/api/admin/bookings", async (req, res, next) => {
       promoTitle: booking.promoTitle || "",
       promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
       promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
+      rewardId: booking.rewardId || "",
+      rewardName: booking.rewardName || "",
+      rewardType: booking.rewardType || "",
+      rewardValue: booking.rewardValue || "",
+      rewardClaimCode: booking.rewardClaimCode || "",
+      rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
+      discountAmount: Number(booking.discountAmount || booking.rewardDiscountAmount || 0),
+      subtotalAfterDiscount: Number(booking.subtotalAfterDiscount || 0),
+      taxAmount: Number(booking.taxAmount || 0),
+      finalAmount: Number(booking.finalAmount || booking.amount || 0),
       status: "Pending",
       method: "",
     });
@@ -2335,9 +2638,22 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
       return;
     }
 
-    const bookingDate = String(req.body.date || existingBooking.date || "").trim();
+    if (isCancelledStatus(existingBooking.status)) {
+      res.status(400).json({ message: "Cancelled bookings are locked and cannot be edited." });
+      return;
+    }
 
-    if (isPastDateKey(bookingDate)) {
+    const bookingDate = String(req.body.date || existingBooking.date || "").trim();
+    const nextStatus = normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
+    const dateChanged = Object.prototype.hasOwnProperty.call(req.body, "date") && String(req.body.date || "") !== String(existingBooking.date || "");
+    const timeChanged = Object.prototype.hasOwnProperty.call(req.body, "time") && String(req.body.time || "") !== String(existingBooking.time || "");
+    const slotChanged = Object.prototype.hasOwnProperty.call(req.body, "placeSlot") && Number(req.body.placeSlot || 0) !== Number(existingBooking.placeSlot || 0);
+    const scheduleChanged = dateChanged || timeChanged || slotChanged;
+    const requiresScheduleValidation = nextStatus === "Rescheduled";
+    const nextTime = String(req.body.time ?? existingBooking.time ?? "").trim();
+    const hasValidScheduleTime = /^\d{1,2}:\d{2}$/.test(nextTime);
+
+    if ((dateChanged || requiresScheduleValidation) && isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
       return;
     }
@@ -2351,13 +2667,19 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
       return;
     }
 
-    await validateBookingSlotAvailability({
-      bookingId: req.params.id,
-      date: bookingDate,
-      time: req.body.time || existingBooking.time,
-      service: req.body.service || existingBooking.service,
-      placeSlot: req.body.placeSlot || existingBooking.placeSlot,
-    });
+    if (requiresScheduleValidation || (scheduleChanged && hasValidScheduleTime)) {
+      if (requiresScheduleValidation && !hasValidScheduleTime) {
+        res.status(400).json({ message: "Please choose a booking time before rescheduling." });
+        return;
+      }
+      await validateBookingSlotAvailability({
+        bookingId: req.params.id,
+        date: bookingDate,
+        time: nextTime,
+        service: req.body.service || existingBooking.service,
+        placeSlot: req.body.placeSlot || existingBooking.placeSlot,
+      });
+    }
 
     const nextPromoId = String(req.body.promoId || "").trim();
     const previousPromoId = String(existingBooking.promoId || "").trim();
@@ -2382,21 +2704,70 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
       req.body.carSize ?? existingBooking.carSize,
       req.body.originalAmount || req.body.amount || existingBooking.originalAmount || existingBooking.amount || 0
     );
+    const promoPricing = computePromoPricing(
+      baseAmount,
+      promoResolution?.hydratedPromo || null
+    );
+    const linkedPaymentForReward = await Payment.findOne({ bookingId: existingBooking.id }).lean();
+    const requestedRewardId = String(req.body.rewardId ?? existingBooking.rewardId ?? "").trim();
+    const rewardChanged = Object.prototype.hasOwnProperty.call(req.body, "rewardId") && requestedRewardId !== String(existingBooking.rewardId || "").trim();
+    const rewardPricing = requestedRewardId && !rewardChanged
+      ? {
+          rewardId: existingBooking.rewardId || "",
+          rewardName: existingBooking.rewardName || "",
+          rewardType: existingBooking.rewardType || "",
+          rewardValue: existingBooking.rewardValue || "",
+          rewardClaimCode: existingBooking.rewardClaimCode || "",
+          rewardDiscountAmount: Number(existingBooking.rewardDiscountAmount || 0),
+          discountAmount: Number(existingBooking.discountAmount || existingBooking.rewardDiscountAmount || 0),
+          subtotalAfterDiscount: Number(existingBooking.subtotalAfterDiscount || 0),
+          taxAmount: Number(existingBooking.taxAmount || 0),
+          finalAmount: Number(existingBooking.finalAmount || existingBooking.amount || promoPricing.amount || 0),
+          amount: Number(existingBooking.amount || promoPricing.amount || 0),
+        }
+      : await validateCustomerRewardForUse({
+          rewardId: requestedRewardId,
+          customerEmail: req.body.customerEmail ?? existingBooking.customerEmail,
+          customerName: req.body.customer ?? existingBooking.customer,
+          baseAmount: promoPricing.amount,
+          excludePaymentId: linkedPaymentForReward?.id || "",
+        });
     const shouldApplyConsumables =
-      isCompletedStatus(req.body.status) &&
+      isCompletedStatus(nextStatus) &&
       !existingBooking.consumablesApplied;
     const shouldCreateCommission =
-      isCompletedStatus(req.body.status) &&
+      isCompletedStatus(nextStatus) &&
       !isCompletedStatus(existingBooking.status);
 
     const updatePayload = {
       ...req.body,
-      ...computePromoPricing(
-        baseAmount,
-        promoResolution?.hydratedPromo || null
-      ),
+      status: nextStatus,
+      ...promoPricing,
+      ...rewardPricing,
       consumablesApplied: existingBooking.consumablesApplied || shouldApplyConsumables,
     };
+
+    if (isCompletedStatus(existingBooking.status)) {
+      Object.assign(updatePayload, {
+        customer: existingBooking.customer,
+        customerEmail: existingBooking.customerEmail,
+        vehicle: existingBooking.vehicle,
+        carSize: existingBooking.carSize,
+        plate: existingBooking.plate,
+        service: existingBooking.service,
+        assigned: existingBooking.assigned,
+        date: existingBooking.date,
+        time: existingBooking.time,
+        placeSlot: existingBooking.placeSlot,
+        promoId: existingBooking.promoId,
+        promoTitle: existingBooking.promoTitle,
+        promoDiscountPercent: existingBooking.promoDiscountPercent,
+        promoDiscountAmount: existingBooking.promoDiscountAmount,
+        amount: existingBooking.amount,
+        originalAmount: existingBooking.originalAmount,
+        status: "Completed",
+      });
+    }
 
     const booking = await Booking.findOneAndUpdate({ id: req.params.id }, updatePayload, { new: true });
 
@@ -2420,6 +2791,16 @@ app.put("/api/admin/bookings/:id", async (req, res, next) => {
         promoTitle: booking.promoTitle || "",
         promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
         promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
+        rewardId: booking.rewardId || "",
+        rewardName: booking.rewardName || "",
+        rewardType: booking.rewardType || "",
+        rewardValue: booking.rewardValue || "",
+        rewardClaimCode: booking.rewardClaimCode || "",
+        rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
+        discountAmount: Number(booking.discountAmount || booking.rewardDiscountAmount || 0),
+        subtotalAfterDiscount: Number(booking.subtotalAfterDiscount || 0),
+        taxAmount: Number(booking.taxAmount || 0),
+        finalAmount: Number(booking.finalAmount || booking.amount || 0),
       }
     );
 
@@ -2663,6 +3044,34 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
     const customerEmail = String(existingPayment.customerEmail || "").trim().toLowerCase();
     const isCustomerSubmittingOwnPayment = Boolean(actorEmail && customerEmail && actorEmail === customerEmail);
     const nextStatus = String(req.body.status || "");
+    const rewardId = Object.prototype.hasOwnProperty.call(req.body, "rewardId")
+      ? String(req.body.rewardId || "").trim()
+      : String(existingPayment.rewardId || "").trim();
+    const baseBeforeReward = Math.max(
+      0,
+      Number(existingPayment.originalAmount || 0) - Number(existingPayment.promoDiscountAmount || 0)
+    ) || Number(existingPayment.amount || 0) + Number(existingPayment.rewardDiscountAmount || 0);
+    const rewardPricing = isPaidStatus(existingPayment.status)
+      ? {
+          rewardId: existingPayment.rewardId || "",
+          rewardName: existingPayment.rewardName || "",
+          rewardType: existingPayment.rewardType || "",
+          rewardValue: existingPayment.rewardValue || "",
+          rewardClaimCode: existingPayment.rewardClaimCode || "",
+          rewardDiscountAmount: Number(existingPayment.rewardDiscountAmount || 0),
+          discountAmount: Number(existingPayment.discountAmount || existingPayment.rewardDiscountAmount || 0),
+          subtotalAfterDiscount: Number(existingPayment.subtotalAfterDiscount || 0),
+          taxAmount: Number(existingPayment.taxAmount || 0),
+          finalAmount: Number(existingPayment.finalAmount || existingPayment.amount || 0),
+          amount: Number(existingPayment.amount || 0),
+        }
+      : await validateCustomerRewardForUse({
+          rewardId,
+          customerEmail: existingPayment.customerEmail,
+          customerName: existingPayment.customer,
+          baseAmount: baseBeforeReward,
+          excludePaymentId: existingPayment.id,
+        });
     const reviewFields =
       nextStatus === "Paid" || nextStatus === "Rejected"
         ? {
@@ -2671,10 +3080,11 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
           }
         : {};
     const nextPayload = isCustomerSubmittingOwnPayment
-      ? { ...req.body, ...reviewFields, method: normalizePaymentMethodLabel(req.body.method) }
+      ? { ...req.body, ...reviewFields, ...rewardPricing, method: normalizePaymentMethodLabel(req.body.method) }
       : {
           ...req.body,
           ...reviewFields,
+          ...rewardPricing,
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
         };
@@ -2694,6 +3104,42 @@ app.put("/api/admin/payments/:id", async (req, res, next) => {
         bookingId: payment?.bookingId || existingPayment?.bookingId || "",
       }
     );
+    await Booking.findOneAndUpdate(
+      { id: payment.bookingId },
+      {
+        amount: Number(payment.amount || 0),
+        rewardId: payment.rewardId || "",
+        rewardName: payment.rewardName || "",
+        rewardType: payment.rewardType || "",
+        rewardValue: payment.rewardValue || "",
+        rewardClaimCode: payment.rewardClaimCode || "",
+        rewardDiscountAmount: Number(payment.rewardDiscountAmount || 0),
+        discountAmount: Number(payment.discountAmount || payment.rewardDiscountAmount || 0),
+        subtotalAfterDiscount: Number(payment.subtotalAfterDiscount || 0),
+        taxAmount: Number(payment.taxAmount || 0),
+        finalAmount: Number(payment.finalAmount || payment.amount || 0),
+      }
+    );
+    if (isPaidStatus(payment.status) && payment.rewardId) {
+      const usedReward = await CustomerReward.findOneAndUpdate(
+        { id: payment.rewardId, status: "Unused" },
+        {
+          status: "Used",
+          linkedBookingId: payment.bookingId || "",
+          linkedPaymentId: payment.id || "",
+          discountAmount: Number(payment.discountAmount || payment.rewardDiscountAmount || 0),
+          subtotalAfterDiscount: Number(payment.subtotalAfterDiscount || 0),
+          taxAmount: Number(payment.taxAmount || 0),
+          finalAmount: Number(payment.finalAmount || payment.amount || 0),
+          usedAt: new Date().toISOString(),
+        },
+        { new: true }
+      );
+      if (!usedReward && !isPaidStatus(existingPayment.status)) {
+        res.status(400).json({ message: "This reward has already been used." });
+        return;
+      }
+    }
     res.json(payment);
   } catch (error) {
     next(error);
@@ -2815,6 +3261,7 @@ app.post("/api/admin/audit-logs/unarchive", async (req, res, next) => {
 
 app.post("/api/admin/reviews", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const review = await Review.create({
       id: createId("REV"),
       customer: req.body.customer || "Customer",
@@ -2831,6 +3278,7 @@ app.post("/api/admin/reviews", async (req, res, next) => {
 
 app.post("/api/admin/promos", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const title = String(req.body.title || "").trim();
     const message = String(req.body.message || "").trim();
     const status = normalizePromoStatus(req.body.status || "Draft");
@@ -2902,6 +3350,7 @@ app.post("/api/admin/promos", async (req, res, next) => {
 
 app.put("/api/admin/promos/:id", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const existingPromo = await Promo.findOne({ id: req.params.id });
     if (!existingPromo) {
       res.status(404).json({ message: "Promo not found." });
@@ -2983,6 +3432,7 @@ app.put("/api/admin/promos/:id", async (req, res, next) => {
 
 app.post("/api/admin/promos/:id/use", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const promo = await Promo.findOne({ id: req.params.id });
     if (!promo) {
       res.status(404).json({ message: "Promo not found." });
@@ -3012,6 +3462,7 @@ app.post("/api/admin/promos/:id/use", async (req, res, next) => {
 
 app.post("/api/admin/rewards", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const payload = normalizeRewardPayload(req.body);
     if (!payload.name) {
       res.status(400).json({ message: "Reward name is required." });
@@ -3031,6 +3482,7 @@ app.post("/api/admin/rewards", async (req, res, next) => {
 
 app.put("/api/admin/rewards/:id", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const existingReward = await Reward.findOne({ id: req.params.id });
     if (!existingReward) {
       res.status(404).json({ message: "Reward not found." });
@@ -3055,6 +3507,7 @@ app.put("/api/admin/rewards/:id", async (req, res, next) => {
 
 app.delete("/api/admin/rewards/:id", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const reward = await Reward.findOneAndDelete({ id: req.params.id });
     if (!reward) {
       res.status(404).json({ message: "Reward not found." });
@@ -3069,6 +3522,7 @@ app.delete("/api/admin/rewards/:id", async (req, res, next) => {
 
 app.post("/api/admin/rewards/generate", async (req, res, next) => {
   try {
+    if (await blockStaffEngagementMutation(req, res)) return;
     const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
     const customerName = String(req.body.customerName || "").trim();
     const booking = await Booking.findOne(customerEmail ? { customerEmail } : { customer: customerName }).sort({ createdAt: -1 }).lean();

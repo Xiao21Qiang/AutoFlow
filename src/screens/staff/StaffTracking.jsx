@@ -3,6 +3,7 @@ import "../../styles/css/staff/staffBookingsStyle.css";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -95,7 +96,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
 }
 
 export default function StaffTracking() {
-  const { bookings, updateBooking } = useAdminData();
+  const { bookings, currentUser, updateBooking } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -104,6 +105,7 @@ export default function StaffTracking() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [editForm, setEditForm] = useState(createEditForm(null));
   const [activeMarkerId, setActiveMarkerId] = useState(null);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const mapRef = useRef(null);
 
   const closeModal = () => {
@@ -257,7 +259,7 @@ export default function StaffTracking() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased;
-                updateBooking(selectedRow.id, {
+                const payload = {
                   ...selectedRow,
                   status: editForm.status,
                   issueNote: editForm.issueNote,
@@ -270,8 +272,17 @@ export default function StaffTracking() {
                   warrantyReleased: releaseAllowed,
                   warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "",
                   warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "",
+                };
+                setSecurityConfirm({
+                  mode: "pin",
+                  title: "Update Service Tracking",
+                  message: "Enter the staff special PIN before saving tracking or warranty updates.",
+                  onConfirm: async () => {
+                    await updateBooking(selectedRow.id, payload);
+                    setSecurityConfirm(null);
+                    closeModal();
+                  },
                 });
-                closeModal();
               }}
             >
               <div className="stTrackModalTitle">Edit Service Tracking</div>
@@ -430,6 +441,7 @@ export default function StaffTracking() {
           setPage(1);
         }}
       />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="staff" onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

@@ -51,6 +51,14 @@ function timeToMinutes(value) {
   return hours * 60 + minutes;
 }
 
+function normalizeTimeInputValue(value) {
+  return /^\d{2}:\d{2}$/.test(String(value || "").trim()) ? String(value).trim() : "";
+}
+
+function isRescheduledStatus(status) {
+  return String(status || "").trim().toLowerCase() === "rescheduled";
+}
+
 function isScheduleBlockingStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   return normalized !== "completed" && normalized !== "cancelled";
@@ -126,6 +134,7 @@ export default function StaffBookings() {
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
+  const [formError, setFormError] = useState("");
   const todayKey = getTodayKey();
 
   const selectedBooking = useMemo(
@@ -314,7 +323,7 @@ export default function StaffBookings() {
       service: booking.service,
       assigned: booking.assigned,
       date: booking.date,
-      time: booking.time || "",
+      time: normalizeTimeInputValue(booking.time),
       placeSlot: booking.placeSlot || "",
       status: booking.status || "Scheduled",
       issueNote: booking.issueNote || "",
@@ -443,29 +452,33 @@ export default function StaffBookings() {
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
-                if (!matchedCustomer) {
+                if (modal === "add" && !matchedCustomer) {
                   setCustomerFieldError("Please select a registered customer from the list.");
                   setIsCustomerMenuOpen(true);
                   return;
                 }
 
-                if (form.date && form.date < todayKey) {
-                  window.alert("Please select today or a future date for the booking.");
+                setFormError("");
+                const isReschedule = isRescheduledStatus(form.status);
+                const requiresTime = modal === "add" || isReschedule;
+
+                if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
+                  setFormError("Please select today or a future date for the booking.");
                   return;
                 }
 
-                if (!form.time) {
-                  window.alert("Please choose a booking time.");
+                if (requiresTime && !form.time) {
+                  setFormError(isReschedule ? "Please choose a booking time before rescheduling." : "Please assign a booking time before creating this booking.");
                   return;
                 }
 
-                if (!form.placeSlot) {
-                  window.alert(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "Please choose one of the 8 place slots.");
+                if (requiresTime && !form.placeSlot) {
+                  setFormError(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "Please choose one of the 8 place slots.");
                   return;
                 }
 
-                if (!availablePlaceSlots.includes(Number(form.placeSlot))) {
-                  window.alert("That place slot is no longer available. Please choose another one.");
+                if (requiresTime && !availablePlaceSlots.includes(Number(form.placeSlot))) {
+                  setFormError("That place slot is no longer available. Please choose another one.");
                   return;
                 }
 
@@ -489,35 +502,44 @@ export default function StaffBookings() {
                   originalAmount: Number(resolvedPrice || 0),
                   amount: Number(resolvedPrice || 0),
                 };
-
-                if (modal === "add") {
-                  await createBooking(payload);
-                } else if (selectedBooking) {
-                  const saveEdit = async () => {
-                    await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
-                    setPage(1);
-                    closeModal();
-                  };
-                  const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
-                  const needsReschedulePin = form.status === "Rescheduled";
-                  if (needsCancelPin || needsReschedulePin) {
-                    setSecurityConfirm({
-                      mode: "pin",
-                      title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
-                      message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
-                      onConfirm: async () => {
-                        await saveEdit();
-                        setSecurityConfirm(null);
-                      },
-                    });
-                    return;
-                  }
-                  await saveEdit();
+                if (modal === "edit" && selectedBooking && !isReschedule) {
+                  payload.date = selectedBooking.date;
+                  payload.time = selectedBooking.time || "";
+                  payload.placeSlot = selectedBooking.placeSlot || 0;
                 }
 
-                if (modal === "add") {
-                  setPage(1);
-                  closeModal();
+                try {
+                  if (modal === "add") {
+                    await createBooking(payload);
+                  } else if (selectedBooking) {
+                    const saveEdit = async () => {
+                      await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
+                      setPage(1);
+                      closeModal();
+                    };
+                    const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
+                    const needsReschedulePin = isReschedule;
+                    if (needsCancelPin || needsReschedulePin) {
+                      setSecurityConfirm({
+                        mode: "pin",
+                        title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
+                        message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
+                        onConfirm: async () => {
+                          await saveEdit();
+                          setSecurityConfirm(null);
+                        },
+                      });
+                      return;
+                    }
+                    await saveEdit();
+                  }
+
+                  if (modal === "add") {
+                    setPage(1);
+                    closeModal();
+                  }
+                } catch (error) {
+                  setFormError(error.message || `Failed to ${modal === "edit" ? "update" : "create"} booking.`);
                 }
               }}
             >
@@ -663,8 +685,9 @@ export default function StaffBookings() {
                     value={form.time}
                     disabled={modal === "edit" && form.status !== "Rescheduled"}
                     onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
-                    required
+                    required={modal === "add" || form.status === "Rescheduled"}
                   />
+                  {!form.time && modal === "edit" && form.status !== "Rescheduled" ? <div className="stBookSlotHint">No time selected</div> : null}
                 </label>
 
                 <label className="stBookField">
@@ -709,6 +732,7 @@ export default function StaffBookings() {
                   </div>
                 )}
               </div>
+              {formError ? <div className="stBookFieldError">{formError}</div> : null}
 
               <div className="stBookModalActions">
                 <button className="stBookTextBtn" type="button" onClick={closeModal}>

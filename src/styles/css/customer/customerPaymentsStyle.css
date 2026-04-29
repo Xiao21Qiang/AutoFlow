@@ -338,6 +338,39 @@
   resize: none;
 }
 
+.clPayFieldError {
+  margin: 0 0 12px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff5f5;
+  color: #b91c1c;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.clPayRewardPreview {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.clPayRewardPreview strong {
+  color: #111827;
+}
+
+.clPayRewardPreview small {
+  color: #64748b;
+}
+
 .clPayProofFile {
   font-size: 11px;
   font-weight: 700;

@@ -238,6 +238,12 @@
   background: #f8fafc;
 }
 
+.stWrap .usersModalCard {
+  width: 90vw;
+  max-width: 1280px;
+  max-height: 90vh;
+}
+
 .usersModalCard .trackEditForm {
   display: flex;
   flex-direction: column;

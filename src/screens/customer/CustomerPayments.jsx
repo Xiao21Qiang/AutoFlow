@@ -5,6 +5,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
+import { getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 
 const SALES_TAX_RATE = 0.12;
 
@@ -21,19 +22,27 @@ function formatCurrency(value) {
 function getInvoiceBreakdown(payment) {
   const total = Number(payment?.amount || 0);
   const originalTotal = Number(payment?.originalAmount || total);
-  const discount = Number(payment?.promoDiscountAmount || 0);
+  const promoDiscount = Number(payment?.promoDiscountAmount || 0);
+  const rewardDiscount = Number(payment?.discountAmount || payment?.rewardDiscountAmount || 0);
+  const totalDiscount = promoDiscount + rewardDiscount;
   const originalSubtotal = Math.round((originalTotal / (1 + SALES_TAX_RATE)) * 100) / 100;
-  const discountSubtotal = Math.round((discount / (1 + SALES_TAX_RATE)) * 100) / 100;
-  const subtotal = Math.round((total / (1 + SALES_TAX_RATE)) * 100) / 100;
-  const tax = Math.round((total - subtotal) * 100) / 100;
+  const promoDiscountSubtotal = Math.round((promoDiscount / (1 + SALES_TAX_RATE)) * 100) / 100;
+  const rewardDiscountSubtotal = Math.round((rewardDiscount / (1 + SALES_TAX_RATE)) * 100) / 100;
+  const subtotal = Number(payment?.subtotalAfterDiscount || 0) || Math.round((total / (1 + SALES_TAX_RATE)) * 100) / 100;
+  const tax = Number(payment?.taxAmount || 0) || Math.round((total - subtotal) * 100) / 100;
+  const finalAmount = Number(payment?.finalAmount || 0) || total;
 
   return {
+    originalTotal,
+    promoDiscount,
+    rewardDiscount,
     originalSubtotal,
-    discountSubtotal,
-    discount,
+    promoDiscountSubtotal,
+    rewardDiscountSubtotal,
+    totalDiscount,
     subtotal,
     tax,
-    total,
+    total: finalAmount,
   };
 }
 
@@ -81,7 +90,7 @@ async function compressImageFile(file) {
 }
 
 export default function CustomerPayments() {
-  const { payments, currentUser, submitPaymentProof } = useAdminData();
+  const { payments, rewards, customerRewards, currentUser, submitPaymentProof } = useAdminData();
   const customerName = String(currentUser?.name || "").trim().toLowerCase();
   const customerEmail = String(currentUser?.email || "").trim().toLowerCase();
   const data = useMemo(
@@ -106,7 +115,31 @@ export default function CustomerPayments() {
     method: "",
     proofImage: "",
     proofFileName: "",
+    rewardId: "",
   });
+  const [proofError, setProofError] = useState("");
+  const activeRewardPoolIds = useMemo(
+    () => new Set((rewards || []).filter((reward) => reward.active !== false).map((reward) => reward.id)),
+    [rewards]
+  );
+  const usableRewards = useMemo(
+    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
+    [activeRewardPoolIds, customerRewards, currentUser]
+  );
+  const selectedProofReward = useMemo(
+    () => usableRewards.find((reward) => reward.id === proofForm.rewardId) || null,
+    [proofForm.rewardId, usableRewards]
+  );
+  const selectedPaymentBaseBeforeReward = useMemo(
+    () => selectedPayment
+      ? Math.max(0, Number(selectedPayment.originalAmount || 0) - Number(selectedPayment.promoDiscountAmount || 0))
+      : 0,
+    [selectedPayment]
+  );
+  const selectedProofRewardPreview = useMemo(
+    () => getRewardPreview(selectedProofReward, selectedPaymentBaseBeforeReward),
+    [selectedPaymentBaseBeforeReward, selectedProofReward]
+  );
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -136,7 +169,8 @@ export default function CustomerPayments() {
   const closeModal = () => {
     setModal(null);
     setSelectedPayment(null);
-    setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "" });
+    setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "", rewardId: "" });
+    setProofError("");
   };
 
   return (
@@ -214,7 +248,9 @@ export default function CustomerPayments() {
                         method: row.method || "",
                         proofImage: row.proofImage || "",
                         proofFileName: row.proofFileName || "",
+                        rewardId: row.rewardId || "",
                       });
+                      setProofError("");
                       setModal("proof");
                     }}
                   >
@@ -283,14 +319,34 @@ export default function CustomerPayments() {
                         <div>Amount</div>
                       </div>
                       <div className="clPayBreakdownRow">
-                        <div>{selectedPayment.service || "Service Charge"}</div>
-                        <div>{formatCurrency(getInvoiceBreakdown(selectedPayment).originalSubtotal)}</div>
+                        <div>Original Amount</div>
+                        <div>{formatCurrency(getInvoiceBreakdown(selectedPayment).originalTotal)}</div>
                       </div>
                       {Number(selectedPayment.promoDiscountAmount || 0) > 0 && (
                         <div className="clPayBreakdownRow">
                           <div>{selectedPayment.promoTitle || "Promo Discount"} ({Number(selectedPayment.promoDiscountPercent || 0)}%)</div>
-                          <div>- {formatCurrency(getInvoiceBreakdown(selectedPayment).discountSubtotal)}</div>
+                          <div>- {formatCurrency(getInvoiceBreakdown(selectedPayment).promoDiscount)}</div>
                         </div>
+                      )}
+                      <div className="clPayBreakdownRow">
+                        <div>Reward Used</div>
+                        <div>{selectedPayment.rewardId ? (selectedPayment.rewardName || "Reward") : "None"}</div>
+                      </div>
+                      {selectedPayment.rewardId && (
+                        <>
+                          <div className="clPayBreakdownRow">
+                            <div>Discount Type</div>
+                            <div>{selectedPayment.rewardType || "-"}</div>
+                          </div>
+                          <div className="clPayBreakdownRow">
+                            <div>Discount Value</div>
+                            <div>{selectedPayment.rewardValue || "-"}</div>
+                          </div>
+                          <div className="clPayBreakdownRow">
+                            <div>Discount Amount</div>
+                            <div>- {formatCurrency(getInvoiceBreakdown(selectedPayment).rewardDiscount)}</div>
+                          </div>
+                        </>
                       )}
                       <div className="clPayBreakdownRow">
                         <div>Subtotal After Discount</div>
@@ -301,7 +357,7 @@ export default function CustomerPayments() {
                         <div>{formatCurrency(getInvoiceBreakdown(selectedPayment).tax)}</div>
                       </div>
                       <div className="clPayBreakdownRow total">
-                        <div>Total Amount</div>
+                        <div>Final Amount Due</div>
                         <div>{formatCurrency(getInvoiceBreakdown(selectedPayment).total)}</div>
                       </div>
                     </div>
@@ -309,6 +365,7 @@ export default function CustomerPayments() {
 
                   <div className="clPayDetailList clPayDetailListCompact">
                     {selectedPayment.reference && <div><strong>Reference:</strong> {selectedPayment.reference}</div>}
+                    {selectedPayment.rewardId && <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"} ({selectedPayment.rewardValue || selectedPayment.rewardType || "-"})</div>}
                     {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}
                   </div>
 
@@ -331,18 +388,24 @@ export default function CustomerPayments() {
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  setProofError("");
                   if (!proofForm.proofImage) {
-                    window.alert("Please upload a payment proof image.");
+                    setProofError("Please upload a payment proof image.");
                     return;
                   }
-                  await submitPaymentProof(selectedPayment, {
-                    method: proofForm.method,
-                    reference: proofForm.reference,
-                    notes: selectedPayment.notes || proofForm.notes || "",
-                    proofImage: proofForm.proofImage,
-                    proofFileName: proofForm.proofFileName,
-                  });
-                  closeModal();
+                  try {
+                    await submitPaymentProof(selectedPayment, {
+                      method: proofForm.method,
+                      reference: proofForm.reference,
+                      notes: selectedPayment.notes || proofForm.notes || "",
+                      proofImage: proofForm.proofImage,
+                      proofFileName: proofForm.proofFileName,
+                      rewardId: proofForm.rewardId,
+                    });
+                    closeModal();
+                  } catch (error) {
+                    setProofError(error.message || "Failed to submit payment proof.");
+                  }
                 }}
               >
                 <div className="clPayModalTitle">Submit Payment Proof</div>
@@ -364,6 +427,32 @@ export default function CustomerPayments() {
                     ))}
                   </select>
                 </label>
+
+                <label className="clPayField">
+                  <span>Apply Reward</span>
+                  <select
+                    value={proofForm.rewardId}
+                    disabled={selectedPayment.status === "Paid"}
+                    onChange={(e) => setProofForm((prev) => ({ ...prev, rewardId: e.target.value }))}
+                  >
+                    <option value="">No reward</option>
+                    {usableRewards.map((reward) => (
+                      <option key={reward.id} value={reward.id}>
+                        {reward.rewardName} - {reward.rewardValue || reward.rewardType}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {selectedProofReward ? (
+                  <div className="clPayRewardPreview">
+                    <strong>{selectedProofReward.rewardName}</strong>
+                    <span>{selectedProofReward.rewardType} • {selectedProofReward.rewardValue || "Reward benefit"}</span>
+                    <span>Discount preview: -{formatCurrency(selectedProofRewardPreview.discountAmount)}</span>
+                    <span>Final amount due: {formatCurrency(selectedProofRewardPreview.finalAmount)}</span>
+                    <small>{selectedProofReward.expirationDate ? `Expires ${selectedProofReward.expirationDate}` : "No expiration date"}</small>
+                  </div>
+                ) : null}
 
                 <label className="clPayField">
                   <span>Reference Number</span>
@@ -390,7 +479,7 @@ export default function CustomerPayments() {
                           proofFileName: file.name,
                         }));
                       } catch (_error) {
-                        window.alert("Failed to process the selected image.");
+                        setProofError("Failed to process the selected image.");
                       }
                     }}
                   />
@@ -401,6 +490,8 @@ export default function CustomerPayments() {
                     <img className="clPayProofPreview" src={proofForm.proofImage} alt="Payment proof preview" />
                   )}
                 </label>
+
+                {proofError ? <div className="clPayFieldError">{proofError}</div> : null}
 
                 <label className="clPayField">
                   <span>Notes</span>

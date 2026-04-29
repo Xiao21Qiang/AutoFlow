@@ -5,6 +5,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
+import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getPriceForCarSize } from "../../utils/servicePricing";
 
 function getTodayKey() {
@@ -29,13 +30,14 @@ function getServiceType(service) {
 }
 
 export default function CustomerServices() {
-  const { services, promos, currentUser, createBooking, loading } = useAdminData();
+  const { services, promos, rewards, customerRewards, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ maxMins: "", maxPrice: "" });
   const [selectedService, setSelectedService] = useState(null);
-  const [bookingForm, setBookingForm] = useState({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "" });
+  const [bookingForm, setBookingForm] = useState({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "", rewardId: "" });
+  const [bookingError, setBookingError] = useState("");
   const todayKey = getTodayKey();
   const savedCars = useMemo(() => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate), [currentUser]);
   const carOptions = useMemo(() => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`), [savedCars]);
@@ -46,6 +48,18 @@ export default function CustomerServices() {
   const selectedPromo = useMemo(
     () => activePromos.find((promo) => promo.id === bookingForm.promoId) || null,
     [activePromos, bookingForm.promoId]
+  );
+  const activeRewardPoolIds = useMemo(
+    () => new Set((rewards || []).filter((reward) => reward.active !== false).map((reward) => reward.id)),
+    [rewards]
+  );
+  const usableRewards = useMemo(
+    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
+    [activeRewardPoolIds, customerRewards, currentUser]
+  );
+  const selectedReward = useMemo(
+    () => usableRewards.find((reward) => reward.id === bookingForm.rewardId) || null,
+    [bookingForm.rewardId, usableRewards]
   );
   const formatPromoOptionLabel = (promo) => {
     const perUserLimit = Number(promo?.maxUsagePerUser || 0);
@@ -82,10 +96,19 @@ export default function CustomerServices() {
     () => (selectedService ? getPriceForCarSize(selectedService, bookingForm.carSize) : 0),
     [selectedService, bookingForm.carSize]
   );
+  const promoAdjustedPrice = useMemo(() => {
+    const discountPercent = Number(selectedPromo?.discountPercent || 0);
+    return Math.max(0, Number(selectedServicePrice || 0) - ((Number(selectedServicePrice || 0) * discountPercent) / 100));
+  }, [selectedPromo, selectedServicePrice]);
+  const rewardPreview = useMemo(
+    () => getRewardPreview(selectedReward, promoAdjustedPrice),
+    [promoAdjustedPrice, selectedReward]
+  );
 
   const closeModal = () => {
     setSelectedService(null);
-    setBookingForm({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "" });
+    setBookingForm({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "", rewardId: "" });
+    setBookingError("");
   };
 
   const pageBasicServices = pageRows.filter((service) => getServiceType(service) === "Basic Service");
@@ -162,9 +185,10 @@ export default function CustomerServices() {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
+                setBookingError("");
 
                 if (bookingForm.date && bookingForm.date < todayKey) {
-                  window.alert("Please select today or a future date for this booking.");
+                  setBookingError("Please select today or a future date for this booking.");
                   return;
                 }
 
@@ -178,18 +202,21 @@ export default function CustomerServices() {
                     plate: bookingForm.plate,
                     service: selectedService.name,
                     promoId: bookingForm.promoId,
+                    rewardId: bookingForm.rewardId,
                     originalAmount: Number(selectedServicePrice || 0),
                     assigned: "",
-                    time: "",
+                    time: null,
+                    customerRequested: true,
+                    bookingSource: "customer",
                     amount: Number(selectedServicePrice || 0),
-                    status: "Scheduled",
+                    status: "Pending Confirmation",
                     issueNote: bookingForm.notes,
                     issueTypes: [],
                     issueMarkers: [{ id: 1, x: 50, y: 50 }],
                   });
                   closeModal();
                 } catch (error) {
-                  window.alert(error.message || "Failed to create booking.");
+                  setBookingError(error.message || "Failed to create booking.");
                 }
               }}
             >
@@ -223,6 +250,33 @@ export default function CustomerServices() {
                   </select>
                 </label>
               )}
+
+              {usableRewards.length > 0 && (
+                <label className="clSvcField">
+                  <span>Claim Reward</span>
+                  <select
+                    value={bookingForm.rewardId}
+                    onChange={(e) => setBookingForm((prev) => ({ ...prev, rewardId: e.target.value }))}
+                  >
+                    <option value="">No reward</option>
+                    {usableRewards.map((reward) => (
+                      <option key={reward.id} value={reward.id}>
+                        {reward.rewardName} - {reward.rewardValue || reward.rewardType}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {selectedReward ? (
+                <div className="clSvcRewardPreview">
+                  <strong>{selectedReward.rewardName}</strong>
+                  <span>{selectedReward.rewardType} • {selectedReward.rewardValue || "Reward benefit"}</span>
+                  <span>Discount preview: -{formatCurrency(rewardPreview.discountAmount)}</span>
+                  <span>Estimated total: {formatCurrency(rewardPreview.finalAmount)}</span>
+                  <small>{selectedReward.expirationDate ? `Expires ${selectedReward.expirationDate}` : "No expiration date"}</small>
+                </div>
+              ) : null}
 
               <div className="clSvcConsumablesPanel">
                 <div className="clSvcConsumablesTitle">Consumables Included</div>
@@ -293,6 +347,7 @@ export default function CustomerServices() {
                   placeholder="Optional requests or reminders..."
                 />
               </label>
+              {bookingError ? <div className="clSvcFieldError">{bookingError}</div> : null}
 
               <div className="clSvcModalActions">
                 <button className="clSvcTextBtn" type="button" onClick={closeModal}>

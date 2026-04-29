@@ -2,7 +2,7 @@ import "../../styles/css/staff/staffEngagementStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 
 export default function StaffEngagement() {
-  const { reviews, promos, usePromo: applyPromo } = useAdminData();
+  const { reviews, promos } = useAdminData();
   const getPromoMeta = (promo) => {
     const expiryMode = String(promo.expiryMode || "none").trim().toLowerCase();
     if (expiryMode === "date" && promo.expiresAt) {
@@ -63,7 +63,7 @@ export default function StaffEngagement() {
           <div className="stEngHead">
             <div>
               <div className="stEngTitle">Promos</div>
-              <div className="stEngSub">Saved promos</div>
+              <div className="stEngSub">Saved promos - view only</div>
             </div>
           </div>
 
@@ -75,7 +75,6 @@ export default function StaffEngagement() {
                   <th>Status</th>
                   <th>Expiry</th>
                   <th>Message</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,21 +94,11 @@ export default function StaffEngagement() {
                     </td>
                     <td>{getPromoMeta(promo)}</td>
                     <td>{promo.message}</td>
-                    <td>
-                      <button
-                        className="stEngUseBtn"
-                        type="button"
-                        onClick={() => applyPromo(promo.id)}
-                        disabled={String(promo.status || "").trim().toLowerCase() !== "active"}
-                      >
-                        Use Promo
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 {promos.length === 0 && (
                   <tr>
-                    <td className="stEngEmptyCell" colSpan={5}>No promos saved yet.</td>
+                    <td className="stEngEmptyCell" colSpan={4}>No promos saved yet.</td>
                   </tr>
                 )}
               </tbody>

@@ -13,6 +13,10 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatCurrency(value) {
+  return `₱ ${Number(value || 0).toLocaleString()}`;
+}
+
 function isPaidStatus(status) {
   return String(status || "").trim().toLowerCase() === "paid";
 }
@@ -215,9 +219,22 @@ export default function StaffPayments() {
                 <div><strong>Email:</strong> {selectedPayment.customerEmail || "-"}</div>
                 <div><strong>Billing Date:</strong> {formatDate(selectedPayment.date)}</div>
                 <div><strong>Service:</strong> {selectedPayment.service || "-"}</div>
-                <div><strong>Amount:</strong> ₱ {Number(selectedPayment.amount || 0).toLocaleString()}</div>
+                <div><strong>Amount:</strong> {formatCurrency(selectedPayment.amount)}</div>
                 <div><strong>Status:</strong> {selectedPayment.status || "-"}</div>
                 <div><strong>Method:</strong> {selectedPayment.method || "-"}</div>
+                <div><strong>Original Amount:</strong> {formatCurrency(selectedPayment.originalAmount || selectedPayment.amount)}</div>
+                {selectedPayment.rewardId ? (
+                  <>
+                    <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"}</div>
+                    <div><strong>Claim Code:</strong> {selectedPayment.rewardClaimCode || "-"}</div>
+                    <div><strong>Discount Type:</strong> {selectedPayment.rewardType || "-"}</div>
+                    <div><strong>Discount Value:</strong> {selectedPayment.rewardValue || "-"}</div>
+                    <div><strong>Discount Amount:</strong> - {formatCurrency(selectedPayment.discountAmount || selectedPayment.rewardDiscountAmount)}</div>
+                    <div><strong>Subtotal After Discount:</strong> {formatCurrency(selectedPayment.subtotalAfterDiscount || selectedPayment.amount)}</div>
+                    <div><strong>Tax:</strong> {formatCurrency(selectedPayment.taxAmount || 0)}</div>
+                    <div><strong>Final Amount Due:</strong> {formatCurrency(selectedPayment.finalAmount || selectedPayment.amount)}</div>
+                  </>
+                ) : null}
                 {selectedPayment.reference && <div><strong>Reference:</strong> {selectedPayment.reference}</div>}
                 {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}
               </div>

@@ -5,6 +5,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
+import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 
 function formatDate(dateStr) {
@@ -26,6 +27,7 @@ function createEmptyForm(defaultService = "Graphene Coating") {
     plate: "",
     service: defaultService,
     promoId: "",
+    rewardId: "",
   };
 }
 
@@ -35,6 +37,11 @@ function getTodayKey() {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatBookingTime(value) {
+  const time = String(value || "").trim();
+  return time || "Pending Assignment";
 }
 
 function ModalSelect({ value, options, placeholder, onSelect }) {
@@ -72,7 +79,7 @@ function ModalSelect({ value, options, placeholder, onSelect }) {
 }
 
 export default function CustomerBookings({ initialAction = null, onActionHandled }) {
-  const { bookings, services, promos, currentUser, createBooking, loading } = useAdminData();
+  const { bookings, services, promos, rewards, customerRewards, currentUser, createBooking, loading } = useAdminData();
   const bookableServices = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false),
     [services]
@@ -102,6 +109,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const [modal, setModal] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [form, setForm] = useState(createEmptyForm(serviceOptions[0]));
+  const [formError, setFormError] = useState("");
   const todayKey = getTodayKey();
   const savedCars = useMemo(
     () => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate),
@@ -114,6 +122,38 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
     [promos]
+  );
+  const activeRewardPoolIds = useMemo(
+    () => new Set((rewards || []).filter((reward) => reward.active !== false).map((reward) => reward.id)),
+    [rewards]
+  );
+  const usableRewards = useMemo(
+    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
+    [activeRewardPoolIds, customerRewards, currentUser]
+  );
+  const selectedReward = useMemo(
+    () => usableRewards.find((reward) => reward.id === form.rewardId) || null,
+    [form.rewardId, usableRewards]
+  );
+  const selectedService = useMemo(
+    () => bookableServices.find((service) => service.name === form.service) || null,
+    [bookableServices, form.service]
+  );
+  const selectedPromo = useMemo(
+    () => activePromos.find((promo) => promo.id === form.promoId) || null,
+    [activePromos, form.promoId]
+  );
+  const selectedServicePrice = useMemo(
+    () => getPriceForCarSize(selectedService, form.carSize),
+    [selectedService, form.carSize]
+  );
+  const promoAdjustedPrice = useMemo(() => {
+    const discountPercent = Number(selectedPromo?.discountPercent || 0);
+    return Math.max(0, Number(selectedServicePrice || 0) - ((Number(selectedServicePrice || 0) * discountPercent) / 100));
+  }, [selectedPromo, selectedServicePrice]);
+  const rewardPreview = useMemo(
+    () => getRewardPreview(selectedReward, promoAdjustedPrice),
+    [promoAdjustedPrice, selectedReward]
   );
   const formatPromoOptionLabel = (promo) => {
     const perUserLimit = Number(promo?.maxUsagePerUser || 0);
@@ -171,6 +211,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     setModal(null);
     setSelectedBooking(null);
     setForm(createEmptyForm(serviceOptions[0]));
+    setFormError("");
   };
 
   return (
@@ -274,9 +315,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
+                  setFormError("");
 
                   if (form.date && form.date < todayKey) {
-                    window.alert("Please select today or a future date for your booking.");
+                    setFormError("Please select today or a future date for your booking.");
                     return;
                   }
 
@@ -292,11 +334,14 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       plate: form.plate,
                       service: form.service,
                       promoId: form.promoId,
+                      rewardId: form.rewardId,
                       originalAmount: Number(resolvedPrice || 0),
                       assigned: "",
-                      time: "",
+                      time: null,
+                      customerRequested: true,
+                      bookingSource: "customer",
                       amount: Number(resolvedPrice || 0),
-                      status: "Pending",
+                      status: "Pending Confirmation",
                       issueNote: "",
                       issueTypes: [],
                       issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
@@ -304,14 +349,14 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     setPage(1);
                     closeModal();
                   } catch (error) {
-                    window.alert(error.message || "Failed to create booking.");
+                    setFormError(error.message || "Failed to create booking.");
                   }
                 }}
               >
                 <div className="clBookModalTitle">New Booking</div>
 
                 <label className="clBookField">
-                  <span>Booking Date</span>
+                  <span>Preferred Date</span>
                   <input
                     type="date"
                     min={todayKey}
@@ -398,7 +443,33 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       </select>
                     </label>
                   )}
+                  {usableRewards.length > 0 && (
+                    <label className="clBookField">
+                      <span>Claim Reward</span>
+                      <select
+                        value={form.rewardId}
+                        onChange={(e) => setForm((prev) => ({ ...prev, rewardId: e.target.value }))}
+                      >
+                        <option value="">No reward</option>
+                        {usableRewards.map((reward) => (
+                          <option key={reward.id} value={reward.id}>
+                            {reward.rewardName} - {reward.rewardValue || reward.rewardType}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
+                {selectedReward ? (
+                  <div className="clBookRewardPreview">
+                    <strong>{selectedReward.rewardName}</strong>
+                    <span>{selectedReward.rewardType} • {selectedReward.rewardValue || "Reward benefit"}</span>
+                    <span>{selectedReward.rewardValue ? `Discount preview: -${formatCurrency(rewardPreview.discountAmount)}` : selectedReward.rewardType}</span>
+                    <span>Estimated total: {formatCurrency(rewardPreview.finalAmount)}</span>
+                    <small>{selectedReward.expirationDate ? `Expires ${selectedReward.expirationDate}` : "No expiration date"}</small>
+                  </div>
+                ) : null}
+                {formError ? <div className="clBookFieldError">{formError}</div> : null}
 
                 <div className="clBookModalActions">
                   <button className="clBookTextBtn" type="button" onClick={closeModal}>
@@ -429,6 +500,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                 <div className="clBookDetailList">
                   <div><strong>ID:</strong> {selectedBooking.id}</div>
                   <div><strong>Date:</strong> {formatDate(selectedBooking.date)}</div>
+                  <div><strong>Time:</strong> {formatBookingTime(selectedBooking.time)}</div>
                   <div><strong>Vehicle:</strong> {selectedBooking.vehicle}</div>
                   <div><strong>Car Size:</strong> {selectedBooking.carSize || "-"}</div>
                   <div><strong>Plate:</strong> {selectedBooking.plate}</div>

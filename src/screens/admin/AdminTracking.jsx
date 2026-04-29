@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminTrackingStyle.css";
 import "../../styles/css/admin/adminBookingsStyle.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import carDiagram from "../../assets/IMAGE/car.jpg";
@@ -95,7 +96,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
 }
 
 export default function AdminTracking() {
-  const { bookings, updateBooking } = useAdminData();
+  const { bookings, currentUser, updateBooking } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -104,6 +105,7 @@ export default function AdminTracking() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
   const [activeMarkerId, setActiveMarkerId] = useState(null);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const mapRef = useRef(null);
 
   useEffect(() => {
@@ -197,7 +199,7 @@ export default function AdminTracking() {
       {modal === "edit" && selectedRow && (
         <div className="usersModalOverlay" onClick={() => setModal(null)}>
           <div className="usersModalCard" onClick={(e) => e.stopPropagation()}>
-            <form className="trackEditForm" onSubmit={(e) => { e.preventDefault(); const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased; updateBooking(selectedRow.id, { ...selectedRow, status: editForm.status, issueNote: editForm.issueNote, issueMarkers: editForm.issueMarkers, issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean), warrantyChecklist: editForm.warrantyChecklist, warrantyChecklistItems: editForm.warrantyChecklistItems, warrantyCoveragePackage: editForm.warrantyCoveragePackage, warrantyAcknowledgement: editForm.warrantyAcknowledgement, warrantyReleased: releaseAllowed, warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "", warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "" }); setModal(null); }}>
+            <form className="trackEditForm" onSubmit={(e) => { e.preventDefault(); const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased; const payload = { ...selectedRow, status: editForm.status, issueNote: editForm.issueNote, issueMarkers: editForm.issueMarkers, issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean), warrantyChecklist: editForm.warrantyChecklist, warrantyChecklistItems: editForm.warrantyChecklistItems, warrantyCoveragePackage: editForm.warrantyCoveragePackage, warrantyAcknowledgement: editForm.warrantyAcknowledgement, warrantyReleased: releaseAllowed, warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "", warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "" }; const needsPin = editForm.status === "Cancelled" || (releaseAllowed && !selectedRow.warrantyReleased); if (needsPin) { setSecurityConfirm({ mode: "pin", title: editForm.status === "Cancelled" ? "Cancel Tracking Record" : "Release Warranty", message: editForm.status === "Cancelled" ? "Enter the admin special PIN before cancelling this tracking record." : "Enter the admin special PIN before releasing the warranty document.", onConfirm: async () => { await updateBooking(selectedRow.id, payload); setSecurityConfirm(null); setModal(null); } }); return; } updateBooking(selectedRow.id, payload); setModal(null); }}>
               <div className="trackModalHead"><div className="usersModalTitle">Edit Tracking Row</div><button className="usersModalClose" type="button" onClick={() => setModal(null)}>x</button></div>
               <div className="trackModalBody">
               <label className="usersField"><span>Customer</span><input value={editForm.customer} readOnly disabled /></label>
@@ -287,6 +289,7 @@ export default function AdminTracking() {
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
         onReset={() => { setFilters({ status: "", assignedTo: "" }); setPage(1); }}
       />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="admin" onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

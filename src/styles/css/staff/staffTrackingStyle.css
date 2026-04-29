@@ -341,7 +341,10 @@
 }
 
 .stTrackModalCard {
-  width: min(100%, 430px);
+  width: 90vw;
+  max-width: 1280px;
+  max-height: 90vh;
+  overflow-y: auto;
   background: #fff;
   border-radius: 16px;
   border: 1px solid #e5e7eb;
@@ -480,6 +483,10 @@
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid #e5e7eb;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fff;
 }
 
 .stTrackTextBtn,
