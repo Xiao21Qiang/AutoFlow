@@ -1,13 +1,17 @@
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 
 function resolveApiBaseUrl() {
-  const rawValue = String(process.env.REACT_APP_API_URL || DEFAULT_API_BASE_URL).trim();
+  const rawValue = String(process.env.REACT_APP_API_URL || "").trim();
+  if (!rawValue) {
+    return process.env.NODE_ENV === "production" ? "" : DEFAULT_API_BASE_URL;
+  }
+
   const normalizedValue = /^https?:\/\//i.test(rawValue) ? rawValue : `http://${rawValue}`;
 
   try {
     return new URL(normalizedValue).toString().replace(/\/$/, "");
   } catch (_error) {
-    return DEFAULT_API_BASE_URL;
+    return process.env.NODE_ENV === "production" ? "" : DEFAULT_API_BASE_URL;
   }
 }
 
@@ -24,9 +28,13 @@ function buildRequestUrl(path) {
     return requestPath;
   }
 
-  const normalizedBase = API_BASE_URL.replace(/\/+$/, "");
   const normalizedPath = requestPath.startsWith("/") ? requestPath : `/${requestPath}`;
 
+  if (!API_BASE_URL) {
+    return normalizedPath;
+  }
+
+  const normalizedBase = API_BASE_URL.replace(/\/+$/, "");
   return `${normalizedBase}${normalizedPath}`;
 }
 
@@ -53,7 +61,8 @@ export async function apiRequest(path, options = {}) {
       ...options,
     });
   } catch (error) {
-    throw new Error(`Could not reach the API at ${API_BASE_URL}. ${error.message || ""}`.trim());
+    const target = API_BASE_URL || "the same-origin API";
+    throw new Error(`Could not reach ${target}. ${error.message || ""}`.trim());
   }
 
   if (response.status === 204) {

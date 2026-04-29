@@ -22,8 +22,8 @@
   "scripts": {
     "customer": "node scripts/start-customer.js",
     "server": "node server/server.js",
-    "start": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm run server\" \"npm run customer\"",
-    "dev": "npm start",
+    "start": "node server/server.js",
+    "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm run server\" \"npm run customer\"",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

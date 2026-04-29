@@ -10,7 +10,7 @@ In the project directory, you can run:
 
 AutoFlow's previous local AI provider has been disabled. AI-assisted insights and issue-note generation remain visible in the UI as unavailable features and will be connected later to a deployable hosted AI API.
 
-### `npm start`
+### `npm run dev`
 
 Runs the app in the development mode.\
 Open `http://localhost:3000` to view it in your browser. If port `3000` is already in use, the customer app now
@@ -18,6 +18,10 @@ automatically starts on the next available port instead.
 
 The page will reload when you make changes.\
 You may also see any lint errors in the console.
+
+### `npm start`
+
+Starts the Express production server. In production, run `npm run build` first so Express can serve the React build folder.
 
 ### `npm test`
 

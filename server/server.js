@@ -1,11 +1,12 @@
 require("dotenv").config();
 
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 
-const { connectToDatabase } = require("./db");
+const { connectToDatabase, getDatabaseState } = require("./db");
 const {
   Booking,
   Service,
@@ -26,6 +27,12 @@ const {
 const app = express();
 const PORT = Number(process.env.API_PORT || process.env.PORT || 4000);
 const CLIENT_APP_URL = String(process.env.CLIENT_APP_URL || "http://localhost:3000").trim();
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const BUILD_DIR = path.resolve(__dirname, "..", "build");
+const ALLOWED_CORS_ORIGINS = String(process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const signupOtpStore = new Map();
 const passwordChangeOtpStore = new Map();
 const PASSWORD_PREFIX = "scrypt$";
@@ -36,16 +43,40 @@ const DEFAULT_STAFF_SPECIAL_PIN = "1357";
 const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
 const INVOICE_TAX_RATE = 0.12;
 const LEGACY_CUSTOMER_ALIAS = "cl" + "ient";
-const GOOGLE_SMTP_EMAIL = String(process.env.GOOGLE_SMTP_EMAIL || "").trim();
-const GOOGLE_SMTP_APP_PASSWORD = String(process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
-const GOOGLE_SMTP_FROM = String(process.env.GOOGLE_SMTP_FROM || GOOGLE_SMTP_EMAIL || "").trim();
+const GOOGLE_SMTP_EMAIL = String(process.env.EMAIL_USER || process.env.GOOGLE_SMTP_EMAIL || "").trim();
+const GOOGLE_SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
+const GOOGLE_SMTP_FROM = String(process.env.EMAIL_FROM || process.env.GOOGLE_SMTP_FROM || GOOGLE_SMTP_EMAIL || "").trim();
 const AI_PROVIDER_UNCONFIGURED_MESSAGE = "AI provider is not configured yet.";
 const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
 let otpMailTransportPromise = null;
 
-app.use(cors());
+function isAllowedCorsOrigin(origin, req) {
+  if (!origin) return true;
+  if (ALLOWED_CORS_ORIGINS.includes(origin)) return true;
+  try {
+    const requestHost = String(req.get("host") || "").toLowerCase();
+    const originHost = new URL(origin).host.toLowerCase();
+    if (requestHost && originHost === requestHost) return true;
+  } catch (_error) {
+    return false;
+  }
+  if (!IS_PRODUCTION && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
+  return !IS_PRODUCTION && origin === CLIENT_APP_URL;
+}
+
+app.use((req, res, next) => {
+  cors({
+    origin(origin, callback) {
+      if (isAllowedCorsOrigin(origin, req)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Not allowed by CORS"));
+    },
+  })(req, res, next);
+});
 app.use(express.json({ limit: "12mb" }));
 app.use("/api", (_req, res, next) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -1870,12 +1901,20 @@ async function loadBootstrapData() {
   };
 }
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+function sendHealth(res) {
+  res.json({
+    status: "ok",
+    database: getDatabaseState(),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+app.get("/health", (_req, res) => {
+  sendHealth(res);
 });
 
-app.get("/", (_req, res) => {
-  res.redirect(CLIENT_APP_URL);
+app.get("/api/health", (_req, res) => {
+  sendHealth(res);
 });
 
 app.get("/api/reference/vehicle-brands", async (_req, res, next) => {
@@ -3563,6 +3602,19 @@ app.post("/api/admin/commissions", async (_req, res) => {
   res.status(403).json({ message: "Commission entries are generated automatically when a staff-assigned booking is marked completed." });
 });
 
+if (IS_PRODUCTION) {
+  app.use(express.static(BUILD_DIR));
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api") || req.path === "/health") {
+      next();
+      return;
+    }
+    res.sendFile(path.join(BUILD_DIR, "index.html"), (error) => {
+      if (error) next(error);
+    });
+  });
+}
+
 app.use((error, _req, res, _next) => {
   console.error(error);
   res.status(error.statusCode || 500).json({ message: error.message || "Unexpected server error" });
@@ -3586,7 +3638,7 @@ async function start() {
   await migrateExpenseCategories();
   await backfillAutomaticExpenses();
   app.listen(PORT, () => {
-    console.log("API listening on http://localhost:" + PORT);
+    console.log(`AutoFlow server listening on port ${PORT}`);
   });
 }
 
