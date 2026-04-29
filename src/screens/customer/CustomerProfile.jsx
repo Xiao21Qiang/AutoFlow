@@ -1,5 +1,5 @@
 import "../../styles/css/customer/customerProfileStyle.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { apiRequest } from "../../services/api";
 
@@ -114,7 +114,7 @@ export default function CustomerProfile({ session }) {
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
 
-  const loadModelsForBrand = async (brand) => {
+  const loadModelsForBrand = useCallback(async (brand) => {
     const normalizedBrand = String(brand || "").trim();
     if (!normalizedBrand) return [];
 
@@ -135,7 +135,7 @@ export default function CustomerProfile({ session }) {
     } finally {
       setLoadingModelBrands((prev) => ({ ...prev, [cacheKey]: false }));
     }
-  };
+  }, [carModelsByBrand]);
 
   useEffect(() => {
     setSaved(initial);
@@ -177,12 +177,9 @@ export default function CustomerProfile({ session }) {
     )];
 
     brandsToLoad.forEach((brand) => {
-      const cacheKey = brand.toLowerCase();
-      if (!Array.isArray(carModelsByBrand[cacheKey])) {
-        loadModelsForBrand(brand);
-      }
+      loadModelsForBrand(brand);
     });
-  }, [modalOpen, form.cars, carBrands, carModelsByBrand]);
+  }, [modalOpen, form.cars, carBrands, loadModelsForBrand]);
 
   const initialLetter = useMemo(() => {
     const base = String(saved.first || saved.email || "C").trim();

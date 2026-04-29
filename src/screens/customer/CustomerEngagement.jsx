@@ -194,6 +194,7 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
                       <button
                         key={star}
                         type="button"
+                        role="radio"
                         className={`clReviewStarBtn${active ? " active" : ""}`}
                         aria-label={`${star} star${star > 1 ? "s" : ""}`}
                         aria-checked={Number(form.rating) === star}

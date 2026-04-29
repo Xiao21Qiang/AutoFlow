@@ -4,7 +4,7 @@ import ConfirmModal from "../../components/common/ConfirmModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -104,7 +104,10 @@ function ModalSelect({ value, options, placeholder, onSelect, itemDetails = null
 
 export default function AdminBookings({ initialAction = null, onActionHandled }) {
   const { bookings, services, promos, users, currentUser, createBooking, updateBooking, deleteBooking } = useAdminData();
-  const serviceOptions = services.length ? services.map((service) => service.name) : ["Graphene Coating"];
+  const serviceOptions = useMemo(
+    () => services.length ? services.map((service) => service.name) : ["Graphene Coating"],
+    [services]
+  );
   const customerOptions = users
     .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
     .map((user) => ({ name: user.name, email: user.email || "", cars: Array.isArray(user.cars) ? user.cars : [] }));
@@ -236,11 +239,17 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
+  const openAddModal = useCallback(() => {
+    setSelectedBookingId(null);
+    setForm(createEmptyForm(serviceOptions[0]));
+    setModal("add");
+  }, [serviceOptions]);
+
   useEffect(() => {
     if (initialAction !== "open-add-booking") return;
     openAddModal();
     onActionHandled?.();
-  }, [initialAction, onActionHandled]);
+  }, [initialAction, onActionHandled, openAddModal]);
 
   useEffect(() => {
     const typedName = String(form.customer || "").trim();
@@ -291,12 +300,6 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     setIsCustomerMenuOpen(false);
     setCustomerFieldError("");
     setForm(createEmptyForm(serviceOptions[0]));
-  };
-
-  const openAddModal = () => {
-    setSelectedBookingId(null);
-    setForm(createEmptyForm(serviceOptions[0]));
-    setModal("add");
   };
 
   const openEditModal = (booking) => {

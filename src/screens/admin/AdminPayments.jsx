@@ -1,5 +1,5 @@
 import "../../styles/css/admin/adminPaymentsStyle.css";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
@@ -33,10 +33,10 @@ export default function AdminPayments() {
       });
     return map;
   }, [users]);
-  const getCustomerName = (payment) => {
+  const getCustomerName = useCallback((payment) => {
     const email = String(payment?.customerEmail || "").trim().toLowerCase();
     return customerNameByEmail.get(email) || payment?.customer || "-";
-  };
+  }, [customerNameByEmail]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -53,7 +53,7 @@ export default function AdminPayments() {
       const matchesMethod = !filters.method || r.method === filters.method;
       return matchesQuery && matchesStatus && matchesMethod;
     });
-  }, [payments, query, filters, customerNameByEmail]);
+  }, [payments, query, filters, getCustomerName]);
 
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
