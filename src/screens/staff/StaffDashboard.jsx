@@ -39,7 +39,7 @@ function buildCalendarGrid(monthDate) {
 }
 
 export default function StaffDashboard({ goTo }) {
-  const { bookings, stockMonitoring, payments, quoteRequests } = useAdminData();
+  const { bookings, stockMonitoring, payments, quoteRequests, updateQuoteRequest } = useAdminData();
   const today = useMemo(() => new Date(), []);
   const [monthDate, setMonthDate] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today));
@@ -72,11 +72,11 @@ export default function StaffDashboard({ goTo }) {
 
   const alerts = useMemo(() => {
     const out = [];
-    if (lowStockCount > 0) out.push({ title: `Low stock (${lowStockCount})`, sub: "Quick alerts that need review." });
+    if (lowStockCount > 0) out.push({ title: `Low stock (${lowStockCount})`, sub: "Quick alerts that need review.", target: "stock-monitoring" });
     if (pendingPaymentsCount > 0) {
-      out.push({ title: `Pending payments (${pendingPaymentsCount})`, sub: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}` });
+      out.push({ title: `Pending payments (${pendingPaymentsCount})`, sub: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
     }
-    if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, sub: "Review service tracking to avoid delays." });
+    if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, sub: "Review service tracking to avoid delays.", target: "tracking" });
     return out;
   }, [lowStockCount, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
 
@@ -99,7 +99,7 @@ export default function StaffDashboard({ goTo }) {
               <div className="stAttentionItem"><div className="stAttentionName">No alerts</div><div className="stAttentionDesc">Everything looks good.</div></div>
             ) : (
               alerts.map((a) => (
-                <button key={a.title} className="stAttentionItem stAttentionItemClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stAttentionName">{a.title}</div><div className="stAttentionDesc">{a.sub}</div></button>
+                <button key={a.title} className="stAttentionItem stAttentionItemClickable" type="button" onClick={() => goTo?.(a.target)}><div className="stAttentionName">{a.title}</div><div className="stAttentionDesc">{a.sub}</div></button>
               ))
             )}
           </div>
@@ -151,7 +151,20 @@ export default function StaffDashboard({ goTo }) {
             <div className="stQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
             <div className="stQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
             <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Status</span><strong>{quoteStatusLabel(selectedQuoteRequest.status)}</strong></div>
+            <label className="stQuoteDetailItem stQuoteDetailItemWide">
+              <span>Status</span>
+              <select
+                value={quoteStatusLabel(selectedQuoteRequest.status)}
+                onChange={async (event) => {
+                  const status = event.target.value;
+                  await updateQuoteRequest(selectedQuoteRequest.id, { status });
+                  setSelectedQuoteRequest((prev) => ({ ...prev, status }));
+                }}
+              >
+                <option>Under Review</option>
+                <option>Received</option>
+              </select>
+            </label>
           </div>
         </div>
       )}

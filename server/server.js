@@ -195,7 +195,7 @@ async function authenticateApi(req, res, next) {
     }
 
     const payload = verifyJwt(token);
-    const user = await User.findOne({ id: payload.sub, email: String(payload.email || "").toLowerCase() }).lean();
+    const user = await User.findOne({ id: payload.sub }).lean();
     if (!user) {
       res.status(401).json({ message: "Authentication required." });
       return;
@@ -487,6 +487,11 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     error.statusCode = 400;
     throw error;
   }
+  if (selectedService.enabled === false) {
+    const error = new Error("Selected service is currently disabled and cannot be booked.");
+    error.statusCode = 400;
+    throw error;
+  }
 
   const requestedDuration = Math.max(1, Number(selectedService.mins) || 0);
   const sameDayBookings = await Booking.find({ date: bookingDate, ...(bookingId ? { id: { $ne: bookingId } } : {}) }).lean();
@@ -501,6 +506,28 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     error.statusCode = 409;
     throw error;
   }
+}
+
+async function ensureBookableService(serviceName) {
+  const name = String(serviceName || "").trim();
+  if (!name) {
+    const error = new Error("Service selection is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const service = await Service.findOne({ name }).lean();
+  if (!service) {
+    const error = new Error("Selected service is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (service.enabled === false) {
+    const error = new Error("Selected service is currently disabled and cannot be booked.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return service;
 }
 
 function createAiUnavailablePayload(feature) {
@@ -706,6 +733,39 @@ async function validateSpecialCredential(mode, value, scope = "admin") {
     ? (credentialMode === "password" ? DEFAULT_STAFF_SPECIAL_PASSWORD : DEFAULT_STAFF_SPECIAL_PIN)
     : (credentialMode === "password" ? DEFAULT_SPECIAL_PASSWORD : DEFAULT_SPECIAL_PIN);
   return verifyPassword(value, storedValue || hashPassword(fallbackValue));
+}
+
+async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "" } = {}) {
+  const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+  const credentialScope = scope || (actorType === "staff" ? "staff" : "admin");
+  const credentialMode = String(mode || "pin").trim().toLowerCase() === "password" ? "password" : "pin";
+  const value = credentialMode === "password"
+    ? String(req.body?.specialPassword || req.body?.specialCredential || "")
+    : String(req.body?.specialPin || req.body?.specialCredential || "");
+
+  if (!value) {
+    const error = new Error(`Special ${credentialMode === "password" ? "password" : "PIN"} is required.`);
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const valid = await validateSpecialCredential(credentialMode, value, credentialScope);
+  if (!valid) {
+    const error = new Error(`Incorrect ${credentialScope} special ${credentialMode === "password" ? "password" : "PIN"}.`);
+    error.statusCode = 401;
+    throw error;
+  }
+}
+
+function requireAccountNameMatch(req) {
+  const expectedName = String(req.authUser?.name || req.authUser?.email || "").trim().toLowerCase();
+  const submittedName = String(req.body?.accountName || "").trim().toLowerCase();
+
+  if (!expectedName || submittedName !== expectedName) {
+    const error = new Error("Entered account name does not match the logged-in account.");
+    error.statusCode = 401;
+    throw error;
+  }
 }
 
 function sanitizeUser(user) {
@@ -2215,7 +2275,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       users: data.users.filter((user) => normalizeUserType(user.userType, user.role) !== "admin"),
       auditLogs: [],
       archivedAuditLogs: [],
-      quoteRequests: [],
+      quoteRequests: data.quoteRequests,
       expenses: [],
       commissions: [],
       customerRewards: data.customerRewards,
@@ -2463,7 +2523,7 @@ app.post("/api/public/quotes", async (req, res, next) => {
       return;
     }
 
-    const matchedService = await Service.findOne({ name: serviceName }).lean();
+    const matchedService = await ensureBookableService(serviceName);
     const estimatedAmount = matchedService ? resolveBookingBaseAmount(serviceName, carSize, 0) : 0;
     const finalEstimatedAmount = Number(await estimatedAmount) || 0;
     const estimateLabel = finalEstimatedAmount > 0
@@ -2951,6 +3011,8 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       return;
     }
 
+    await ensureBookableService(req.body.service);
+
     if (!bookingTime && !isCustomerRequested) {
       res.status(400).json({ message: "Please assign a booking time before creating this booking." });
       return;
@@ -3074,6 +3136,11 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       return;
     }
 
+    const requestedService = String(req.body.service || "").trim();
+    if (requestedService && requestedService !== String(existingBooking.service || "").trim()) {
+      await ensureBookableService(requestedService);
+    }
+
     if (isCancelledStatus(existingBooking.status)) {
       res.status(400).json({ message: "Cancelled bookings are locked and cannot be edited." });
       return;
@@ -3081,6 +3148,17 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
 
     const bookingDate = String(req.body.date || existingBooking.date || "").trim();
     const nextStatus = normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
+    const previousStatus = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const isSensitiveStatusChange =
+      (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
+      (nextStatus === "Rescheduled" && previousStatus !== "Rescheduled");
+    if (isSensitiveStatusChange) {
+      await requireSpecialCredentialForRequest(req, {
+        mode: "pin",
+        scope: actorType === "staff" ? "staff" : "admin",
+      });
+    }
     const dateChanged = Object.prototype.hasOwnProperty.call(req.body, "date") && String(req.body.date || "") !== String(existingBooking.date || "");
     const timeChanged = Object.prototype.hasOwnProperty.call(req.body, "time") && String(req.body.time || "") !== String(existingBooking.time || "");
     const slotChanged = Object.prototype.hasOwnProperty.call(req.body, "placeSlot") && Number(req.body.placeSlot || 0) !== Number(existingBooking.placeSlot || 0);
@@ -3279,6 +3357,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
 
 app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) => {
   try {
+    await requireSpecialCredentialForRequest(req, { mode: "pin", scope: "admin" });
     const booking = await Booking.findOne({ id: req.params.id }).lean();
     if (!booking) {
       res.status(404).json({ message: "Booking not found" });
@@ -3290,7 +3369,7 @@ app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) =
     }
     await Booking.findOneAndDelete({ id: req.params.id });
     await Payment.findOneAndDelete({ bookingId: req.params.id });
-    await recordAudit(req.query.auditUser, "Deleted booking", req.params.id);
+    await recordAudit(req.body.auditUser || req.query.auditUser, "Deleted booking", req.params.id);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -3449,10 +3528,15 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
   }
 });
 
-app.delete("/api/admin/stock-monitoring/:id", requireAdminUser, async (req, res, next) => {
+app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    await StockMonitoringItem.findOneAndDelete({ id: req.params.id });
-    await recordAudit(req.query.auditUser, "Deleted stock monitoring item", req.params.id);
+    await requireSpecialCredentialForRequest(req, { mode: "pin" });
+    const deletedItem = await StockMonitoringItem.findOneAndDelete({ id: req.params.id });
+    if (!deletedItem) {
+      res.status(404).json({ message: "Stock monitoring item not found." });
+      return;
+    }
+    await recordAudit(req.body?.auditUser || req.query.auditUser, "Deleted stock monitoring item", req.params.id);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -3489,6 +3573,18 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       res.status(403).json({ message: "Customers can only submit payments for verification." });
       return;
     }
+
+    const isMarkingPaid = isPaidStatus(nextStatus) && !isPaidStatus(existingPayment.status);
+    if ((actorType === "admin" || actorType === "staff") && isMarkingPaid) {
+      await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin" });
+
+      const methodForVerification = normalizePaymentMethodLabel(req.body.method || existingPayment.method);
+      const requiresAccountName = actorType === "staff" || String(methodForVerification || "").trim().toLowerCase() === "cash";
+      if (requiresAccountName) {
+        requireAccountNameMatch(req);
+      }
+    }
+
     const rewardId = Object.prototype.hasOwnProperty.call(req.body, "rewardId")
       ? String(req.body.rewardId || "").trim()
       : String(existingPayment.rewardId || "").trim();
@@ -3623,6 +3719,19 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     if (actorType !== "admin" && !isSelfUpdate) {
       res.status(403).json({ message: "You can only update your own profile." });
       return;
+    }
+
+    const existingUserType = normalizeUserType(existingUser.userType, existingUser.role);
+    const requestedUserType = Object.prototype.hasOwnProperty.call(req.body, "userType")
+      ? normalizeUserType(req.body.userType, req.body.role)
+      : existingUserType;
+    const existingSubtype = normalizeSubtype(existingUser.userType, existingUser.role);
+    const requestedSubtype = Object.prototype.hasOwnProperty.call(req.body, "role")
+      ? normalizeSubtype(req.body.userType || existingUser.userType, req.body.role)
+      : existingSubtype;
+    const isRoleUpdate = actorType === "admin" && (requestedUserType !== existingUserType || requestedSubtype !== existingSubtype);
+    if (isRoleUpdate) {
+      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin" });
     }
 
     const nextUserType = actorType === "admin"

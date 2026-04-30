@@ -4,6 +4,7 @@ import "../../styles/css/staff/staffBookingsStyle.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -106,7 +107,9 @@ export default function StaffTracking() {
   const [editForm, setEditForm] = useState(createEditForm(null));
   const [activeMarkerId, setActiveMarkerId] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
   const mapRef = useRef(null);
+  const showToast = (type, message) => setToast({ type, message, id: Date.now() });
 
   const closeModal = () => {
     setModal(null);
@@ -277,8 +280,14 @@ export default function StaffTracking() {
                   mode: "pin",
                   title: "Update Service Tracking",
                   message: "Enter the staff special PIN before saving tracking or warranty updates.",
-                  onConfirm: async () => {
-                    await updateBooking(selectedRow.id, payload);
+                  onConfirm: async ({ secret }) => {
+                    try {
+                      await updateBooking(selectedRow.id, { ...payload, specialPin: secret });
+                      showToast("success", "Service tracking updated.");
+                    } catch (error) {
+                      showToast("error", error.message || "Failed to update service tracking.");
+                      throw error;
+                    }
                     setSecurityConfirm(null);
                     closeModal();
                   },
@@ -442,6 +451,7 @@ export default function StaffTracking() {
         }}
       />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="staff" onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

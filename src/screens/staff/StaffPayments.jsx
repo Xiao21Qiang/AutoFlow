@@ -3,6 +3,7 @@ import "../../styles/css/staff/staffPaymentsStyle.css";
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -43,6 +44,7 @@ export default function StaffPayments() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [form, setForm] = useState({ status: "Pending", method: "", reference: "", notes: "" });
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const filtered = (() => {
     const q = String(query || "").trim().toLowerCase();
@@ -187,29 +189,42 @@ export default function StaffPayments() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 const isMarkingPaid = form.status === "Paid" && !isPaidStatus(selectedPayment.status);
-                const savePayment = async () => {
+                const showToast = (type, message) => setToast({ type, message, id: Date.now() });
+                const savePayment = async (securityPayload = {}) => {
                   await updatePayment(selectedPayment.id, {
                   ...selectedPayment,
                   status: form.status,
                   method: form.method,
                   reference: form.reference,
                   notes: form.notes,
+                  ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
+                  ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
                 });
+                  showToast("success", "Payment updated.");
                   setSelectedPayment(null);
                 };
                 if (isMarkingPaid) {
                   setSecurityConfirm({
-                    mode: String(form.method || selectedPayment.method || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
+                    mode: "cash",
                     title: "Verify Payment",
-                    message: "Enter the required security confirmation before marking this payment as Paid.",
-                    onConfirm: async () => {
-                      await savePayment();
-                      setSecurityConfirm(null);
+                    message: "Enter the staff special PIN and your logged-in account name before marking this payment as Paid.",
+                    onConfirm: async (securityPayload) => {
+                      try {
+                        await savePayment(securityPayload);
+                        setSecurityConfirm(null);
+                      } catch (error) {
+                        showToast("error", error?.message || "Could not update payment.");
+                        throw error;
+                      }
                     },
                   });
                   return;
                 }
-                await savePayment();
+                try {
+                  await savePayment();
+                } catch (error) {
+                  showToast("error", error?.message || "Could not update payment.");
+                }
               }}
             >
               <div className="stPayModalTitle">Review Payment</div>
@@ -324,6 +339,7 @@ export default function StaffPayments() {
         onClose={() => setSecurityConfirm(null)}
         onConfirm={securityConfirm?.onConfirm}
       />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

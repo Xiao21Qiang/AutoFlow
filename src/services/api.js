@@ -81,7 +81,15 @@ export async function apiRequest(path, options = {}) {
     return null;
   }
 
-  const data = await response.json();
+  const responseText = await response.text();
+  let data = {};
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch (_error) {
+      data = { message: responseText };
+    }
+  }
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined" && window.localStorage) {
       ["token", "user", "session", "currentUser", "authLoginAt", "authLastActivity"].forEach((key) => {

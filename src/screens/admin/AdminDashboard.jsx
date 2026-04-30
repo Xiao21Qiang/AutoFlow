@@ -29,7 +29,7 @@ function buildCalendarGrid(viewDate, bookings = []) {
 }
 
 export default function AdminDashboard({ goTo }) {
-  const { bookings, stockMonitoring, payments, alerts, quoteRequests, summary, updateQuoteRequest } = useAdminData();
+  const { bookings, stockMonitoring, payments, quoteRequests, summary, updateQuoteRequest } = useAdminData();
   const [today] = useState(() => new Date());
   const [view, setView] = useState(new Date());
   const [selected, setSelected] = useState(new Date());
@@ -43,6 +43,18 @@ export default function AdminDashboard({ goTo }) {
   const todays = bookings.filter((b) => b.date === selectedKey);
   const paidRevenue = summary?.paidRevenue || payments.filter((payment) => payment.status === "Paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const recentQuoteRequests = quoteRequests;
+  const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
+  const pendingPayments = payments.filter((payment) => payment.status !== "Paid");
+  const pendingPaymentsCount = pendingPayments.length;
+  const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const inProgressCount = bookings.filter((booking) => String(booking.status || "").trim().toLowerCase() === "in progress").length;
+  const attentionAlerts = useMemo(() => {
+    const out = [];
+    if (lowStockCount > 0) out.push({ title: `Low stock (${lowStockCount})`, description: "Quick alerts that need review.", target: "stock-monitoring" });
+    if (pendingPaymentsCount > 0) out.push({ title: `Pending payments (${pendingPaymentsCount})`, description: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
+    if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, description: "Review service tracking to avoid delays.", target: "tracking" });
+    return out;
+  }, [lowStockCount, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
   const paymentByBookingId = useMemo(
     () => new Map(payments.map((payment) => [payment.bookingId || payment.id, payment])),
     [payments]
@@ -67,11 +79,11 @@ export default function AdminDashboard({ goTo }) {
         <div className="adminDashCard">
           <div className="adminDashTitle">Attention Needed</div>
           <div className="adminDashSub">Quick alerts that need review.</div>
-          {alerts.length === 0 ? (
+          {attentionAlerts.length === 0 ? (
             <div className="adminAttentionItem"><div className="adminAttentionName">No alerts</div><div className="adminAttentionDesc">Everything looks good right now.</div></div>
           ) : (
-            alerts.map((a, idx) => (
-              <button className="adminAttentionItem adminAttentionItemClickable" type="button" key={idx} onClick={() => goTo?.("stock-monitoring")}><div className="adminAttentionName">{a.title}</div><div className="adminAttentionDesc">{a.description}</div></button>
+            attentionAlerts.map((a) => (
+              <button className="adminAttentionItem adminAttentionItemClickable" type="button" key={a.title} onClick={() => goTo?.(a.target)}><div className="adminAttentionName">{a.title}</div><div className="adminAttentionDesc">{a.description}</div></button>
             ))
           )}
         </div>

@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminPaymentsStyle.css";
 import { useCallback, useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 
@@ -44,6 +45,7 @@ export default function AdminPayments() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [form, setForm] = useState({ status: "Pending", method: "Cash", reference: "", notes: "" });
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -163,14 +165,18 @@ export default function AdminPayments() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 const isMarkingPaid = form.status === "Paid" && !isPaidStatus(selectedPayment.status);
-                const savePayment = async () => {
+                const showToast = (type, message) => setToast({ type, message, id: Date.now() });
+                const savePayment = async (securityPayload = {}) => {
                   await updatePayment(selectedPayment.id, {
                   ...selectedPayment,
                   status: form.status,
                   method: form.method,
                   reference: form.reference,
                   notes: form.notes,
+                  ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
+                  ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
                 });
+                  showToast("success", "Payment updated.");
                   setSelectedPayment(null);
                 };
                 if (isMarkingPaid) {
@@ -178,14 +184,23 @@ export default function AdminPayments() {
                     mode: String(form.method || selectedPayment.method || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
                     title: "Verify Payment",
                     message: "Enter the required security confirmation before marking this payment as Paid.",
-                    onConfirm: async () => {
-                      await savePayment();
-                      setSecurityConfirm(null);
+                    onConfirm: async (securityPayload) => {
+                      try {
+                        await savePayment(securityPayload);
+                        setSecurityConfirm(null);
+                      } catch (error) {
+                        showToast("error", error?.message || "Could not update payment.");
+                        throw error;
+                      }
                     },
                   });
                   return;
                 }
-                await savePayment();
+                try {
+                  await savePayment();
+                } catch (error) {
+                  showToast("error", error?.message || "Could not update payment.");
+                }
               }}
             >
               <div className="payModalTitle">Review Payment</div>
@@ -285,6 +300,7 @@ export default function AdminPayments() {
         onClose={() => setSecurityConfirm(null)}
         onConfirm={securityConfirm?.onConfirm}
       />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

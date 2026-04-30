@@ -1,8 +1,7 @@
-import { render, screen } from '@testing-library/react';
-import App from './App';
+import { getDashboardRoute } from './utils/auth';
 
-test('renders learn react link', () => {
-  render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+test('resolves role dashboard routes', () => {
+  expect(getDashboardRoute({ userType: 'Admin' })).toBe('/admin');
+  expect(getDashboardRoute({ userType: 'Staff' })).toBe('/staff');
+  expect(getDashboardRoute({ userType: 'Customer' })).toBe('/client');
 });

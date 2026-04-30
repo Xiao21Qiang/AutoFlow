@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminBookingsStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -17,7 +18,7 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function createEmptyForm(defaultService = "Graphene Coating") {
+function createEmptyForm(defaultService = "") {
   return { customer: "", customerEmail: "", selectedCar: "", vehicle: "", carSize: "", plate: "", service: defaultService, promoId: "", assigned: "", date: "", time: "", placeSlot: "", amount: "", status: "Scheduled", issueNote: "", issueTypes: [], issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }] };
 }
 
@@ -43,6 +44,10 @@ function normalizeTimeInputValue(value) {
 
 function isRescheduledStatus(status) {
   return String(status || "").trim().toLowerCase() === "rescheduled";
+}
+
+function isCancelledStatus(status) {
+  return String(status || "").trim().toLowerCase() === "cancelled";
 }
 
 function isScheduleBlockingStatus(status) {
@@ -105,7 +110,7 @@ function ModalSelect({ value, options, placeholder, onSelect, itemDetails = null
 export default function AdminBookings({ initialAction = null, onActionHandled }) {
   const { bookings, services, promos, users, currentUser, createBooking, updateBooking, deleteBooking } = useAdminData();
   const serviceOptions = useMemo(
-    () => services.length ? services.map((service) => service.name) : ["Graphene Coating"],
+    () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
     [services]
   );
   const customerOptions = users
@@ -144,6 +149,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
   const [formError, setFormError] = useState("");
+  const [toast, setToast] = useState(null);
   const todayKey = getTodayKey();
   
   const selectedBooking = useMemo(() => bookings.find((booking) => booking.id === selectedBookingId) || null, [bookings, selectedBookingId]);
@@ -356,6 +362,10 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                 }
 
                 setFormError("");
+                if (modal === "add" && !form.service) {
+                  setFormError("Please choose an active service before creating this booking.");
+                  return;
+                }
                 const isReschedule = isRescheduledStatus(form.status);
                 const requiresTime = modal === "add" || isReschedule;
 
@@ -399,9 +409,11 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                 try {
                   if (modal === "add") {
                     await createBooking(payload);
+                    setToast({ type: "success", message: "Booking created.", id: Date.now() });
                   } else if (selectedBooking) {
-                    const saveEdit = async () => {
-                      await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
+                    const saveEdit = async (securityPayload = {}) => {
+                      await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload, ...securityPayload });
+                      setToast({ type: "success", message: "Booking updated.", id: Date.now() });
                       setPage(1);
                       closeModal();
                     };
@@ -412,9 +424,14 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                         mode: "pin",
                         title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
                         message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
-                        onConfirm: async () => {
-                          await saveEdit();
-                          setSecurityConfirm(null);
+                        onConfirm: async ({ secret }) => {
+                          try {
+                            await saveEdit({ specialPin: secret });
+                            setSecurityConfirm(null);
+                          } catch (error) {
+                            setToast({ type: "error", message: error.message || "Failed to update booking.", id: Date.now() });
+                            throw error;
+                          }
                         },
                       });
                       return;
@@ -427,6 +444,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     closeModal();
                   }
                 } catch (error) {
+                  setToast({ type: "error", message: error.message || `Failed to ${modal === "edit" ? "update" : "create"} booking.`, id: Date.now() });
                   setFormError(error.message || `Failed to ${modal === "edit" ? "update" : "create"} booking.`);
                 }
               }}
@@ -598,7 +616,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
         cancelLabel="Cancel"
 	        onConfirm={async () => {
 	          if (!selectedBooking) return;
-	          if (selectedBooking.status !== "Cancelled") {
+	          if (!isCancelledStatus(selectedBooking.status)) {
 	            setFormError("Only cancelled bookings can be deleted.");
 	            setIsDeleteConfirmOpen(false);
 	            return;
@@ -607,12 +625,18 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
               mode: "pin",
               title: "Delete Booking",
               message: "Enter the special PIN before deleting this cancelled booking.",
-              onConfirm: async () => {
-                await deleteBooking(selectedBooking.id);
-                setSecurityConfirm(null);
-                setIsDeleteConfirmOpen(false);
-                setPage(1);
-                closeModal();
+              onConfirm: async ({ secret }) => {
+                try {
+                  await deleteBooking(selectedBooking.id, { specialPin: secret });
+                  setToast({ type: "success", message: "Booking deleted.", id: Date.now() });
+                  setSecurityConfirm(null);
+                  setIsDeleteConfirmOpen(false);
+                  setPage(1);
+                  closeModal();
+                } catch (error) {
+                  setToast({ type: "error", message: error.message || "Failed to delete booking.", id: Date.now() });
+                  throw error;
+                }
               },
             });
         }}
@@ -621,6 +645,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
 
       <FilterModal open={isFilterOpen} title="Filter Bookings" fields={[{ key: "service", label: "Service", type: "select", options: serviceOptions }, { key: "status", label: "Status", type: "select", options: STATUS_OPTIONS }, { key: "assigned", label: "Assigned To", type: "select", options: staffOptions }]} values={filters} onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))} onClose={() => setIsFilterOpen(false)} onApply={() => { setPage(1); setIsFilterOpen(false); }} onReset={() => { setFilters({ service: "", status: "", assigned: "" }); setPage(1); }} />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

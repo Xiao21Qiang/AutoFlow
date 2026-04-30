@@ -361,8 +361,9 @@ export function AdminDataProvider({ children, session }) {
   }, []);
 
   const mutate = async (path, options = {}) => {
-    await apiRequest(path, options);
+    const result = await apiRequest(path, options);
     await loadAdminData();
+    return result;
   };
 
   const currentUser = useMemo(() => {
@@ -434,7 +435,11 @@ export function AdminDataProvider({ children, session }) {
       }),
     }),
     updateBooking: (id, payload) => mutate("/api/admin/bookings/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
-    deleteBooking: (id) => mutate("/api/admin/bookings/" + id + "?auditUser=" + encodeURIComponent(auditUser), { method: "DELETE" }),
+    deleteBooking: (id, payload = {}) =>
+      mutate("/api/admin/bookings/" + id, {
+        method: "DELETE",
+        body: JSON.stringify({ ...payload, auditUser }),
+      }),
     createService: (payload) => mutate("/api/admin/services", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateService: (id, payload) => mutate("/api/admin/services/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     toggleService: (service) => mutate("/api/admin/services/" + service.id, { method: "PUT", body: JSON.stringify({ ...service, enabled: !service.enabled, auditUser }) }),
@@ -446,7 +451,11 @@ export function AdminDataProvider({ children, session }) {
     createStockMonitoringItem: (payload) => mutate("/api/admin/stock-monitoring", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateStockMonitoringItem: (id, payload) => mutate("/api/admin/stock-monitoring/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     restockStockMonitoringItem: (id, payload) => mutate("/api/admin/stock-monitoring/" + id + "/restock", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
-    deleteStockMonitoringItem: (id) => mutate("/api/admin/stock-monitoring/" + id + "?auditUser=" + encodeURIComponent(auditUser), { method: "DELETE" }),
+    deleteStockMonitoringItem: (id, payload = {}) =>
+      mutate("/api/admin/stock-monitoring/" + id, {
+        method: "DELETE",
+        body: JSON.stringify({ ...payload, auditUser }),
+      }),
     updatePayment: (id, payload) => mutate("/api/admin/payments/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     markPaymentPaid: (payment) => mutate("/api/admin/payments/" + payment.id, { method: "PUT", body: JSON.stringify({ ...payment, status: "Paid", auditUser }) }),
     submitPaymentProof: (payment, payload) =>

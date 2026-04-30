@@ -1,6 +1,7 @@
 import "../../styles/css/admin/adminStockMonitoringStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
@@ -47,6 +48,7 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [modal, setModal] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", category: "", currentStock: "", maxStock: "", pricePerUnit: "" });
   const [restockForm, setRestockForm] = useState({ date: formatDateInput(), itemName: "", currentStock: "", qtyToAdd: "", restockedBy: "Admin", costPerUnit: "", supplier: "", notes: "" });
   const [addForm, setAddForm] = useState({ name: "", category: "Coating", currentStock: "0", maxStock: "0", pricePerUnit: "0" });
@@ -94,6 +96,46 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
       ],
     });
 
+  const showToast = (type, message, title) => {
+    setToast({ type, message, title, id: Date.now() });
+  };
+
+  const getErrorMessage = (error, fallback) => error?.message || fallback;
+
+  const handleEditSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await updateStockMonitoringItem(selectedItem.id, { ...selectedItem, name: editForm.name.trim(), category: editForm.category, currentStock: clampNumber(editForm.currentStock), maxStock: clampNumber(editForm.maxStock), pricePerUnit: clampNumber(editForm.pricePerUnit) });
+      showToast("success", "Stock item updated.");
+      setModal(null);
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not update stock item."));
+    }
+  };
+
+  const handleRestockSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await restockStockMonitoringItem(selectedItem.id, { ...restockForm, qtyToAdd: clampNumber(restockForm.qtyToAdd), costPerUnit: clampNumber(restockForm.costPerUnit), supplier: "", notes: "" });
+      showToast("success", "Stock item restocked.");
+      setModal(null);
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not restock item."));
+    }
+  };
+
+  const handleAddSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await createStockMonitoringItem({ name: addForm.name.trim(), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] });
+      setPage(1);
+      showToast("success", "Stock item added.");
+      setModal(null);
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not add stock item."));
+    }
+  };
+
   return (
     <div className="invWrap">
       <div className="invTopRow">
@@ -109,16 +151,17 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
 
       <div className="invPagerRow"><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button><span className="invPagerNum">{safePage}</span><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>
 
-      {modal === "edit" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={(e) => { e.preventDefault(); updateStockMonitoringItem(selectedItem.id, { ...selectedItem, name: editForm.name.trim(), category: editForm.category, currentStock: clampNumber(editForm.currentStock), maxStock: clampNumber(editForm.maxStock), pricePerUnit: clampNumber(editForm.pricePerUnit) }); setModal(null); }}><div className="invModalTitle">Edit Stock Monitoring Item</div><label className="invField"><span>Item Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={editForm.category} onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={editForm.currentStock} onChange={(e) => setEditForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={editForm.maxStock} onChange={(e) => setEditForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Unit Cost (P)</span><input type="number" value={editForm.pricePerUnit} onChange={(e) => setEditForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Item</button></div></form></div></div>}
+      {modal === "edit" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleEditSubmit}><div className="invModalTitle">Edit Stock Monitoring Item</div><label className="invField"><span>Item Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={editForm.category} onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={editForm.currentStock} onChange={(e) => setEditForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={editForm.maxStock} onChange={(e) => setEditForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Unit Cost (P)</span><input type="number" value={editForm.pricePerUnit} onChange={(e) => setEditForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Item</button></div></form></div></div>}
 
-      {modal === "restock" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={(e) => { e.preventDefault(); restockStockMonitoringItem(selectedItem.id, { ...restockForm, qtyToAdd: clampNumber(restockForm.qtyToAdd), costPerUnit: clampNumber(restockForm.costPerUnit), supplier: "", notes: "" }); setModal(null); }}><div className="invModalTitle">Restock Item</div><label className="invField"><span>Date</span><input type="date" value={restockForm.date} readOnly /></label><label className="invField"><span>Quantity to Add</span><input type="number" value={restockForm.qtyToAdd} onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))} /></label><label className="invField"><span>Unit Cost</span><input type="number" value={restockForm.costPerUnit} onChange={(e) => setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Restock</button></div></form></div></div>}
+      {modal === "restock" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleRestockSubmit}><div className="invModalTitle">Restock Item</div><label className="invField"><span>Date</span><input type="date" value={restockForm.date} readOnly /></label><label className="invField"><span>Quantity to Add</span><input type="number" value={restockForm.qtyToAdd} onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))} /></label><label className="invField"><span>Unit Cost</span><input type="number" value={restockForm.costPerUnit} onChange={(e) => setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Restock</button></div></form></div></div>}
 
-      {modal === "add" && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={(e) => { e.preventDefault(); createStockMonitoringItem({ name: addForm.name.trim(), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] }); setPage(1); setModal(null); }}><div className="invModalTitle invModalTitleAdd">Add Item</div><label className="invField"><span>Item Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={addForm.currentStock} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={addForm.maxStock} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Price Per Unit (P)</span><input type="number" value={addForm.pricePerUnit} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Add Item</button></div></form></div></div>}
+      {modal === "add" && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleAddSubmit}><div className="invModalTitle invModalTitleAdd">Add Item</div><label className="invField"><span>Item Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={addForm.currentStock} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={addForm.maxStock} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Price Per Unit (P)</span><input type="number" value={addForm.pricePerUnit} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Add Item</button></div></form></div></div>}
 
-      {modal === "delete" && selectedItem && <div className="invModalOverlay"><div className="invModalCard deleteMode"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><div className="invModalTitle">Delete Stock Monitoring Item</div><p className="usersConfirmText">Delete {selectedItem.name}? This action cannot be undone.</p><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Stock Item", message: "Enter the special PIN before deleting this stock item.", onConfirm: async () => { await deleteStockMonitoringItem(selectedItem.id); setSecurityConfirm(null); setPage(1); setModal(null); } })}>Delete</button></div></div></div>}
+      {modal === "delete" && selectedItem && <div className="invModalOverlay"><div className="invModalCard deleteMode"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><div className="invModalTitle">Delete Stock Monitoring Item</div><p className="usersConfirmText">Delete {selectedItem.name}? This action cannot be undone.</p><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Stock Item", message: "Enter the special PIN before deleting this stock item.", onConfirm: async ({ secret }) => { try { await deleteStockMonitoringItem(selectedItem.id, { specialPin: secret }); setSecurityConfirm(null); setPage(1); showToast("success", "Stock item deleted."); setModal(null); } catch (error) { showToast("error", error.message || "Could not delete stock item."); throw error; } } })}>Delete</button></div></div></div>}
 
       <FilterModal open={isFilterOpen} title="Filter Stock Monitoring" fields={[{ key: "category", label: "Category", type: "select", options: CATEGORY_OPTIONS }, { key: "stockTone", label: "Stock Status", type: "select", options: ["danger", "warning", "healthy"] }]} values={filters} onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))} onClose={() => setIsFilterOpen(false)} onApply={() => { setPage(1); setIsFilterOpen(false); }} onReset={() => { setFilters({ category: "", stockTone: "" }); setPage(1); }} />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

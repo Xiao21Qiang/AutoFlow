@@ -1,6 +1,7 @@
 import "../../styles/css/staff/staffBookingsStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
@@ -16,7 +17,7 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function createEmptyForm(defaultService = "Graphene Coating") {
+function createEmptyForm(defaultService = "") {
   return {
     customer: "",
     customerEmail: "",
@@ -116,7 +117,7 @@ function ModalSelect({ value, options, placeholder, onSelect, className = "", di
 
 export default function StaffBookings() {
   const { bookings, services, users, currentUser, createBooking, updateBooking } = useAdminData();
-  const serviceOptions = services.length ? services.map((service) => service.name) : ["Graphene Coating"];
+  const serviceOptions = services.filter((service) => service.name && service.enabled !== false).map((service) => service.name);
   const customerOptions = users
     .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
     .map((user) => ({ name: user.name, email: user.email || "", cars: Array.isArray(user.cars) ? user.cars : [] }));
@@ -135,6 +136,7 @@ export default function StaffBookings() {
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
   const [formError, setFormError] = useState("");
+  const [toast, setToast] = useState(null);
   const todayKey = getTodayKey();
 
   const selectedBooking = useMemo(
@@ -510,10 +512,16 @@ export default function StaffBookings() {
 
                 try {
                   if (modal === "add") {
+                    if (!payload.service) {
+                      setFormError("Please choose an active service before creating this booking.");
+                      return;
+                    }
                     await createBooking(payload);
+                    setToast({ type: "success", message: "Booking created.", id: Date.now() });
                   } else if (selectedBooking) {
-                    const saveEdit = async () => {
-                      await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload });
+                    const saveEdit = async (securityPayload = {}) => {
+                      await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload, ...securityPayload });
+                      setToast({ type: "success", message: "Booking updated.", id: Date.now() });
                       setPage(1);
                       closeModal();
                     };
@@ -524,9 +532,14 @@ export default function StaffBookings() {
                         mode: "pin",
                         title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
                         message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
-                        onConfirm: async () => {
-                          await saveEdit();
-                          setSecurityConfirm(null);
+                        onConfirm: async ({ secret }) => {
+                          try {
+                            await saveEdit({ specialPin: secret });
+                            setSecurityConfirm(null);
+                          } catch (error) {
+                            setToast({ type: "error", message: error.message || "Failed to update booking.", id: Date.now() });
+                            throw error;
+                          }
                         },
                       });
                       return;
@@ -539,6 +552,7 @@ export default function StaffBookings() {
                     closeModal();
                   }
                 } catch (error) {
+                  setToast({ type: "error", message: error.message || `Failed to ${modal === "edit" ? "update" : "create"} booking.`, id: Date.now() });
                   setFormError(error.message || `Failed to ${modal === "edit" ? "update" : "create"} booking.`);
                 }
               }}
@@ -768,6 +782,7 @@ export default function StaffBookings() {
         }}
       />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

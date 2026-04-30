@@ -2,6 +2,8 @@ import "../../styles/css/staff/staffStockMonitoringStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -39,6 +41,7 @@ function formatDateInput(date = new Date()) {
 export default function StaffStockMonitoring() {
   const {
     stockMonitoring,
+    currentUser,
     createStockMonitoringItem,
     updateStockMonitoringItem,
     restockStockMonitoringItem,
@@ -50,6 +53,8 @@ export default function StaffStockMonitoring() {
   const [filters, setFilters] = useState({ category: "", stockTone: "" });
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [modal, setModal] = useState(null);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
   const [editForm, setEditForm] = useState({
     name: "",
     category: "",
@@ -151,6 +156,88 @@ export default function StaffStockMonitoring() {
       pricePerUnit: "0",
     });
     setModal("add");
+  };
+
+  const showToast = (type, message, title) => {
+    setToast({ type, message, title, id: Date.now() });
+  };
+
+  const getErrorMessage = (error, fallback) => error?.message || fallback;
+
+  const handleEditSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await updateStockMonitoringItem(selectedItem.id, {
+        ...selectedItem,
+        name: editForm.name.trim(),
+        category: editForm.category,
+        currentStock: clampNumber(editForm.currentStock),
+        maxStock: clampNumber(editForm.maxStock),
+        pricePerUnit: clampNumber(editForm.pricePerUnit),
+      });
+      showToast("success", "Stock item updated.");
+      closeModal();
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not update stock item."));
+    }
+  };
+
+  const handleAddSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await createStockMonitoringItem({
+        name: addForm.name.trim(),
+        category: addForm.category,
+        currentStock: clampNumber(addForm.currentStock),
+        maxStock: clampNumber(addForm.maxStock),
+        pricePerUnit: clampNumber(addForm.pricePerUnit),
+        lastRestocked: formatDateInput(),
+        restockHistory: [],
+        soldHistory: [],
+      });
+      setPage(1);
+      showToast("success", "Stock item added.");
+      closeModal();
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not add stock item."));
+    }
+  };
+
+  const handleRestockSubmit = async (event) => {
+    event.preventDefault();
+    try {
+      await restockStockMonitoringItem(selectedItem.id, {
+        ...restockForm,
+        qtyToAdd: clampNumber(restockForm.qtyToAdd),
+        costPerUnit: clampNumber(restockForm.costPerUnit),
+        supplier: "",
+        notes: "",
+      });
+      showToast("success", "Stock item restocked.");
+      closeModal();
+    } catch (error) {
+      showToast("error", getErrorMessage(error, "Could not restock item."));
+    }
+  };
+
+  const confirmDelete = () => {
+    setSecurityConfirm({
+      mode: "pin",
+      title: "Delete Stock Item",
+      message: "Enter the staff special PIN before deleting this stock item.",
+      onConfirm: async ({ secret }) => {
+        try {
+          await deleteStockMonitoringItem(selectedItem.id, { specialPin: secret });
+          setSecurityConfirm(null);
+          setPage(1);
+          showToast("success", "Stock item deleted.");
+          closeModal();
+        } catch (error) {
+          showToast("error", getErrorMessage(error, "Could not delete stock item."));
+          throw error;
+        }
+      },
+    });
   };
 
   return (
@@ -309,18 +396,7 @@ export default function StaffStockMonitoring() {
 
             {modal === "edit" && selectedItem && (
               <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  updateStockMonitoringItem(selectedItem.id, {
-                    ...selectedItem,
-                    name: editForm.name.trim(),
-                    category: editForm.category,
-                    currentStock: clampNumber(editForm.currentStock),
-                    maxStock: clampNumber(editForm.maxStock),
-                    pricePerUnit: clampNumber(editForm.pricePerUnit),
-                  });
-                  closeModal();
-                }}
+                onSubmit={handleEditSubmit}
               >
                 <div className="stInvModalTitle">Edit Stock Monitoring Item</div>
 
@@ -406,21 +482,7 @@ export default function StaffStockMonitoring() {
 
             {modal === "add" && (
               <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createStockMonitoringItem({
-                    name: addForm.name.trim(),
-                    category: addForm.category,
-                    currentStock: clampNumber(addForm.currentStock),
-                    maxStock: clampNumber(addForm.maxStock),
-                    pricePerUnit: clampNumber(addForm.pricePerUnit),
-                    lastRestocked: formatDateInput(),
-                    restockHistory: [],
-                    soldHistory: [],
-                  });
-                  setPage(1);
-                  closeModal();
-                }}
+                onSubmit={handleAddSubmit}
               >
                 <div className="stInvModalTitle stInvModalTitleAdd">Add Stock Monitoring Item</div>
 
@@ -501,17 +563,7 @@ export default function StaffStockMonitoring() {
 
             {modal === "restock" && selectedItem && (
               <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  restockStockMonitoringItem(selectedItem.id, {
-                    ...restockForm,
-                    qtyToAdd: clampNumber(restockForm.qtyToAdd),
-                    costPerUnit: clampNumber(restockForm.costPerUnit),
-                    supplier: "",
-                    notes: "",
-                  });
-                  closeModal();
-                }}
+                onSubmit={handleRestockSubmit}
               >
                 <div className="stInvModalTitle">Restock Stock Monitoring Item</div>
 
@@ -593,11 +645,7 @@ export default function StaffStockMonitoring() {
                   <button
                     className="stInvPrimaryBtn"
                     type="button"
-                    onClick={() => {
-                      deleteStockMonitoringItem(selectedItem.id);
-                      setPage(1);
-                      closeModal();
-                    }}
+                    onClick={confirmDelete}
                   >
                     Delete
                   </button>
@@ -627,6 +675,16 @@ export default function StaffStockMonitoring() {
           setPage(1);
         }}
       />
+      <SecurityConfirmModal
+        open={Boolean(securityConfirm)}
+        mode={securityConfirm?.mode || "pin"}
+        title={securityConfirm?.title}
+        message={securityConfirm?.message}
+        currentUser={currentUser}
+        onClose={() => setSecurityConfirm(null)}
+        onConfirm={securityConfirm?.onConfirm}
+      />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

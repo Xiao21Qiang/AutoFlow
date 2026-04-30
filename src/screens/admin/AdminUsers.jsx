@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminUsersStyle.css";
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 
 import icoSearch from "../../styles/icons/search.png";
@@ -61,6 +62,7 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -85,6 +87,10 @@ export default function AdminUsers() {
   const closeModal = () => {
     setModal(null);
     setSelectedUser(null);
+  };
+
+  const showToast = (type, message) => {
+    setToast({ type, message, id: Date.now() });
   };
 
   return (
@@ -125,7 +131,7 @@ export default function AdminUsers() {
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
-              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); setSecurityConfirm({ mode: "pin", title: "Update User", message: "Enter the special PIN before changing this account.", onConfirm: async () => { await updateUser(selectedUser.id, { ...selectedUser, ...editForm }); setSecurityConfirm(null); closeModal(); } }); }}>
+              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); setSecurityConfirm({ mode: "password", title: "Update User Role", message: "Enter the admin special password before changing this account.", onConfirm: async ({ secret }) => { try { await updateUser(selectedUser.id, { ...selectedUser, ...editForm, specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account updated."); closeModal(); } catch (error) { showToast("error", error.message || "Could not update user account."); throw error; } } }); }}>
                 <div className="usersModalTitle">Edit User</div>
                 <div className="usersFieldGroup">
                   <label className="usersField"><span>Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
@@ -181,7 +187,7 @@ export default function AdminUsers() {
                 <div className="usersModalTitle">Confirm Delete</div>
                 <p className="usersConfirmText">Delete this user account? This action cannot be undone.</p>
                 <div className="usersConfirmMeta"><div>{selectedUser.name}</div><div>{selectedUser.email}</div></div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete User", message: "Enter the special PIN before deleting this account.", onConfirm: async () => { await deleteUser(selectedUser.id); setSecurityConfirm(null); closeModal(); } })}>Delete</button></div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete User", message: "Enter the special PIN before deleting this account.", onConfirm: async () => { await deleteUser(selectedUser.id); setSecurityConfirm(null); showToast("success", "User account deleted."); closeModal(); } })}>Delete</button></div>
               </div>
             )}
           </div>
@@ -202,6 +208,7 @@ export default function AdminUsers() {
         onReset={() => { setFilters({ userType: "", status: "" }); setPage(1); }}
       />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );
 }
