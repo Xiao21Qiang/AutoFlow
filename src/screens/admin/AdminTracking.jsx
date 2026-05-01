@@ -97,7 +97,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
 }
 
 export default function AdminTracking() {
-  const { bookings, currentUser, updateBooking } = useAdminData();
+  const { bookings, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -108,6 +108,14 @@ export default function AdminTracking() {
   const [activeMarkerId, setActiveMarkerId] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [issueNoteAi, setIssueNoteAi] = useState({
+    status: "idle",
+    message: "",
+    suggestion: "",
+    nextAction: "",
+    customerSummary: "",
+    model: "",
+  });
   const mapRef = useRef(null);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
 
@@ -177,6 +185,83 @@ export default function AdminTracking() {
       ],
     });
 
+  const resetIssueNoteAi = () => {
+    setIssueNoteAi({
+      status: "idle",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
+  };
+
+  const handleGenerateIssueNote = async () => {
+    setIssueNoteAi({
+      status: "loading",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
+
+    try {
+      const response = await generateTrackingIssueNote({
+        problemLocation: editForm.issueMarkers
+          .map((marker) => `Marker ${marker.id}${marker.issueType ? ` - ${marker.issueType}` : ""}`)
+          .join(", "),
+        issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean),
+        issueMarkers: editForm.issueMarkers,
+        serviceType: editForm.service,
+        vehicleDetails: editForm.vehicle,
+        currentTrackingStatus: editForm.status,
+        currentIssueNote: editForm.issueNote,
+      });
+
+      if (!response?.available) {
+        setIssueNoteAi({
+          status: "unavailable",
+          message: response?.message || "AI unavailable right now.",
+          suggestion: "",
+          nextAction: "",
+          customerSummary: "",
+          model: "",
+        });
+        return;
+      }
+
+      const suggestion = response.technicianFriendlyNote || response.cleanedUpIssueNote || "";
+      setIssueNoteAi({
+        status: suggestion ? "success" : "unavailable",
+        message: suggestion ? "" : "AI unavailable right now.",
+        suggestion,
+        nextAction: response.suggestedNextAction || "",
+        customerSummary: response.customerSafeSummary || "",
+        model: response.model || "",
+      });
+    } catch (error) {
+      setIssueNoteAi({
+        status: "error",
+        message: error.message || "Unable to generate analysis right now.",
+        suggestion: "",
+        nextAction: "",
+        customerSummary: "",
+        model: "",
+      });
+    }
+  };
+
+  const handleInsertIssueNote = () => {
+    if (!issueNoteAi.suggestion) return;
+    setEditForm((prev) => ({
+      ...prev,
+      issueNote: prev.issueNote.trim()
+        ? `${prev.issueNote.trim()}\n${issueNoteAi.suggestion}`
+        : issueNoteAi.suggestion,
+    }));
+  };
+
   return (
     <div className="stWrap">
       <div className="stTopRow">
@@ -191,7 +276,7 @@ export default function AdminTracking() {
           {paged.length === 0 ? <div className="stEmptyRow">No tracking records found.</div> : paged.map((r) => (
             <div className="stRow" key={r.id}>
               <div className="stId">{r.id}</div><div>{r.date}</div><div>{r.customer}</div><div>{r.vehicle}</div><div>{r.service}</div><div><span className={`stPill ${statusClass(r.status)}`}>{r.status}</span></div><div>{r.assigned}</div>
-              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); setModal("edit"); }}>Edit</button></div></div>
+              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setModal("edit"); }}>Edit</button></div></div>
             </div>
           ))}
         </div>
@@ -239,6 +324,29 @@ export default function AdminTracking() {
                           );
                         })}
                       </div>
+                    </div>
+                    <div className="bookIssueAiHelper">
+                      <div className="bookIssueAiHead">
+                        <div className="bookIssueAiTitle">AI Issue Note Helper</div>
+                        <button className="bookIssueAiBtn" type="button" onClick={handleGenerateIssueNote} disabled={issueNoteAi.status === "loading"}>
+                          {issueNoteAi.status === "loading" ? "Generating..." : "Generate Suggestion"}
+                        </button>
+                      </div>
+                      <div className={`bookIssueAiStatus bookIssueAiStatus-${issueNoteAi.status}`}>
+                        {issueNoteAi.status === "idle" && "Generate a technician-friendly issue note suggestion from the current problem markers."}
+                        {issueNoteAi.status === "loading" && "Preparing a suggested issue note..."}
+                        {issueNoteAi.status === "success" && `Suggestion ready${issueNoteAi.model ? ` • ${issueNoteAi.model}` : ""}`}
+                        {issueNoteAi.status === "unavailable" && (issueNoteAi.message || "AI unavailable right now.")}
+                        {issueNoteAi.status === "error" && (issueNoteAi.message || "Unable to generate analysis right now.")}
+                      </div>
+                      {issueNoteAi.suggestion && (
+                        <div className="bookIssueAiResult">
+                          <div className="bookIssueAiResultText">{issueNoteAi.suggestion}</div>
+                          {issueNoteAi.nextAction && <div className="bookIssueAiMeta"><strong>Next action:</strong> {issueNoteAi.nextAction}</div>}
+                          {issueNoteAi.customerSummary && <div className="bookIssueAiMeta"><strong>Customer summary:</strong> {issueNoteAi.customerSummary}</div>}
+                          <button className="bookIssueAiInsertBtn" type="button" onClick={handleInsertIssueNote}>Insert Suggestion</button>
+                        </div>
+                      )}
                     </div>
                     <label className="bookField bookIssueNoteField"><span>Issue Notes</span><textarea className="bookIssueNoteTextarea" rows="5" value={editForm.issueNote} onChange={(e) => setEditForm((prev) => ({ ...prev, issueNote: e.target.value }))} /></label>
                   </div>

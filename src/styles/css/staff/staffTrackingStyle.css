@@ -540,6 +540,111 @@
   padding: 6px 10px;
 }
 
+.stIssueAiHelper {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stIssueAiHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stIssueAiTitle {
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+}
+
+.stIssueAiBtn,
+.stIssueAiInsertBtn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.stIssueAiBtn:hover:not(:disabled),
+.stIssueAiInsertBtn:hover {
+  background: #f1f5f9;
+}
+
+.stIssueAiBtn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.stIssueAiStatus {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.stIssueAiStatus-idle {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.stIssueAiStatus-loading {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.stIssueAiStatus-success {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.stIssueAiStatus-unavailable {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.stIssueAiStatus-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.stIssueAiResult {
+  border: 1px solid #dbe4ee;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stIssueAiResultText,
+.stIssueAiMeta {
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 700;
+  color: #334155;
+}
+
 @media (max-width: 760px) {
   .stTrackCard {
     overflow-x: auto;

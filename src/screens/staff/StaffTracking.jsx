@@ -97,7 +97,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
 }
 
 export default function StaffTracking() {
-  const { bookings, currentUser, updateBooking } = useAdminData();
+  const { bookings, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -108,6 +108,14 @@ export default function StaffTracking() {
   const [activeMarkerId, setActiveMarkerId] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [issueNoteAi, setIssueNoteAi] = useState({
+    status: "idle",
+    message: "",
+    suggestion: "",
+    nextAction: "",
+    customerSummary: "",
+    model: "",
+  });
   const mapRef = useRef(null);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
 
@@ -115,6 +123,14 @@ export default function StaffTracking() {
     setModal(null);
     setSelectedRow(null);
     setActiveMarkerId(null);
+    setIssueNoteAi({
+      status: "idle",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
   };
 
   useEffect(() => {
@@ -160,6 +176,72 @@ export default function StaffTracking() {
     if (s.includes("completed")) return "stTrackCompleted";
     if (s.includes("cancelled")) return "stTrackArrived";
     return "stTrackBooked";
+  };
+
+  const handleGenerateIssueNote = async () => {
+    setIssueNoteAi({
+      status: "loading",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
+
+    try {
+      const response = await generateTrackingIssueNote({
+        problemLocation: editForm.issueMarkers
+          .map((marker) => `Marker ${marker.id}${marker.issueType ? ` - ${marker.issueType}` : ""}`)
+          .join(", "),
+        issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean),
+        issueMarkers: editForm.issueMarkers,
+        serviceType: editForm.service,
+        vehicleDetails: editForm.vehicle,
+        currentTrackingStatus: editForm.status,
+        currentIssueNote: editForm.issueNote,
+      });
+
+      if (!response?.available) {
+        setIssueNoteAi({
+          status: "unavailable",
+          message: response?.message || "AI unavailable right now.",
+          suggestion: "",
+          nextAction: "",
+          customerSummary: "",
+          model: "",
+        });
+        return;
+      }
+
+      const suggestion = response.technicianFriendlyNote || response.cleanedUpIssueNote || "";
+      setIssueNoteAi({
+        status: suggestion ? "success" : "unavailable",
+        message: suggestion ? "" : "AI unavailable right now.",
+        suggestion,
+        nextAction: response.suggestedNextAction || "",
+        customerSummary: response.customerSafeSummary || "",
+        model: response.model || "",
+      });
+    } catch (error) {
+      setIssueNoteAi({
+        status: "error",
+        message: error.message || "Unable to generate analysis right now.",
+        suggestion: "",
+        nextAction: "",
+        customerSummary: "",
+        model: "",
+      });
+    }
+  };
+
+  const handleInsertIssueNote = () => {
+    if (!issueNoteAi.suggestion) return;
+    setEditForm((prev) => ({
+      ...prev,
+      issueNote: prev.issueNote.trim()
+        ? `${prev.issueNote.trim()}\n${issueNoteAi.suggestion}`
+        : issueNoteAi.suggestion,
+    }));
   };
 
   return (
@@ -227,6 +309,14 @@ export default function StaffTracking() {
                         onClick={() => {
                           setSelectedRow(r);
                           setEditForm(createEditForm(r));
+                          setIssueNoteAi({
+                            status: "idle",
+                            message: "",
+                            suggestion: "",
+                            nextAction: "",
+                            customerSummary: "",
+                            model: "",
+                          });
                           setModal("edit");
                         }}
                       >
@@ -387,6 +477,29 @@ export default function StaffTracking() {
                           );
                         })}
                       </div>
+                    </div>
+                    <div className="stIssueAiHelper">
+                      <div className="stIssueAiHead">
+                        <div className="stIssueAiTitle">AI Issue Note Helper</div>
+                        <button className="stIssueAiBtn" type="button" onClick={handleGenerateIssueNote} disabled={issueNoteAi.status === "loading"}>
+                          {issueNoteAi.status === "loading" ? "Generating..." : "Generate Suggestion"}
+                        </button>
+                      </div>
+                      <div className={`stIssueAiStatus stIssueAiStatus-${issueNoteAi.status}`}>
+                        {issueNoteAi.status === "idle" && "Generate a technician-friendly issue note suggestion from the current problem markers."}
+                        {issueNoteAi.status === "loading" && "Preparing a suggested issue note..."}
+                        {issueNoteAi.status === "success" && `Suggestion ready${issueNoteAi.model ? ` • ${issueNoteAi.model}` : ""}`}
+                        {issueNoteAi.status === "unavailable" && (issueNoteAi.message || "AI unavailable right now.")}
+                        {issueNoteAi.status === "error" && (issueNoteAi.message || "Unable to generate analysis right now.")}
+                      </div>
+                      {issueNoteAi.suggestion && (
+                        <div className="stIssueAiResult">
+                          <div className="stIssueAiResultText">{issueNoteAi.suggestion}</div>
+                          {issueNoteAi.nextAction && <div className="stIssueAiMeta"><strong>Next action:</strong> {issueNoteAi.nextAction}</div>}
+                          {issueNoteAi.customerSummary && <div className="stIssueAiMeta"><strong>Customer summary:</strong> {issueNoteAi.customerSummary}</div>}
+                          <button className="stIssueAiInsertBtn" type="button" onClick={handleInsertIssueNote}>Insert Suggestion</button>
+                        </div>
+                      )}
                     </div>
                     <label className="stBookField stIssueNoteField"><span>Issue Notes</span><textarea className="stIssueNoteTextarea" rows="5" value={editForm.issueNote} onChange={(e) => setEditForm((prev) => ({ ...prev, issueNote: e.target.value }))} /></label>
                   </div>

@@ -202,6 +202,13 @@ function requestAnalyticsInterpretation(payload) {
   });
 }
 
+function requestTrackingIssueNote(payload) {
+  return apiRequest("/api/ai/tracking/issue-note", {
+    method: "POST",
+    body: JSON.stringify(payload || {}),
+  });
+}
+
 function requestPasswordChangeOtp(payload) {
   return apiRequest("/api/auth/password-change/request-otp", {
     method: "POST",
@@ -498,6 +505,7 @@ export function AdminDataProvider({ children, session }) {
     deleteReward: (id) => mutate("/api/admin/rewards/" + id, { method: "DELETE", body: JSON.stringify({ auditUser }) }),
     generateCustomerReward: (payload) => mutate("/api/admin/rewards/generate", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     generateAnalyticsInterpretation: requestAnalyticsInterpretation,
+    generateTrackingIssueNote: requestTrackingIssueNote,
     generateFinancialInterpretation: requestFinancialInterpretation,
     requestPasswordChangeOtp,
     verifyPasswordChangeOtp,
