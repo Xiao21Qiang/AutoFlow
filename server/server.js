@@ -672,19 +672,34 @@ function buildAnalyticsAiInput(body = {}) {
     maxItems: 6,
     maxLength: 120,
   });
+  const strongestService = topServices[0]
+    ? normalizeAiText(`${topServices[0].name} leads with ${topServices[0].count} booking(s).`, 120)
+    : "";
+  const strongestPaymentMethod = paymentSummary
+    .slice()
+    .sort((left, right) => Number(right.amount || 0) - Number(left.amount || 0))[0];
+  const paymentLeader = strongestPaymentMethod
+    ? normalizeAiText(
+        `${strongestPaymentMethod.method || strongestPaymentMethod.name} contributes ${Number(strongestPaymentMethod.amount || 0).toLocaleString()} in paid sales.`,
+        120
+      )
+    : "";
+  const derivedSignals = [strongestService, paymentLeader].filter(Boolean);
 
   const payload = {
     totals,
     topServices,
     paymentSummary,
     trends,
+    derivedSignals,
   };
 
   const hasContent =
     Object.keys(totals).length > 0 ||
     topServices.length > 0 ||
     paymentSummary.length > 0 ||
-    trends.length > 0;
+    trends.length > 0 ||
+    derivedSignals.length > 0;
 
   return hasContent ? payload : null;
 }
@@ -700,6 +715,24 @@ function buildTrackingIssueNoteAiInput(body = {}) {
     maxItems: 6,
     maxValueLength: 80,
   });
+  const markerSummaries = issueMarkers.map((marker) => {
+    const issueType = normalizeAiText(marker.issueType, 60) || "unspecified issue";
+    const id = normalizeAiText(marker.id, 12);
+    const x = normalizeAiText(marker.x, 12);
+    const y = normalizeAiText(marker.y, 12);
+    return normalizeAiText(
+      `Marker ${id || "?"}: ${issueType}${x && y ? ` near ${x}% / ${y}%` : ""}`,
+      100
+    );
+  }).filter(Boolean);
+  const issueOverview = normalizeAiText(
+    issueTypes.length > 1
+      ? `${issueTypes.join(", ")} across ${issueMarkers.length || issueTypes.length} marked area(s).`
+      : issueTypes[0]
+        ? `${issueTypes[0]} noted${issueMarkers.length > 1 ? ` across ${issueMarkers.length} marked area(s)` : ""}.`
+        : "",
+    140
+  );
 
   const payload = {
     problemLocation,
@@ -709,6 +742,8 @@ function buildTrackingIssueNoteAiInput(body = {}) {
     currentIssueNote,
     issueTypes,
     issueMarkers,
+    markerSummaries,
+    issueOverview,
   };
 
   const hasContent =
@@ -718,7 +753,9 @@ function buildTrackingIssueNoteAiInput(body = {}) {
     currentTrackingStatus ||
     currentIssueNote ||
     issueTypes.length > 0 ||
-    issueMarkers.length > 0;
+    issueMarkers.length > 0 ||
+    markerSummaries.length > 0 ||
+    issueOverview;
 
   return hasContent ? payload : null;
 }
@@ -776,10 +813,25 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
 
 function normalizeAnalyticsAiOutput(payload) {
   const summary = normalizeAiText(payload?.summary, 220);
-  const keyObservations = normalizeAiStringList(payload?.keyObservations, { maxItems: 5, maxLength: 140 });
-  const possibleCauses = normalizeAiStringList(payload?.possibleCauses, { maxItems: 4, maxLength: 140 });
-  const recommendations = normalizeAiStringList(payload?.recommendations, { maxItems: 4, maxLength: 140 });
-  const warnings = normalizeAiStringList(payload?.warnings, { maxItems: 3, maxLength: 140 });
+  const dedupeAcrossSections = (values, exclusions = []) => {
+    const seen = new Set(
+      exclusions
+        .map((value) => normalizeAiText(value, 180).toLowerCase())
+        .filter(Boolean)
+    );
+
+    return normalizeAiStringList(values, { maxItems: 5, maxLength: 140 }).filter((item) => {
+      const normalized = item.toLowerCase();
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  };
+
+  const keyObservations = dedupeAcrossSections(payload?.keyObservations, [summary]);
+  const possibleCauses = dedupeAcrossSections(payload?.possibleCauses, [summary, ...keyObservations]).slice(0, 4);
+  const recommendations = dedupeAcrossSections(payload?.recommendations, [summary, ...keyObservations, ...possibleCauses]).slice(0, 4);
+  const warnings = dedupeAcrossSections(payload?.warnings, [summary, ...keyObservations, ...possibleCauses, ...recommendations]).slice(0, 3);
 
   return {
     summary,
@@ -792,10 +844,31 @@ function normalizeAnalyticsAiOutput(payload) {
 }
 
 function normalizeTrackingIssueNoteAiOutput(payload) {
+  const stripRepeatedLead = (value, otherValues = []) => {
+    const normalizedValue = normalizeAiText(value, 320);
+    if (!normalizedValue) return "";
+
+    const otherSentences = otherValues
+      .map((item) => normalizeAiText(item, 320))
+      .filter(Boolean);
+
+    for (const other of otherSentences) {
+      if (normalizedValue.toLowerCase() === other.toLowerCase()) {
+        return "";
+      }
+
+      if (normalizedValue.toLowerCase().startsWith(`${other.toLowerCase()}. `)) {
+        return normalizeAiText(normalizedValue.slice(other.length + 2), 320);
+      }
+    }
+
+    return normalizedValue;
+  };
+
   const cleanedUpIssueNote = normalizeAiText(payload?.cleanedUpIssueNote, 320);
-  const technicianFriendlyNote = normalizeAiText(payload?.technicianFriendlyNote, 320);
-  const suggestedNextAction = normalizeAiText(payload?.suggestedNextAction, 180);
-  const customerSafeSummary = normalizeAiText(payload?.customerSafeSummary, 220);
+  const technicianFriendlyNote = stripRepeatedLead(payload?.technicianFriendlyNote, [cleanedUpIssueNote]) || cleanedUpIssueNote;
+  const suggestedNextAction = stripRepeatedLead(payload?.suggestedNextAction, [technicianFriendlyNote, cleanedUpIssueNote]);
+  const customerSafeSummary = stripRepeatedLead(payload?.customerSafeSummary, [technicianFriendlyNote, cleanedUpIssueNote, suggestedNextAction]);
 
   return {
     cleanedUpIssueNote,
@@ -817,10 +890,15 @@ async function handleAnalyticsAiInterpret(req, res, next) {
     const aiPayload = await requestGroqStructuredJson({
       feature: "analytics-interpret",
       systemPrompt: [
-        "You are an operations assistant for an auto service business.",
+        "You are an executive operations advisor for an auto detailing and car care business.",
         "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
-        "Keep the summary to 1 to 2 sentences and each list concise.",
-        "Do not mention missing data unless it affects the recommendation.",
+        "Use concise management-level language for a dashboard.",
+        "Summary must be 1 to 2 sentences focused on business direction, demand, revenue mix, or customer behavior.",
+        "Key observations should be specific trends or performance signals, not filler.",
+        "Possible causes should explain likely operational or demand drivers only when supported by the data.",
+        "Recommendations must be practical for a car care shop, such as staffing, upsell focus, service mix, scheduling, follow-up, or payment channel actions.",
+        "Warnings should highlight clear risks or watchpoints only when warranted.",
+        "Avoid generic statements, avoid repeating the same point across sections, and do not mention missing data unless it changes the decision.",
       ].join(" "),
       userPayload: sanitizedInput,
       maxTokens: 420,
@@ -856,8 +934,12 @@ async function handleTrackingIssueNoteAi(req, res, next) {
       systemPrompt: [
         "You assist service advisors and technicians at an auto care shop.",
         "Return only JSON with keys: cleanedUpIssueNote, technicianFriendlyNote, suggestedNextAction, customerSafeSummary.",
-        "Keep wording practical, concise, and suitable for service tracking notes.",
-        "Do not invent damage severity, costs, or guarantees.",
+        "Write concise professional automotive service wording.",
+        "cleanedUpIssueNote and technicianFriendlyNote must focus on technician findings and combine multiple markers into one coherent note when needed.",
+        "suggestedNextAction must be a short operational next step, not a repeat of the note.",
+        "customerSafeSummary must be plain-language and customer-friendly, without copying the technician wording.",
+        "Avoid repeating the same phrase across the note, next action, and customer summary.",
+        "Do not invent root cause certainty, parts, pricing, timing, or guarantees.",
       ].join(" "),
       userPayload: sanitizedInput,
       maxTokens: 360,
