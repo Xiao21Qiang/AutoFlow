@@ -175,6 +175,22 @@
   cursor: pointer;
 }
 
+.ap-secret-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  gap: 8px;
+}
+
+.ap-secret-row button {
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  background: #fff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .ap-security-actions {
   gap: 10px;
   flex-wrap: wrap;

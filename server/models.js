@@ -305,16 +305,10 @@ const quoteRequestSchema = new mongoose.Schema(
 const securitySettingSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
-    specialPinHash: { type: String, default: "" },
-    specialPasswordHash: { type: String, default: "" },
     adminSpecialPinHash: { type: String, default: "" },
     adminSpecialPasswordHash: { type: String, default: "" },
     staffSpecialPinHash: { type: String, default: "" },
     staffSpecialPasswordHash: { type: String, default: "" },
-    adminSpecialPin: { type: String, default: "" },
-    adminSpecialPassword: { type: String, default: "" },
-    staffSpecialPin: { type: String, default: "" },
-    staffSpecialPassword: { type: String, default: "" },
     updatedBy: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }

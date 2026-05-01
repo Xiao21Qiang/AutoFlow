@@ -29,7 +29,7 @@ export default function AdminProfile({ session }) {
   const [securityMessage, setSecurityMessage] = useState("");
   const [securityStatus, setSecurityStatus] = useState({});
   const [securitySaving, setSecuritySaving] = useState("");
-  const [revealedSecurity, setRevealedSecurity] = useState({});
+  const [visibleSecrets, setVisibleSecrets] = useState({});
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
 
@@ -76,6 +76,7 @@ export default function AdminProfile({ session }) {
     setNewPass("");
     setConfirmPass("");
     setPassError("");
+    setVisibleSecrets((prev) => ({ ...prev, newPass: false, confirmPass: false }));
     setAnimating(true);
     setModalOpen(true);
   };
@@ -166,6 +167,7 @@ export default function AdminProfile({ session }) {
         ...payloadByField[field],
       });
       setSecurityForm((prev) => ({ ...prev, [field]: "", currentPassword: "" }));
+      setVisibleSecrets((prev) => ({ ...prev, [field]: false, currentPassword: false }));
       setSecurityStatus(result || {});
       setSecurityMessage("Security credential updated.");
     } catch (error) {
@@ -174,6 +176,24 @@ export default function AdminProfile({ session }) {
       setSecuritySaving("");
     }
   };
+
+  const renderSecretInput = ({ visibleKey, className = "ap-input ap-editable-input", value, onChange, placeholder }) => (
+    <div className="ap-secret-row">
+      <input
+        className={className}
+        type={visibleSecrets[visibleKey] ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+      />
+      <button
+        type="button"
+        onClick={() => setVisibleSecrets((prev) => ({ ...prev, [visibleKey]: !prev[visibleKey] }))}
+      >
+        {visibleSecrets[visibleKey] ? "Hide" : "Show"}
+      </button>
+    </div>
+  );
 
   return (
     <>
@@ -194,35 +214,29 @@ export default function AdminProfile({ session }) {
           </div>
           <div className="ap-form ap-security-form">
             {[
-              ["Admin Security Credentials", "adminPin", "adminPassword", "adminSpecialPin", "adminSpecialPassword"],
-              ["Staff Security Credentials", "staffPin", "staffPassword", "staffSpecialPin", "staffSpecialPassword"],
+              ["Admin Security Credentials", "adminPin", "adminPassword", "adminSpecialPinConfigured", "adminSpecialPasswordConfigured"],
+              ["Staff Security Credentials", "staffPin", "staffPassword", "staffSpecialPinConfigured", "staffSpecialPasswordConfigured"],
             ].map(([title, pinField, passwordField, pinStatusKey, passwordStatusKey]) => (
               <div className="ap-security-section" key={title}>
                 <div className="ap-security-section-title">{title}</div>
                 <div className="ap-row2">
                   <div className="ap-field">
-                    <div className="ap-label">Current PIN</div>
-                    <div className="ap-reveal-row">
-                      <input className="ap-input" readOnly type={revealedSecurity[pinStatusKey] ? "text" : "password"} value={securityStatus[pinStatusKey] || ""} />
-                      <button type="button" onClick={() => setRevealedSecurity((prev) => ({ ...prev, [pinStatusKey]: !prev[pinStatusKey] }))}>{revealedSecurity[pinStatusKey] ? "Hide" : "View"}</button>
-                    </div>
+                    <div className="ap-label">PIN Status</div>
+                    <input className="ap-input" readOnly value={securityStatus[pinStatusKey] === false ? "Not configured" : "Configured"} />
                   </div>
                   <div className="ap-field">
-                    <div className="ap-label">Current Password</div>
-                    <div className="ap-reveal-row">
-                      <input className="ap-input" readOnly type={revealedSecurity[passwordStatusKey] ? "text" : "password"} value={securityStatus[passwordStatusKey] || ""} />
-                      <button type="button" onClick={() => setRevealedSecurity((prev) => ({ ...prev, [passwordStatusKey]: !prev[passwordStatusKey] }))}>{revealedSecurity[passwordStatusKey] ? "Hide" : "View"}</button>
-                    </div>
+                    <div className="ap-label">Password Status</div>
+                    <input className="ap-input" readOnly value={securityStatus[passwordStatusKey] === false ? "Not configured" : "Configured"} />
                   </div>
                 </div>
                 <div className="ap-row2">
                   <div className="ap-field">
                     <div className="ap-label">New PIN</div>
-                    <input className="ap-input ap-editable-input" type="password" value={securityForm[pinField]} onChange={(e) => setSecurityForm((prev) => ({ ...prev, [pinField]: e.target.value.replace(/\D/g, "").slice(0, 8) }))} placeholder="4 to 8 digits" />
+                    {renderSecretInput({ visibleKey: pinField, value: securityForm[pinField], onChange: (e) => setSecurityForm((prev) => ({ ...prev, [pinField]: e.target.value.replace(/\D/g, "").slice(0, 8) })), placeholder: "4 to 8 digits" })}
                   </div>
                   <div className="ap-field">
                     <div className="ap-label">New Password</div>
-                    <input className="ap-input ap-editable-input" type="password" value={securityForm[passwordField]} onChange={(e) => setSecurityForm((prev) => ({ ...prev, [passwordField]: e.target.value }))} placeholder="Min. 8 characters" />
+                    {renderSecretInput({ visibleKey: passwordField, value: securityForm[passwordField], onChange: (e) => setSecurityForm((prev) => ({ ...prev, [passwordField]: e.target.value })), placeholder: "Min. 8 characters" })}
                   </div>
                 </div>
                 <div className="ap-actions ap-security-actions">
@@ -233,7 +247,7 @@ export default function AdminProfile({ session }) {
             ))}
             <div className="ap-field">
               <div className="ap-label">Current Account Password</div>
-              <input className="ap-input ap-editable-input" type="password" value={securityForm.currentPassword} onChange={(e) => setSecurityForm((prev) => ({ ...prev, currentPassword: e.target.value }))} placeholder="Required before saving" />
+              {renderSecretInput({ visibleKey: "currentPassword", value: securityForm.currentPassword, onChange: (e) => setSecurityForm((prev) => ({ ...prev, currentPassword: e.target.value })), placeholder: "Required before saving" })}
             </div>
             {securityMessage && <div className="err-msg">{securityMessage}</div>}
           </div>
@@ -253,7 +267,7 @@ export default function AdminProfile({ session }) {
                 {pwStep === "idle" && <><div><p className="pw-box-title">Change Password</p><p className="pw-box-sub">Verify your identity with a one-time code first.</p></div><button className="pw-trigger-btn" onClick={() => { setVerifyEmail(saved.email || initial.email || ""); setPwStep("email"); }}>Change Password →</button></>}
                 {pwStep === "email" && <><button className="back-btn" onClick={() => { setPwStep("idle"); setOtpError(""); }}>← Back</button><div className="m-field"><div className="m-label">Enter your email to receive OTP</div><input className={`m-input${otpError ? " eb" : ""}`} type="email" value={verifyEmail} onChange={(e) => { setVerifyEmail(e.target.value); setOtpError(""); }} placeholder="your@email.com" />{otpError && <div className="err-msg">{otpError}</div>}</div><button className="full-btn" onClick={handleSendOtp}>Send OTP</button></>}
                 {pwStep === "otp" && <><button className="back-btn" onClick={() => { setPwStep("email"); setOtpDigits(["", "", "", "", "", ""]); setOtpError(""); }}>← Back</button><p className="otp-hint">Enter the 6-digit code sent to <strong>{otpSession.destination || verifyEmail}</strong>.</p><div className="otp-boxes">{otpDigits.map((d, i) => (<input key={i} ref={(el) => { otpRefs.current[i] = el; }} className={`otp-box${d ? " ok" : ""}${otpError ? " bad" : ""}`} type="text" inputMode="numeric" maxLength={1} value={d} onChange={(e) => handleOtpChange(i, e.target.value)} onFocus={(e) => e.target.select()} />))}</div>{otpError && <div className="err-msg">{otpError}</div>}<div className="resend-row">{countdown > 0 ? `Resend in ${countdown}s` : <><span>Didn't get it? </span><button onClick={handleSendOtp}>Resend OTP</button></>}</div><button className="full-btn" onClick={handleVerifyOtp}>Verify OTP</button></>}
-                {pwStep === "newpass" && <><div className="verified-badge">✓ Identity verified — set your new password</div><div className="m-field"><div className="m-label">New Password</div><div className="pw-input-row"><input className={`m-input${passError ? " eb" : ""}`} type="password" value={newPass} onChange={(e) => { setNewPass(e.target.value); setPassError(""); }} placeholder="Min. 8 characters" /></div></div><div className="m-field"><div className="m-label">Confirm Password</div><div className="pw-input-row"><input className={`m-input${passError ? " eb" : ""}`} type="password" value={confirmPass} onChange={(e) => { setConfirmPass(e.target.value); setPassError(""); }} placeholder="Re-enter new password" /></div></div>{passError && <div className="err-msg">{passError}</div>}</>}
+                {pwStep === "newpass" && <><div className="verified-badge">✓ Identity verified — set your new password</div><div className="m-field"><div className="m-label">New Password</div>{renderSecretInput({ visibleKey: "newPass", className: `m-input${passError ? " eb" : ""}`, value: newPass, onChange: (e) => { setNewPass(e.target.value); setPassError(""); }, placeholder: "Min. 8 characters" })}</div><div className="m-field"><div className="m-label">Confirm Password</div>{renderSecretInput({ visibleKey: "confirmPass", className: `m-input${passError ? " eb" : ""}`, value: confirmPass, onChange: (e) => { setConfirmPass(e.target.value); setPassError(""); }, placeholder: "Re-enter new password" })}</div>{passError && <div className="err-msg">{passError}</div>}</>}
               </div>
             </div>
             <div className="m-foot"><button className="m-cancel" onClick={closeModal}>Cancel</button><button className="m-save" disabled={!canSave} onClick={handleSaveAll}>Save Changes</button></div>

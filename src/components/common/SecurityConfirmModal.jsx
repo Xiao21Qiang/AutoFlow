@@ -43,6 +43,7 @@ export default function SecurityConfirmModal({
   const [accountName, setAccountName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
   const copy = MODE_COPY[mode] || MODE_COPY.pin;
   const resolvedScope = scope || (String(currentUser?.userType || currentUser?.role || "").trim().toLowerCase() === "staff" ? "staff" : "admin");
 
@@ -52,6 +53,7 @@ export default function SecurityConfirmModal({
     setAccountName("");
     setError("");
     setLoading(false);
+    setShowSecret(false);
   }, [open, mode]);
 
   if (!open) return null;
@@ -89,13 +91,18 @@ export default function SecurityConfirmModal({
         <p className="secModalText">{message}</p>
         <label className="secModalField">
           <span>{copy.field}</span>
-          <input
-            type={copy.type}
-            value={secret}
-            onChange={(event) => setSecret(event.target.value)}
-            placeholder={copy.placeholder}
-            autoFocus
-          />
+          <div className="secSecretRow">
+            <input
+              type={showSecret ? "text" : copy.type}
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              placeholder={copy.placeholder}
+              autoFocus
+            />
+            <button type="button" onClick={() => setShowSecret((value) => !value)} disabled={loading}>
+              {showSecret ? "Hide" : "Show"}
+            </button>
+          </div>
         </label>
         {mode === "cash" && (
           <label className="secModalField">

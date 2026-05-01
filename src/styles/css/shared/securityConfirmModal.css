@@ -78,6 +78,28 @@
   box-shadow: 0 0 0 3px rgba(199, 154, 43, 0.14);
 }
 
+.secSecretRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 74px;
+  gap: 8px;
+}
+
+.secSecretRow button {
+  height: 40px;
+  border: 1px solid #d1d5db;
+  border-radius: 9px;
+  background: #fff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.secSecretRow button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .secModalError {
   margin-top: 12px;
   border: 1px solid #fecaca;

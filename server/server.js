@@ -7,6 +7,7 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
+const bcrypt = require("bcryptjs");
 
 const { connectToDatabase, getDatabaseName, getDatabaseState, getMongoEnvName } = require("./db");
 const {
@@ -43,6 +44,7 @@ const DEFAULT_SPECIAL_PIN = "2468";
 const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
 const DEFAULT_STAFF_SPECIAL_PIN = "1357";
 const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
+const SPECIAL_CREDENTIAL_HASH_ROUNDS = 12;
 const ADMIN_SEED_EMAIL = String(process.env.ADMIN_SEED_EMAIL || "").trim().toLowerCase();
 const ADMIN_SEED_PASSWORD = String(process.env.ADMIN_SEED_PASSWORD || "");
 const ADMIN_SEED_NAME = String(process.env.ADMIN_SEED_NAME || "Production Admin").trim();
@@ -656,46 +658,109 @@ function verifyPassword(password, storedValue) {
   return crypto.timingSafeEqual(derivedKey, savedBuffer);
 }
 
+function isBcryptHash(value) {
+  return /^\$2[aby]\$\d{2}\$/.test(String(value || ""));
+}
+
+async function hashSpecialCredential(value) {
+  return bcrypt.hash(String(value || ""), SPECIAL_CREDENTIAL_HASH_ROUNDS);
+}
+
+async function verifySpecialCredential(value, storedHash) {
+  const hash = String(storedHash || "");
+  if (!isBcryptHash(hash)) return false;
+  return bcrypt.compare(String(value || ""), hash);
+}
+
+function getRawSecurityCredential(rawSetting, field) {
+  if (!rawSetting || !Object.prototype.hasOwnProperty.call(rawSetting, field)) return "";
+  return String(rawSetting[field] || "");
+}
+
+async function getMigratedSpecialCredentialHash(rawSetting, setting, { plainField, hashField, legacyHashField, defaultValue }) {
+  const legacyPlainValue = getRawSecurityCredential(rawSetting, plainField);
+  if (legacyPlainValue) {
+    return hashSpecialCredential(legacyPlainValue);
+  }
+
+  const currentHash = String(setting[hashField] || rawSetting?.[hashField] || "");
+  if (isBcryptHash(currentHash)) return currentHash;
+
+  const legacyHash = String(rawSetting?.[legacyHashField] || "");
+  if (legacyHash && verifyPassword(defaultValue, legacyHash)) {
+    return hashSpecialCredential(defaultValue);
+  }
+  if (currentHash && verifyPassword(defaultValue, currentHash)) {
+    return hashSpecialCredential(defaultValue);
+  }
+
+  return hashSpecialCredential(defaultValue);
+}
+
 async function getOrCreateSecuritySetting() {
   let setting = await SecuritySetting.findOne({ id: SECURITY_SETTING_ID });
   if (!setting) {
     setting = await SecuritySetting.create({
       id: SECURITY_SETTING_ID,
-      specialPinHash: hashPassword(DEFAULT_SPECIAL_PIN),
-      specialPasswordHash: hashPassword(DEFAULT_SPECIAL_PASSWORD),
-      adminSpecialPinHash: hashPassword(DEFAULT_SPECIAL_PIN),
-      adminSpecialPasswordHash: hashPassword(DEFAULT_SPECIAL_PASSWORD),
-      staffSpecialPinHash: hashPassword(DEFAULT_STAFF_SPECIAL_PIN),
-      staffSpecialPasswordHash: hashPassword(DEFAULT_STAFF_SPECIAL_PASSWORD),
-      adminSpecialPin: DEFAULT_SPECIAL_PIN,
-      adminSpecialPassword: DEFAULT_SPECIAL_PASSWORD,
-      staffSpecialPin: DEFAULT_STAFF_SPECIAL_PIN,
-      staffSpecialPassword: DEFAULT_STAFF_SPECIAL_PASSWORD,
+      adminSpecialPinHash: await hashSpecialCredential(DEFAULT_SPECIAL_PIN),
+      adminSpecialPasswordHash: await hashSpecialCredential(DEFAULT_SPECIAL_PASSWORD),
+      staffSpecialPinHash: await hashSpecialCredential(DEFAULT_STAFF_SPECIAL_PIN),
+      staffSpecialPasswordHash: await hashSpecialCredential(DEFAULT_STAFF_SPECIAL_PASSWORD),
       updatedBy: "system",
     });
   }
+
+  const rawSetting = await SecuritySetting.collection.findOne({ id: SECURITY_SETTING_ID });
+  const migratedHashes = {
+    adminSpecialPinHash: await getMigratedSpecialCredentialHash(rawSetting, setting, {
+      plainField: "adminSpecialPin",
+      hashField: "adminSpecialPinHash",
+      legacyHashField: "specialPinHash",
+      defaultValue: DEFAULT_SPECIAL_PIN,
+    }),
+    adminSpecialPasswordHash: await getMigratedSpecialCredentialHash(rawSetting, setting, {
+      plainField: "adminSpecialPassword",
+      hashField: "adminSpecialPasswordHash",
+      legacyHashField: "specialPasswordHash",
+      defaultValue: DEFAULT_SPECIAL_PASSWORD,
+    }),
+    staffSpecialPinHash: await getMigratedSpecialCredentialHash(rawSetting, setting, {
+      plainField: "staffSpecialPin",
+      hashField: "staffSpecialPinHash",
+      legacyHashField: "",
+      defaultValue: DEFAULT_STAFF_SPECIAL_PIN,
+    }),
+    staffSpecialPasswordHash: await getMigratedSpecialCredentialHash(rawSetting, setting, {
+      plainField: "staffSpecialPassword",
+      hashField: "staffSpecialPasswordHash",
+      legacyHashField: "",
+      defaultValue: DEFAULT_STAFF_SPECIAL_PASSWORD,
+    }),
+  };
+
   let changed = false;
-  if (!setting.adminSpecialPinHash) {
-    setting.adminSpecialPinHash = setting.specialPinHash || hashPassword(DEFAULT_SPECIAL_PIN);
-    setting.adminSpecialPin = setting.adminSpecialPin || DEFAULT_SPECIAL_PIN;
-    changed = true;
-  }
-  if (!setting.adminSpecialPasswordHash) {
-    setting.adminSpecialPasswordHash = setting.specialPasswordHash || hashPassword(DEFAULT_SPECIAL_PASSWORD);
-    setting.adminSpecialPassword = setting.adminSpecialPassword || DEFAULT_SPECIAL_PASSWORD;
-    changed = true;
-  }
-  if (!setting.staffSpecialPinHash) {
-    setting.staffSpecialPinHash = hashPassword(DEFAULT_STAFF_SPECIAL_PIN);
-    setting.staffSpecialPin = DEFAULT_STAFF_SPECIAL_PIN;
-    changed = true;
-  }
-  if (!setting.staffSpecialPasswordHash) {
-    setting.staffSpecialPasswordHash = hashPassword(DEFAULT_STAFF_SPECIAL_PASSWORD);
-    setting.staffSpecialPassword = DEFAULT_STAFF_SPECIAL_PASSWORD;
-    changed = true;
+  for (const [hashField, hashValue] of Object.entries(migratedHashes)) {
+    if (setting[hashField] !== hashValue) {
+      setting[hashField] = hashValue;
+      changed = true;
+    }
   }
   if (changed) await setting.save();
+
+  await SecuritySetting.collection.updateOne(
+    { id: SECURITY_SETTING_ID },
+    {
+      $unset: {
+        specialPinHash: "",
+        specialPasswordHash: "",
+        adminSpecialPin: "",
+        adminSpecialPassword: "",
+        staffSpecialPin: "",
+        staffSpecialPassword: "",
+      },
+    }
+  );
+
   return setting;
 }
 
@@ -729,10 +794,7 @@ async function validateSpecialCredential(mode, value, scope = "admin") {
   const storedValue = credentialScope === "staff"
     ? (credentialMode === "password" ? setting.staffSpecialPasswordHash : setting.staffSpecialPinHash)
     : (credentialMode === "password" ? setting.adminSpecialPasswordHash : setting.adminSpecialPinHash);
-  const fallbackValue = credentialScope === "staff"
-    ? (credentialMode === "password" ? DEFAULT_STAFF_SPECIAL_PASSWORD : DEFAULT_STAFF_SPECIAL_PIN)
-    : (credentialMode === "password" ? DEFAULT_SPECIAL_PASSWORD : DEFAULT_SPECIAL_PIN);
-  return verifyPassword(value, storedValue || hashPassword(fallbackValue));
+  return verifySpecialCredential(value, storedValue);
 }
 
 async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "" } = {}) {
@@ -2398,10 +2460,6 @@ app.get("/api/admin/security-controls", requireAdminUser, async (_req, res, next
       adminSpecialPasswordConfigured: Boolean(setting.adminSpecialPasswordHash),
       staffSpecialPinConfigured: Boolean(setting.staffSpecialPinHash),
       staffSpecialPasswordConfigured: Boolean(setting.staffSpecialPasswordHash),
-      adminSpecialPin: setting.adminSpecialPin || "",
-      adminSpecialPassword: setting.adminSpecialPassword || "",
-      staffSpecialPin: setting.staffSpecialPin || "",
-      staffSpecialPassword: setting.staffSpecialPassword || "",
       updatedAt: setting.updatedAt || "",
     });
   } catch (error) {
@@ -2466,8 +2524,7 @@ app.put("/api/admin/security-controls", requireAdminUser, async (req, res, next)
         res.status(400).json({ message });
         return;
       }
-      setting[field] = nextValue;
-      setting[hashField] = hashPassword(nextValue);
+      setting[hashField] = await hashSpecialCredential(nextValue);
     }
 
     setting.updatedBy = user.email;
@@ -2479,10 +2536,6 @@ app.put("/api/admin/security-controls", requireAdminUser, async (req, res, next)
       adminSpecialPasswordConfigured: Boolean(setting.adminSpecialPasswordHash),
       staffSpecialPinConfigured: Boolean(setting.staffSpecialPinHash),
       staffSpecialPasswordConfigured: Boolean(setting.staffSpecialPasswordHash),
-      adminSpecialPin: setting.adminSpecialPin || "",
-      adminSpecialPassword: setting.adminSpecialPassword || "",
-      staffSpecialPin: setting.staffSpecialPin || "",
-      staffSpecialPassword: setting.staffSpecialPassword || "",
     });
   } catch (error) {
     next(error);
