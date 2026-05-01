@@ -60,6 +60,10 @@ const SMTP_EMAIL = String(process.env.EMAIL_USER || process.env.GOOGLE_SMTP_EMAI
 const SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SMTP_APP_PASSWORD || "").trim();
 const EMAIL_FROM = String(process.env.EMAIL_FROM || process.env.GOOGLE_SMTP_FROM || SMTP_EMAIL || "").trim();
 const AI_PROVIDER_UNCONFIGURED_MESSAGE = "AI provider is not configured yet.";
+const AI_PROVIDER_ERROR_MESSAGE = "Unable to generate analysis right now.";
+const GROQ_API_BASE_URL = "https://api.groq.com/openai/v1";
+const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
+const GROQ_MODEL = String(process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
 const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
@@ -532,15 +536,348 @@ async function ensureBookableService(serviceName) {
   return service;
 }
 
-function createAiUnavailablePayload(feature) {
+function createAiUnavailablePayload(feature, overrides = {}) {
   return {
     available: false,
     feature,
     message: AI_PROVIDER_UNCONFIGURED_MESSAGE,
+    summary: "",
+    keyObservations: [],
+    possibleCauses: [],
+    recommendations: [],
+    warnings: [],
+    cleanedUpIssueNote: "",
+    technicianFriendlyNote: "",
+    suggestedNextAction: "",
+    customerSafeSummary: "",
     insights: [],
     suggestion: "",
     model: "",
+    ...overrides,
   };
+}
+
+function normalizeAiText(value, maxLength = 280) {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return "";
+  return normalized.slice(0, maxLength);
+}
+
+function normalizeAiNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.round(number * 100) / 100;
+}
+
+function normalizeAiStringList(values, { maxItems = 6, maxLength = 120 } = {}) {
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .map((value) => normalizeAiText(value, maxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function normalizeAiRecord(record, { maxEntries = 10, maxKeyLength = 40, maxValueLength = 120 } = {}) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return {};
+
+  return Object.entries(record)
+    .slice(0, maxEntries)
+    .reduce((accumulator, [key, value]) => {
+      const normalizedKey = normalizeAiText(key, maxKeyLength);
+      if (!normalizedKey) return accumulator;
+
+      if (typeof value === "number") {
+        const normalizedNumber = normalizeAiNumber(value);
+        if (normalizedNumber !== null) {
+          accumulator[normalizedKey] = normalizedNumber;
+        }
+        return accumulator;
+      }
+
+      const normalizedValue = normalizeAiText(value, maxValueLength);
+      if (normalizedValue) {
+        accumulator[normalizedKey] = normalizedValue;
+      }
+      return accumulator;
+    }, {});
+}
+
+function normalizeAiObjectList(values, allowedKeys, { maxItems = 6, maxValueLength = 120 } = {}) {
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .slice(0, maxItems)
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+
+      const normalized = {};
+      allowedKeys.forEach((key) => {
+        const value = item[key];
+        if (typeof value === "number") {
+          const normalizedNumber = normalizeAiNumber(value);
+          if (normalizedNumber !== null) {
+            normalized[key] = normalizedNumber;
+          }
+          return;
+        }
+
+        const normalizedValue = normalizeAiText(value, maxValueLength);
+        if (normalizedValue) {
+          normalized[key] = normalizedValue;
+        }
+      });
+
+      return Object.keys(normalized).length ? normalized : null;
+    })
+    .filter(Boolean);
+}
+
+function extractJsonObject(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (_error) {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch (_nestedError) {
+      return null;
+    }
+  }
+}
+
+function buildAnalyticsAiInput(body = {}) {
+  const totals = normalizeAiRecord(body.totals || body.summary || body.metrics, {
+    maxEntries: 12,
+    maxKeyLength: 40,
+    maxValueLength: 80,
+  });
+  const topServices = normalizeAiObjectList(body.topServices || body.services, ["name", "count"], {
+    maxItems: 5,
+    maxValueLength: 80,
+  });
+  const paymentSummary = normalizeAiObjectList(
+    body.paymentSummary || body.paymentMethods || body.paymentSummaryEntries,
+    ["method", "name", "count", "amount"],
+    { maxItems: 6, maxValueLength: 80 }
+  );
+  const trends = normalizeAiStringList(body.trends || body.observations || body.notes, {
+    maxItems: 6,
+    maxLength: 120,
+  });
+
+  const payload = {
+    totals,
+    topServices,
+    paymentSummary,
+    trends,
+  };
+
+  const hasContent =
+    Object.keys(totals).length > 0 ||
+    topServices.length > 0 ||
+    paymentSummary.length > 0 ||
+    trends.length > 0;
+
+  return hasContent ? payload : null;
+}
+
+function buildTrackingIssueNoteAiInput(body = {}) {
+  const problemLocation = normalizeAiText(body.problemLocation, 120);
+  const serviceType = normalizeAiText(body.serviceType || body.service, 120);
+  const vehicleDetails = normalizeAiText(body.vehicleDetails || body.vehicle, 160);
+  const currentTrackingStatus = normalizeAiText(body.currentTrackingStatus || body.status, 80);
+  const currentIssueNote = normalizeAiText(body.currentIssueNote || body.issueNote || body.notes, 320);
+  const issueTypes = normalizeAiStringList(body.issueTypes, { maxItems: 6, maxLength: 80 });
+  const issueMarkers = normalizeAiObjectList(body.issueMarkers, ["id", "issueType", "x", "y"], {
+    maxItems: 6,
+    maxValueLength: 80,
+  });
+
+  const payload = {
+    problemLocation,
+    serviceType,
+    vehicleDetails,
+    currentTrackingStatus,
+    currentIssueNote,
+    issueTypes,
+    issueMarkers,
+  };
+
+  const hasContent =
+    problemLocation ||
+    serviceType ||
+    vehicleDetails ||
+    currentTrackingStatus ||
+    currentIssueNote ||
+    issueTypes.length > 0 ||
+    issueMarkers.length > 0;
+
+  return hasContent ? payload : null;
+}
+
+async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, maxTokens = 420 }) {
+  if (!GROQ_API_KEY) {
+    return createAiUnavailablePayload(feature);
+  }
+
+  try {
+    const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: JSON.stringify(userPayload) },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("[ai] Groq request failed", { feature, status: response.status });
+      return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+    }
+
+    const payload = await response.json();
+    const content = payload?.choices?.[0]?.message?.content || "";
+    const parsed = extractJsonObject(content);
+
+    if (!parsed || typeof parsed !== "object") {
+      console.error("[ai] Groq response was not valid JSON", { feature });
+      return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+    }
+
+    return {
+      available: true,
+      feature,
+      message: "",
+      model: String(payload.model || GROQ_MODEL || "").trim(),
+      ...parsed,
+    };
+  } catch (error) {
+    console.error("[ai] Groq request error", { feature, message: error.message || "Unknown error" });
+    return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+  }
+}
+
+function normalizeAnalyticsAiOutput(payload) {
+  const summary = normalizeAiText(payload?.summary, 220);
+  const keyObservations = normalizeAiStringList(payload?.keyObservations, { maxItems: 5, maxLength: 140 });
+  const possibleCauses = normalizeAiStringList(payload?.possibleCauses, { maxItems: 4, maxLength: 140 });
+  const recommendations = normalizeAiStringList(payload?.recommendations, { maxItems: 4, maxLength: 140 });
+  const warnings = normalizeAiStringList(payload?.warnings, { maxItems: 3, maxLength: 140 });
+
+  return {
+    summary,
+    keyObservations,
+    possibleCauses,
+    recommendations,
+    warnings,
+    insights: keyObservations,
+  };
+}
+
+function normalizeTrackingIssueNoteAiOutput(payload) {
+  const cleanedUpIssueNote = normalizeAiText(payload?.cleanedUpIssueNote, 320);
+  const technicianFriendlyNote = normalizeAiText(payload?.technicianFriendlyNote, 320);
+  const suggestedNextAction = normalizeAiText(payload?.suggestedNextAction, 180);
+  const customerSafeSummary = normalizeAiText(payload?.customerSafeSummary, 220);
+
+  return {
+    cleanedUpIssueNote,
+    technicianFriendlyNote,
+    suggestedNextAction,
+    customerSafeSummary,
+    suggestion: technicianFriendlyNote || cleanedUpIssueNote,
+  };
+}
+
+async function handleAnalyticsAiInterpret(req, res, next) {
+  try {
+    const sanitizedInput = buildAnalyticsAiInput(req.body);
+    if (!sanitizedInput) {
+      res.status(400).json({ message: "Analytics data is required." });
+      return;
+    }
+
+    const aiPayload = await requestGroqStructuredJson({
+      feature: "analytics-interpret",
+      systemPrompt: [
+        "You are an operations assistant for an auto service business.",
+        "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
+        "Keep the summary to 1 to 2 sentences and each list concise.",
+        "Do not mention missing data unless it affects the recommendation.",
+      ].join(" "),
+      userPayload: sanitizedInput,
+      maxTokens: 420,
+    });
+
+    if (!aiPayload.available) {
+      res.json(aiPayload);
+      return;
+    }
+
+    res.json({
+      available: true,
+      feature: aiPayload.feature,
+      message: "",
+      model: aiPayload.model,
+      ...normalizeAnalyticsAiOutput(aiPayload),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function handleTrackingIssueNoteAi(req, res, next) {
+  try {
+    const sanitizedInput = buildTrackingIssueNoteAiInput(req.body);
+    if (!sanitizedInput) {
+      res.status(400).json({ message: "Issue note context is required." });
+      return;
+    }
+
+    const aiPayload = await requestGroqStructuredJson({
+      feature: "tracking-issue-note",
+      systemPrompt: [
+        "You assist service advisors and technicians at an auto care shop.",
+        "Return only JSON with keys: cleanedUpIssueNote, technicianFriendlyNote, suggestedNextAction, customerSafeSummary.",
+        "Keep wording practical, concise, and suitable for service tracking notes.",
+        "Do not invent damage severity, costs, or guarantees.",
+      ].join(" "),
+      userPayload: sanitizedInput,
+      maxTokens: 360,
+    });
+
+    if (!aiPayload.available) {
+      res.json(aiPayload);
+      return;
+    }
+
+    res.json({
+      available: true,
+      feature: aiPayload.feature,
+      message: "",
+      model: aiPayload.model,
+      ...normalizeTrackingIssueNoteAiOutput(aiPayload),
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 const USER_TYPE_DEFAULT_ROLE = {
@@ -2443,6 +2780,7 @@ app.get("/api/public/services", async (_req, res, next) => {
 });
 
 app.use("/api/admin", authenticateApi);
+app.use("/api/ai", authenticateApi);
 
 app.get("/api/admin/bootstrap", async (_req, res, next) => {
   try {
@@ -2635,18 +2973,8 @@ app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (
   }
 });
 
-app.post("/api/admin/analytics/interpretation", requireAdminUser, async (req, res, next) => {
-  try {
-    res.json(createAiUnavailablePayload("analytics-interpretation"));
-  } catch (error) {
-    if (error.statusCode) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
-
-    next(error);
-  }
-});
+app.post("/api/ai/analytics/interpret", requireAdminUser, handleAnalyticsAiInterpret);
+app.post("/api/admin/analytics/interpretation", requireAdminUser, handleAnalyticsAiInterpret);
 
 app.post("/api/admin/financials/interpretation", requireAdminUser, async (req, res, next) => {
   try {
@@ -3751,13 +4079,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
   }
 });
 
-app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), async (req, res, next) => {
-  try {
-    res.json(createAiUnavailablePayload("issue-note-suggestion"));
-  } catch (error) {
-    next(error);
-  }
-});
+app.post("/api/ai/tracking/issue-note", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
+app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
 
 app.put("/api/admin/users/:id", async (req, res, next) => {
   try {
