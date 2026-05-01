@@ -1,7 +1,23 @@
 import { useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+
+const PAYMENT_CHART_COLORS = ["#b98a27", "#1d4ed8", "#0f8a3a", "#c2410c"];
+const RATING_CHART_COLORS = ["#991b1b", "#c2410c", "#d4a63f", "#65a30d", "#0f766e"];
 
 function normalizePaymentMethod(method) {
   const normalized = String(method || "").trim().toLowerCase();
@@ -88,6 +104,44 @@ export default function AdminAnalytics() {
     () => Array.from({ length: 5 }, (_, index) => index < Math.round(avgRating)),
     [avgRating]
   );
+
+  const salesByPaymentMethodChartData = useMemo(
+    () =>
+      paymentSummaryEntries
+        .map(([method, value]) => ({
+          method,
+          sales: value.amount,
+          customers: value.count,
+        }))
+        .filter((item) => item.sales > 0 || item.customers > 0),
+    [paymentSummaryEntries]
+  );
+
+  const topServicesChartData = useMemo(
+    () =>
+      topServices.map((service) => ({
+        name: service.name,
+        bookings: service.count,
+      })),
+    [topServices]
+  );
+
+  const ratingsSummaryChartData = useMemo(() => {
+    const counts = [1, 2, 3, 4, 5].map((rating) => ({
+      rating: `${rating} Star${rating > 1 ? "s" : ""}`,
+      value: 0,
+    }));
+
+    reviews.forEach((review) => {
+      const rating = Math.max(1, Math.min(5, Number(review.rating) || 0));
+      if (!rating) return;
+      counts[rating - 1].value += 1;
+    });
+
+    return counts.filter((item) => item.value > 0);
+  }, [reviews]);
+
+  const totalRatings = ratingsSummaryChartData.reduce((sum, item) => sum + item.value, 0);
 
   const analyticsAiPayload = useMemo(
     () => ({
@@ -310,6 +364,125 @@ export default function AdminAnalytics() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="anaChartsSection">
+          <div className="anaChartsHead">
+            <div>
+              <div className="anaChartsTitle">Visual Analytics</div>
+              <div className="anaChartsSub">Live chart views based on current payments, bookings, and review records.</div>
+            </div>
+          </div>
+
+          <div className="anaChartsGrid">
+            <div className="anaChartCard">
+              <div className="anaChartCardHead">
+                <div className="anaChartTitle">Sales by Payment Method</div>
+                <div className="anaChartSub">Paid amounts from approved payment records</div>
+              </div>
+              {salesByPaymentMethodChartData.length ? (
+                <div className="anaChartBox">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={salesByPaymentMethodChartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="method" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" />
+                      <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" tickFormatter={(value) => `₱${Number(value || 0).toLocaleString()}`} />
+                      <Tooltip
+                        formatter={(value, name) => [
+                          name === "sales" ? `Php ${Number(value || 0).toLocaleString()}` : value,
+                          name === "sales" ? "Sales" : "Customers",
+                        ]}
+                        contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
+                      />
+                      <Legend />
+                      <Bar dataKey="sales" name="Sales" radius={[10, 10, 0, 0]}>
+                        {salesByPaymentMethodChartData.map((entry, index) => (
+                          <Cell key={entry.method} fill={PAYMENT_CHART_COLORS[index % PAYMENT_CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="anaChartEmpty">No paid payment data is available yet.</div>
+              )}
+            </div>
+
+            <div className="anaChartCard">
+              <div className="anaChartCardHead">
+                <div className="anaChartTitle">Top Services by Bookings</div>
+                <div className="anaChartSub">Most-booked services from current tracking records</div>
+              </div>
+              {topServicesChartData.length ? (
+                <div className="anaChartBox">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={topServicesChartData} layout="vertical" margin={{ top: 10, right: 12, left: 24, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                      <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} fontSize={11} stroke="#475569" width={120} />
+                      <Tooltip
+                        formatter={(value) => [`${value}`, "Bookings"]}
+                        contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
+                      />
+                      <Bar dataKey="bookings" name="Bookings" fill="#b98a27" radius={[0, 10, 10, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="anaChartEmpty">No booking data is available yet.</div>
+              )}
+            </div>
+
+            <div className="anaChartCard anaChartCardWide">
+              <div className="anaChartCardHead">
+                <div className="anaChartTitle">Ratings Summary</div>
+                <div className="anaChartSub">Distribution of customer review scores</div>
+              </div>
+              {ratingsSummaryChartData.length ? (
+                <div className="anaChartSplit">
+                  <div className="anaChartBox anaChartBoxCompact">
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={ratingsSummaryChartData}
+                          dataKey="value"
+                          nameKey="rating"
+                          innerRadius={70}
+                          outerRadius={104}
+                          paddingAngle={2}
+                        >
+                          {ratingsSummaryChartData.map((entry, index) => (
+                            <Cell key={entry.rating} fill={RATING_CHART_COLORS[index % RATING_CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value) => [`${value}`, "Reviews"]}
+                          contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
+                        />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="anaChartCenterTag">
+                      <strong>{totalRatings}</strong>
+                      <span>Total Reviews</span>
+                    </div>
+                  </div>
+
+                  <div className="anaRatingsBreakdown">
+                    {ratingsSummaryChartData.map((item, index) => (
+                      <div key={item.rating} className="anaRatingsRow">
+                        <span className="anaRatingsDot" style={{ background: RATING_CHART_COLORS[index % RATING_CHART_COLORS.length] }} />
+                        <div className="anaRatingsLabel">{item.rating}</div>
+                        <div className="anaRatingsValue">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="anaChartEmpty">No review ratings are available yet.</div>
+              )}
             </div>
           </div>
         </div>
