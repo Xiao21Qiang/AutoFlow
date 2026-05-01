@@ -196,7 +196,7 @@ function requestFinancialInterpretation(payload) {
 }
 
 function requestAnalyticsInterpretation(payload) {
-  return apiRequest("/api/admin/analytics/interpretation", {
+  return apiRequest("/api/ai/analytics/interpret", {
     method: "POST",
     body: JSON.stringify(payload || {}),
   });

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
@@ -16,9 +16,17 @@ function normalizePaymentMethod(method) {
 }
 
 export default function AdminAnalytics() {
-  const { payments, bookings, reviews } = useAdminData();
-  const aiInterpretationLines = [];
-  const isAiFeatureEnabled = false;
+  const { payments, bookings, reviews, generateAnalyticsInterpretation } = useAdminData();
+  const [aiState, setAiState] = useState({
+    status: "idle",
+    message: "",
+    summary: "",
+    keyObservations: [],
+    possibleCauses: [],
+    recommendations: [],
+    warnings: [],
+    model: "",
+  });
   const paidPayments = useMemo(
     () => payments.filter((payment) => String(payment.status || "").toLowerCase() === "paid"),
     [payments]
@@ -73,13 +81,102 @@ export default function AdminAnalytics() {
     return Array.from(map.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 3);
+      .slice(0, 5);
   }, [bookings]);
 
   const ratingStars = useMemo(
     () => Array.from({ length: 5 }, (_, index) => index < Math.round(avgRating)),
     [avgRating]
   );
+
+  const analyticsAiPayload = useMemo(
+    () => ({
+      totals: {
+        totalSales,
+        totalBookings,
+        avgRating,
+        paidPayments: paidPayments.length,
+        totalReviews: reviews.length,
+      },
+      topServices: topServices.map((service) => ({
+        name: service.name,
+        count: service.count,
+      })),
+      paymentSummary: paymentSummaryEntries.map(([method, value]) => ({
+        method,
+        count: value.count,
+        amount: value.amount,
+      })),
+      trends: [
+        paidPayments.length ? `${paidPayments.length} paid payment record(s) are included in sales totals.` : "",
+        topServices[0] ? `${topServices[0].name} is currently the most-booked service.` : "",
+        avgRating > 0 ? `Average customer rating is ${avgRating} out of 5.` : "No review ratings are available yet.",
+      ].filter(Boolean),
+    }),
+    [avgRating, paidPayments.length, paymentSummaryEntries, reviews.length, topServices, totalBookings, totalSales]
+  );
+
+  const aiInterpretationLines = useMemo(() => {
+    const lines = [];
+    if (aiState.summary) lines.push(aiState.summary);
+    aiState.keyObservations.forEach((item) => lines.push(`Observation: ${item}`));
+    aiState.possibleCauses.forEach((item) => lines.push(`Possible cause: ${item}`));
+    aiState.recommendations.forEach((item) => lines.push(`Recommendation: ${item}`));
+    aiState.warnings.forEach((item) => lines.push(`Warning: ${item}`));
+    return lines;
+  }, [aiState]);
+
+  const handleGenerateAnalysis = async () => {
+    setAiState({
+      status: "loading",
+      message: "",
+      summary: "",
+      keyObservations: [],
+      possibleCauses: [],
+      recommendations: [],
+      warnings: [],
+      model: "",
+    });
+
+    try {
+      const response = await generateAnalyticsInterpretation(analyticsAiPayload);
+      if (!response?.available) {
+        setAiState({
+          status: "unavailable",
+          message: response?.message || "AI unavailable right now.",
+          summary: "",
+          keyObservations: [],
+          possibleCauses: [],
+          recommendations: [],
+          warnings: [],
+          model: "",
+        });
+        return;
+      }
+
+      setAiState({
+        status: "success",
+        message: "",
+        summary: response.summary || "",
+        keyObservations: Array.isArray(response.keyObservations) ? response.keyObservations : [],
+        possibleCauses: Array.isArray(response.possibleCauses) ? response.possibleCauses : [],
+        recommendations: Array.isArray(response.recommendations) ? response.recommendations : [],
+        warnings: Array.isArray(response.warnings) ? response.warnings : [],
+        model: response.model || "",
+      });
+    } catch (error) {
+      setAiState({
+        status: "error",
+        message: error.message || "Unable to generate analysis right now.",
+        summary: "",
+        keyObservations: [],
+        possibleCauses: [],
+        recommendations: [],
+        warnings: [],
+        model: "",
+      });
+    }
+  };
 
   const exportPdf = () =>
     exportTabularPdf({
@@ -113,7 +210,7 @@ export default function AdminAnalytics() {
           title: "Interpretation",
           columns: ["Insight"],
           rows: aiInterpretationLines.map((line) => [line]),
-          emptyMessage: "AI interpretation is temporarily unavailable.",
+          emptyMessage: "No AI analysis generated yet.",
         },
       ],
     });
@@ -184,16 +281,29 @@ export default function AdminAnalytics() {
                   <button
                     className="anaInterpretationBtn"
                     type="button"
-                    disabled={!isAiFeatureEnabled}
-                    title="AI feature coming soon"
+                    onClick={handleGenerateAnalysis}
+                    disabled={aiState.status === "loading"}
                   >
-                    AI feature coming soon
+                    {aiState.status === "loading" ? "Generating..." : "Generate AI Analysis"}
                   </button>
+                </div>
+              </div>
+              <div className="anaInterpretationStatusRow">
+                <div className={`anaInterpretationStatus anaInterpretationStatus-${aiState.status}`}>
+                  {aiState.status === "idle" && "Generate a concise AI summary from the current analytics data."}
+                  {aiState.status === "loading" && "Analyzing current analytics totals and service trends..."}
+                  {aiState.status === "success" && `AI analysis ready${aiState.model ? ` • ${aiState.model}` : ""}`}
+                  {aiState.status === "unavailable" && (aiState.message || "AI unavailable right now.")}
+                  {aiState.status === "error" && (aiState.message || "Unable to generate analysis right now.")}
                 </div>
               </div>
               <div className="anaInterpretationList">
                 {aiInterpretationLines.length === 0 ? (
-                  <div className="anaInterpretationEmpty">AI insights are temporarily unavailable while a hosted provider is being prepared.</div>
+                  <div className="anaInterpretationEmpty">
+                    {aiState.status === "loading"
+                      ? "Preparing a concise operational summary..."
+                      : "No AI analysis generated yet."}
+                  </div>
                 ) : (
                   aiInterpretationLines.map((line) => (
                     <div key={line} className="anaInterpretationItem">{line}</div>
