@@ -20,7 +20,7 @@ function getDashboardStockState(item) {
   const currentStock = Math.max(0, Number(item?.currentStock || 0));
   const maxStock = Math.max(0, Number(item?.maxStock || 0));
   const reorderLevel = buildDerivedReorderLevel(item);
-  const lowLevel = maxStock ? Math.max(reorderLevel + 1, Math.ceil(maxStock * 0.6)) : 0;
+  const lowLevel = reorderLevel > 0 ? reorderLevel + Math.max(1, reorderLevel) : 0;
 
   if (!maxStock) {
     return { tone: "healthy", reorderLevel };
@@ -101,7 +101,10 @@ export default function AdminDashboard({ goTo }) {
   const upcomingBookings = useMemo(
     () =>
       [...bookings]
-        .filter((booking) => String(booking.date || "") >= todayKey)
+        .filter((booking) => {
+          const normalizedStatus = String(booking.status || "").trim().toLowerCase();
+          return String(booking.date || "") >= todayKey && !["completed", "cancelled"].includes(normalizedStatus);
+        })
         .sort((left, right) => {
           const leftKey = `${left.date || ""} ${left.time || ""}`;
           const rightKey = `${right.date || ""} ${right.time || ""}`;
@@ -115,14 +118,14 @@ export default function AdminDashboard({ goTo }) {
     if (stockSummary.criticalCount > 0) {
       out.push({
         title: `Critical stock (${stockSummary.criticalCount})`,
-        description: "Items below the temporary reorder threshold need immediate restocking.",
+        description: "Items below the current reorder level need immediate restocking.",
         target: "stock-monitoring",
       });
     }
     if (stockSummary.lowCount > 0) {
       out.push({
         title: `Low stock (${stockSummary.lowCount})`,
-        description: "Items nearing the reorder threshold should be reviewed next.",
+        description: "Items just above the current reorder level should be reviewed next.",
         target: "stock-monitoring",
       });
     }

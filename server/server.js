@@ -2786,9 +2786,17 @@ function isCustomerVisibleAuditLog(log, customerScope) {
   return getAuditCustomerScopeValues(log).some((value) => customerScope.has(value));
 }
 
+function isCustomerScopedAuditLog(log) {
+  return getAuditCustomerScopeValues(log).length > 0;
+}
+
 function isAdminVisibleAuditLog(log, actorTypeLookup) {
   const actorType = getAuditActorType(log, actorTypeLookup);
-  return actorType === "admin" || actorType === "staff" || actorType === "system";
+  if (actorType === "admin" || actorType === "staff") return true;
+  if (actorType === "system") {
+    return !isCustomerScopedAuditLog(log);
+  }
+  return false;
 }
 
 function filterBootstrapDataForRole(data, authUser = {}) {

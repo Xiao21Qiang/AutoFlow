@@ -17,7 +17,7 @@ export default function AdminAuditLogs() {
   const [selectedLogIds, setSelectedLogIds] = useState([]);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
 
-  const getLogSelectionKey = (log, fallbackIndex) => `${log.id || "audit"}-${fallbackIndex}`;
+  const getLogSelectionKey = (log, fallbackIndex) => String(log.id || `audit-${fallbackIndex}`);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();

@@ -33,7 +33,7 @@ function getDashboardStockState(item) {
   const currentStock = Math.max(0, Number(item?.currentStock || 0));
   const maxStock = Math.max(0, Number(item?.maxStock || 0));
   const reorderLevel = buildDerivedReorderLevel(item);
-  const lowLevel = maxStock ? Math.max(reorderLevel + 1, Math.ceil(maxStock * 0.6)) : 0;
+  const lowLevel = reorderLevel > 0 ? reorderLevel + Math.max(1, reorderLevel) : 0;
 
   if (!maxStock) {
     return { tone: "healthy", reorderLevel };
@@ -122,7 +122,10 @@ export default function StaffDashboard({ goTo }) {
   const upcomingBookings = useMemo(
     () =>
       [...bookings]
-        .filter((booking) => String(booking.date || "") >= todayKey)
+        .filter((booking) => {
+          const normalizedStatus = String(booking.status || "").trim().toLowerCase();
+          return String(booking.date || "") >= todayKey && !["completed", "cancelled"].includes(normalizedStatus);
+        })
         .sort((left, right) => {
           const leftKey = `${left.date || ""} ${left.time || ""}`;
           const rightKey = `${right.date || ""} ${right.time || ""}`;
@@ -135,10 +138,10 @@ export default function StaffDashboard({ goTo }) {
   const alerts = useMemo(() => {
     const out = [];
     if (stockSummary.criticalCount > 0) {
-      out.push({ title: `Critical stock (${stockSummary.criticalCount})`, sub: "Items below the temporary reorder threshold need immediate restocking.", target: "stock-monitoring" });
+      out.push({ title: `Critical stock (${stockSummary.criticalCount})`, sub: "Items below the current reorder level need immediate restocking.", target: "stock-monitoring" });
     }
     if (stockSummary.lowCount > 0) {
-      out.push({ title: `Low stock (${stockSummary.lowCount})`, sub: "Items nearing the reorder threshold should be reviewed next.", target: "stock-monitoring" });
+      out.push({ title: `Low stock (${stockSummary.lowCount})`, sub: "Items just above the current reorder level should be reviewed next.", target: "stock-monitoring" });
     }
     if (pendingPaymentsCount > 0) {
       out.push({ title: `Pending payments (${pendingPaymentsCount})`, sub: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
@@ -153,7 +156,7 @@ export default function StaffDashboard({ goTo }) {
         <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="stDashStatNum">{bookingsToday}</div><div className="stDashStatLabel">Bookings today</div></button>
         <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="stDashStatNum">{inProgressCount}</div><div className="stDashStatLabel">In Progress</div></button>
         <button className={`stDashStatCard stDashStatCardClickable${stockSummary.criticalCount > 0 ? " critical" : ""}`} type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.criticalCount}</div><div className="stDashStatLabel">Critical Stock</div></button>
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenues</div></button>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenue</div></button>
         <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.lowCount}</div><div className="stDashStatLabel">Low Stock</div></button>
         <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.healthyCount}</div><div className="stDashStatLabel">Healthy Stock</div></button>
       </div>
