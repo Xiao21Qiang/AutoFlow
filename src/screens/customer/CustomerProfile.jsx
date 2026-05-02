@@ -80,7 +80,7 @@ function createEmptyCar() {
 }
 
 export default function CustomerProfile({ session }) {
-  const { currentUser, updateProfile, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
+  const { currentUser, auditLogs, updateProfile, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
   const initial = useMemo(
     () => ({
       first: currentUser?.first || session?.first || session?.firstName || "",
@@ -185,6 +185,11 @@ export default function CustomerProfile({ session }) {
     const base = String(saved.first || saved.email || "C").trim();
     return base ? base[0].toUpperCase() : "C";
   }, [saved]);
+
+  const personalAuditLogs = useMemo(
+    () => (Array.isArray(auditLogs) ? auditLogs.slice(0, 6) : []),
+    [auditLogs]
+  );
 
   const startCountdown = () => {
     clearInterval(timerRef.current);
@@ -507,6 +512,30 @@ export default function CustomerProfile({ session }) {
                   </div>
                 ) : (
                   <div className="clCarEmpty">No car details saved yet.</div>
+                )}
+              </div>
+
+              <div className="clActivitySection">
+                <div className="clCarSectionHead">
+                  <div>
+                    <div className="clCarTitle">Personal Activity</div>
+                    <div className="clCarSub">Recent account and booking-related activity for your profile only.</div>
+                  </div>
+                </div>
+                {personalAuditLogs.length ? (
+                  <div className="clActivityList">
+                    {personalAuditLogs.map((log, index) => (
+                      <div key={`${log.id || "activity"}-${index}`} className="clActivityItem">
+                        <div className="clActivityAction">{log.action || "Account activity"}</div>
+                        <div className="clActivityMeta">
+                          <span>{log.targetId || "Profile"}</span>
+                          <span>{log.ts || "Recent"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="clCarEmpty">No personal activity records available yet.</div>
                 )}
               </div>
 

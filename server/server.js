@@ -2724,22 +2724,98 @@ async function loadBootstrapData() {
   };
 }
 
+function normalizeAuditIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildAuditActorTypeLookup(users = []) {
+  const lookup = new Map();
+
+  for (const user of users) {
+    const userType = normalizeUserType(user?.userType, user?.role);
+    const email = normalizeAuditIdentity(user?.email);
+    const fullName = normalizeAuditIdentity(user?.name || `${user?.first || ""} ${user?.last || ""}`.trim());
+
+    if (email) lookup.set(email, userType);
+    if (fullName) lookup.set(fullName, userType);
+  }
+
+  return lookup;
+}
+
+function getAuditActorType(log, actorTypeLookup) {
+  const actor = normalizeAuditIdentity(log?.userId);
+  if (!actor) return "";
+  if (actor === "system") return "system";
+  return actorTypeLookup.get(actor) || "";
+}
+
+function buildCustomerAuditScope(authUser = {}, ownUser = {}) {
+  const scope = new Set();
+  const first = String(ownUser?.first || authUser?.first || "").trim();
+  const last = String(ownUser?.last || authUser?.last || "").trim();
+  const fullName = [first, last].filter(Boolean).join(" ").trim();
+
+  [
+    authUser?.email,
+    ownUser?.email,
+    authUser?.name,
+    ownUser?.name,
+    fullName,
+  ]
+    .map(normalizeAuditIdentity)
+    .filter(Boolean)
+    .forEach((value) => scope.add(value));
+
+  return scope;
+}
+
+function getAuditCustomerScopeValues(log) {
+  return [
+    log?.userId,
+    log?.meta?.email,
+    log?.meta?.customerEmail,
+    log?.meta?.customer,
+  ]
+    .map(normalizeAuditIdentity)
+    .filter(Boolean);
+}
+
+function isCustomerVisibleAuditLog(log, customerScope) {
+  if (!customerScope.size) return false;
+  return getAuditCustomerScopeValues(log).some((value) => customerScope.has(value));
+}
+
+function isAdminVisibleAuditLog(log, actorTypeLookup) {
+  const actorType = getAuditActorType(log, actorTypeLookup);
+  return actorType === "admin" || actorType === "staff" || actorType === "system";
+}
+
 function filterBootstrapDataForRole(data, authUser = {}) {
   const userType = normalizeUserType(authUser.userType, authUser.role);
-  if (userType === "admin") return data;
-
   const email = String(authUser.email || "").trim().toLowerCase();
   const ownUser = data.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
+  const actorTypeLookup = buildAuditActorTypeLookup(data.users);
+
+  if (userType === "admin") {
+    return {
+      ...data,
+      auditLogs: data.auditLogs.filter((log) => isAdminVisibleAuditLog(log, actorTypeLookup)),
+      archivedAuditLogs: data.archivedAuditLogs.filter((log) => isAdminVisibleAuditLog(log, actorTypeLookup)),
+    };
+  }
 
   if (userType === "customer") {
+    const customerAuditScope = buildCustomerAuditScope(authUser, ownUser);
+
     return {
       ...data,
       bookings: data.bookings.filter((booking) => String(booking.customerEmail || "").trim().toLowerCase() === email),
       payments: data.payments.filter((payment) => String(payment.customerEmail || "").trim().toLowerCase() === email),
       users: ownUser ? [ownUser] : [],
       stockMonitoring: [],
-      auditLogs: [],
-      archivedAuditLogs: [],
+      auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope)),
+      archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope)),
       quoteRequests: [],
       expenses: [],
       commissions: [],

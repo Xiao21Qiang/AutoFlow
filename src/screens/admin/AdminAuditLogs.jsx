@@ -1,5 +1,5 @@
 import "../../styles/css/admin/adminAuditLogsStyle.css";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
@@ -14,7 +14,10 @@ export default function AdminAuditLogs() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ userId: "", action: "" });
   const [showArchived, setShowArchived] = useState(false);
+  const [selectedLogIds, setSelectedLogIds] = useState([]);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
+
+  const getLogSelectionKey = (log, fallbackIndex) => `${log.id || "audit"}-${fallbackIndex}`;
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -30,6 +33,30 @@ export default function AdminAuditLogs() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pagedSelectionKeys = paged.map((log, index) => getLogSelectionKey(log, (safePage - 1) * pageSize + index));
+  const allPagedSelected = pagedSelectionKeys.length > 0 && pagedSelectionKeys.every((key) => selectedLogIds.includes(key));
+
+  useEffect(() => {
+    setSelectedLogIds([]);
+  }, [showArchived, query, filters.userId, filters.action, sourceLogs]);
+
+  const toggleLogSelection = (selectionKey) => {
+    setSelectedLogIds((prev) => (
+      prev.includes(selectionKey)
+        ? prev.filter((value) => value !== selectionKey)
+        : [...prev, selectionKey]
+    ));
+  };
+
+  const togglePageSelection = () => {
+    setSelectedLogIds((prev) => {
+      if (allPagedSelected) {
+        return prev.filter((value) => !pagedSelectionKeys.includes(value));
+      }
+
+      return [...new Set([...prev, ...pagedSelectionKeys])];
+    });
+  };
 
   const exportPdf = () =>
     exportTabularPdf({
@@ -86,20 +113,53 @@ export default function AdminAuditLogs() {
         </button>
 
         <div className="auditBtns">
+          <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div>
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
           {!showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveAuditLogs}>Archive Logs</button> : null}
-          {showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Unarchive Logs</button> : null}
+          {showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Restore</button> : null}
         </div>
       </div>
 
       <div className="auditBoard">
-        <div className="auditTableHead"><div>ID</div><div>User ID</div><div>Action</div><div>Timestamp</div></div>
+        <div className="auditTableHead">
+          <label className="auditSelectCell auditSelectHead">
+            <input type="checkbox" checked={allPagedSelected} onChange={togglePageSelection} aria-label="Select all visible logs" />
+          </label>
+          <div>ID</div>
+          <div>User ID</div>
+          <div>Action</div>
+          <div>Timestamp</div>
+        </div>
         {paged.length === 0 ? (
           <div className="auditEmptyRow"><div className="auditEmptyText">{showArchived ? "No archived audit records yet" : "No audit records yet"}</div></div>
         ) : (
-          paged.map((r, idx) => (
-            <div className="auditTableRow" key={`${r.id}-${idx}`}><div className="auditId">{r.id}</div><div>{r.userId}</div><div>{r.action}</div><div className="auditTime">{r.ts}</div></div>
-          ))
+          paged.map((r, idx) => {
+            const selectionKey = getLogSelectionKey(r, (safePage - 1) * pageSize + idx);
+            const isSelected = selectedLogIds.includes(selectionKey);
+
+            return (
+              <button
+                className={`auditTableRow${isSelected ? " selected" : ""}`}
+                key={selectionKey}
+                type="button"
+                onClick={() => toggleLogSelection(selectionKey)}
+              >
+                <span className="auditSelectCell">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleLogSelection(selectionKey)}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={`Select audit log ${r.id || idx + 1}`}
+                  />
+                </span>
+                <span className="auditId">{r.id}</span>
+                <span>{r.userId}</span>
+                <span>{r.action}</span>
+                <span className="auditTime">{r.ts}</span>
+              </button>
+            );
+          })
         )}
       </div>
 

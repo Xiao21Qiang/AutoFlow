@@ -258,6 +258,41 @@
   gap: 8px;
 }
 
+.clActivitySection {
+  border-top: 1px solid #eef2f7;
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.clActivityList {
+  display: grid;
+  gap: 8px;
+}
+
+.clActivityItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.clActivityAction {
+  font-size: 12px;
+  font-weight: 900;
+  color: #111827;
+}
+
+.clActivityMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
 .clCarItem {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
