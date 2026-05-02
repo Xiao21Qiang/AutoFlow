@@ -23,6 +23,30 @@ function monthLabel(date) {
   return `${m} ${date.getFullYear()}`;
 }
 
+function buildDerivedReorderLevel(item) {
+  const maxStock = Math.max(0, Number(item?.maxStock || 0));
+  if (!maxStock) return 0;
+  return Math.max(1, Math.ceil(maxStock * 0.25));
+}
+
+function getDashboardStockState(item) {
+  const currentStock = Math.max(0, Number(item?.currentStock || 0));
+  const maxStock = Math.max(0, Number(item?.maxStock || 0));
+  const reorderLevel = buildDerivedReorderLevel(item);
+  const lowLevel = maxStock ? Math.max(reorderLevel + 1, Math.ceil(maxStock * 0.6)) : 0;
+
+  if (!maxStock) {
+    return { tone: "healthy", reorderLevel };
+  }
+  if (currentStock < reorderLevel) {
+    return { tone: "critical", reorderLevel };
+  }
+  if (currentStock <= lowLevel) {
+    return { tone: "low", reorderLevel };
+  }
+  return { tone: "healthy", reorderLevel };
+}
+
 function buildCalendarGrid(monthDate) {
   const first = startOfMonth(monthDate);
   const firstDow = first.getDay();
@@ -64,30 +88,74 @@ export default function StaffDashboard({ goTo }) {
   const bookingsToday = (bookingsByDate.get(todayKey) || []).length;
   const inProgressCount = bookings.filter((b) => b.status === "In Progress").length;
   const paidRevenue = payments.filter((p) => p.status === "Paid").reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
   const pendingPaymentsCount = payments.filter((payment) => payment.status !== "Paid").length;
   const pendingPaymentsTotal = payments.filter((payment) => payment.status !== "Paid").reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
   const recentQuoteRequests = quoteRequests;
   const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
+  const stockSummary = useMemo(() => {
+    const criticalItems = [];
+    const lowItems = [];
+    const healthyItems = [];
+
+    stockMonitoring.forEach((item) => {
+      const state = getDashboardStockState(item);
+      if (state.tone === "critical") {
+        criticalItems.push({ ...item, reorderLevel: state.reorderLevel });
+        return;
+      }
+      if (state.tone === "low") {
+        lowItems.push({ ...item, reorderLevel: state.reorderLevel });
+        return;
+      }
+      healthyItems.push(item);
+    });
+
+    return {
+      criticalItems,
+      lowItems,
+      healthyItems,
+      criticalCount: criticalItems.length,
+      lowCount: lowItems.length,
+      healthyCount: healthyItems.length,
+    };
+  }, [stockMonitoring]);
+  const upcomingBookings = useMemo(
+    () =>
+      [...bookings]
+        .filter((booking) => String(booking.date || "") >= todayKey)
+        .sort((left, right) => {
+          const leftKey = `${left.date || ""} ${left.time || ""}`;
+          const rightKey = `${right.date || ""} ${right.time || ""}`;
+          return leftKey.localeCompare(rightKey);
+        })
+        .slice(0, 5),
+    [bookings, todayKey]
+  );
 
   const alerts = useMemo(() => {
     const out = [];
-    if (lowStockCount > 0) out.push({ title: `Low stock (${lowStockCount})`, sub: "Quick alerts that need review.", target: "stock-monitoring" });
+    if (stockSummary.criticalCount > 0) {
+      out.push({ title: `Critical stock (${stockSummary.criticalCount})`, sub: "Items below the temporary reorder threshold need immediate restocking.", target: "stock-monitoring" });
+    }
+    if (stockSummary.lowCount > 0) {
+      out.push({ title: `Low stock (${stockSummary.lowCount})`, sub: "Items nearing the reorder threshold should be reviewed next.", target: "stock-monitoring" });
+    }
     if (pendingPaymentsCount > 0) {
       out.push({ title: `Pending payments (${pendingPaymentsCount})`, sub: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
     }
     if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, sub: "Review service tracking to avoid delays.", target: "tracking" });
     return out;
-  }, [lowStockCount, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
+  }, [stockSummary, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
 
   return (
     <div className="stDashWrap">
       <div className="stDashStats">
-        <div className="stDashStatCard"><div className="stDashStatNum">{bookingsToday}</div><div className="stDashStatLabel">Bookings today</div></div>
-        <div className="stDashStatCard"><div className="stDashStatNum">{inProgressCount}</div><div className="stDashStatLabel">In Progress</div></div>
-        <div className="stDashStatCard"><div className="stDashStatNum">{lowStockCount}</div><div className="stDashStatLabel">Low Stock</div></div>
-        <div className="stDashStatCard"><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenues</div></div>
-        <div className="stDashStatCard"><div className="stDashStatNum">{quoteRequests.length}</div><div className="stDashStatLabel">Quote Requests</div></div>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="stDashStatNum">{bookingsToday}</div><div className="stDashStatLabel">Bookings today</div></button>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="stDashStatNum">{inProgressCount}</div><div className="stDashStatLabel">In Progress</div></button>
+        <button className={`stDashStatCard stDashStatCardClickable${stockSummary.criticalCount > 0 ? " critical" : ""}`} type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.criticalCount}</div><div className="stDashStatLabel">Critical Stock</div></button>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenues</div></button>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.lowCount}</div><div className="stDashStatLabel">Low Stock</div></button>
+        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.healthyCount}</div><div className="stDashStatLabel">Healthy Stock</div></button>
       </div>
 
       <div className="stDashTopGrid">
@@ -217,6 +285,20 @@ export default function StaffDashboard({ goTo }) {
           <div>
             <div className="stCalMain">Bookings Overview</div>
             <div className="stCalMini">Selected: {selectedKey} • {selectedBookings.length} booking(s)</div>
+            <div className="stUpcomingBlock">
+              <div className="stCalMain">Upcoming Bookings</div>
+              <div className="stCalMini">Next scheduled appointments from the current booking list.</div>
+              <div className="stOverviewList">
+                {upcomingBookings.length === 0 ? (
+                  <div className="stOverviewItem"><div className="stOverviewName">No upcoming bookings</div><div className="stOverviewMeta">Future schedules will appear here once new appointments are added.</div></div>
+                ) : upcomingBookings.map((b) => (
+                  <div className="stOverviewItem" key={`upcoming-${b.id}`}>
+                    <div className="stOverviewName">{b.customer} — {b.service}</div>
+                    <div className="stOverviewMeta">{b.date} {b.time ? `• ${b.time}` : ""} • {b.status}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="stOverviewList">
               {selectedBookings.length === 0 ? (
                 <div className="stOverviewItem"><div className="stOverviewName">No bookings</div><div className="stOverviewMeta">No records for this day.</div></div>

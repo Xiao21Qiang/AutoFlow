@@ -10,6 +10,30 @@ function monthLabel(d) {
   return `${m} ${d.getFullYear()}`;
 }
 
+function buildDerivedReorderLevel(item) {
+  const maxStock = Math.max(0, Number(item?.maxStock || 0));
+  if (!maxStock) return 0;
+  return Math.max(1, Math.ceil(maxStock * 0.25));
+}
+
+function getDashboardStockState(item) {
+  const currentStock = Math.max(0, Number(item?.currentStock || 0));
+  const maxStock = Math.max(0, Number(item?.maxStock || 0));
+  const reorderLevel = buildDerivedReorderLevel(item);
+  const lowLevel = maxStock ? Math.max(reorderLevel + 1, Math.ceil(maxStock * 0.6)) : 0;
+
+  if (!maxStock) {
+    return { tone: "healthy", reorderLevel };
+  }
+  if (currentStock < reorderLevel) {
+    return { tone: "critical", reorderLevel };
+  }
+  if (currentStock <= lowLevel) {
+    return { tone: "low", reorderLevel };
+  }
+  return { tone: "healthy", reorderLevel };
+}
+
 function buildCalendarGrid(viewDate, bookings = []) {
   const y = viewDate.getFullYear();
   const m = viewDate.getMonth();
@@ -43,18 +67,69 @@ export default function AdminDashboard({ goTo }) {
   const todays = bookings.filter((b) => b.date === selectedKey);
   const paidRevenue = summary?.paidRevenue || payments.filter((payment) => payment.status === "Paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const recentQuoteRequests = quoteRequests;
-  const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
   const pendingPayments = payments.filter((payment) => payment.status !== "Paid");
   const pendingPaymentsCount = pendingPayments.length;
   const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const inProgressCount = bookings.filter((booking) => String(booking.status || "").trim().toLowerCase() === "in progress").length;
+  const stockSummary = useMemo(() => {
+    const criticalItems = [];
+    const lowItems = [];
+    const healthyItems = [];
+
+    stockMonitoring.forEach((item) => {
+      const state = getDashboardStockState(item);
+      if (state.tone === "critical") {
+        criticalItems.push({ ...item, reorderLevel: state.reorderLevel });
+        return;
+      }
+      if (state.tone === "low") {
+        lowItems.push({ ...item, reorderLevel: state.reorderLevel });
+        return;
+      }
+      healthyItems.push(item);
+    });
+
+    return {
+      criticalItems,
+      lowItems,
+      healthyItems,
+      criticalCount: criticalItems.length,
+      lowCount: lowItems.length,
+      healthyCount: healthyItems.length,
+    };
+  }, [stockMonitoring]);
+  const upcomingBookings = useMemo(
+    () =>
+      [...bookings]
+        .filter((booking) => String(booking.date || "") >= todayKey)
+        .sort((left, right) => {
+          const leftKey = `${left.date || ""} ${left.time || ""}`;
+          const rightKey = `${right.date || ""} ${right.time || ""}`;
+          return leftKey.localeCompare(rightKey);
+        })
+        .slice(0, 5),
+    [bookings, todayKey]
+  );
   const attentionAlerts = useMemo(() => {
     const out = [];
-    if (lowStockCount > 0) out.push({ title: `Low stock (${lowStockCount})`, description: "Quick alerts that need review.", target: "stock-monitoring" });
+    if (stockSummary.criticalCount > 0) {
+      out.push({
+        title: `Critical stock (${stockSummary.criticalCount})`,
+        description: "Items below the temporary reorder threshold need immediate restocking.",
+        target: "stock-monitoring",
+      });
+    }
+    if (stockSummary.lowCount > 0) {
+      out.push({
+        title: `Low stock (${stockSummary.lowCount})`,
+        description: "Items nearing the reorder threshold should be reviewed next.",
+        target: "stock-monitoring",
+      });
+    }
     if (pendingPaymentsCount > 0) out.push({ title: `Pending payments (${pendingPaymentsCount})`, description: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
     if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, description: "Review service tracking to avoid delays.", target: "tracking" });
     return out;
-  }, [lowStockCount, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
+  }, [stockSummary, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
   const paymentByBookingId = useMemo(
     () => new Map(payments.map((payment) => [payment.bookingId || payment.id, payment])),
     [payments]
@@ -64,15 +139,15 @@ export default function AdminDashboard({ goTo }) {
   return (
     <div className="adminDashWrap">
       <div className="adminDashStats">
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{bookingsToday}</div><div className="adminDashStatLabel">Bookings today</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.inProgressCount || 0}</div><div className="adminDashStatLabel">In Progress</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.lowStockCount || 0}</div><div className="adminDashStatLabel">Low Stock</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">₱{Number(paidRevenue || 0).toLocaleString()}</div><div className="adminDashStatLabel">Paid Revenue</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.totalSchedules || bookings.length}</div><div className="adminDashStatLabel">Schedules</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{stockMonitoring.length}</div><div className="adminDashStatLabel">Stock Monitoring Items</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.completedCount || 0}</div><div className="adminDashStatLabel">Completed</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.cancelledCount || 0}</div><div className="adminDashStatLabel">Cancelled</div></div>
-        <div className="adminDashStatCard"><div className="adminDashStatNum">{summary?.quoteRequestCount || quoteRequests.length}</div><div className="adminDashStatLabel">Quote Requests</div></div>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="adminDashStatNum">{bookingsToday}</div><div className="adminDashStatLabel">Bookings today</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="adminDashStatNum">{summary?.inProgressCount || 0}</div><div className="adminDashStatLabel">In Progress</div></button>
+        <button className={`adminDashStatCard adminDashStatCardClickable${stockSummary.criticalCount > 0 ? " critical" : ""}`} type="button" onClick={() => goTo?.("stock-monitoring")}><div className="adminDashStatNum">{stockSummary.criticalCount}</div><div className="adminDashStatLabel">Critical Stock</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="adminDashStatNum">₱{Number(paidRevenue || 0).toLocaleString()}</div><div className="adminDashStatLabel">Paid Revenue</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="adminDashStatNum">{summary?.totalSchedules || bookings.length}</div><div className="adminDashStatLabel">Schedules</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="adminDashStatNum">{stockSummary.lowCount}</div><div className="adminDashStatLabel">Low Stock</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="adminDashStatNum">{summary?.completedCount || 0}</div><div className="adminDashStatLabel">Completed</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="adminDashStatNum">{summary?.cancelledCount || 0}</div><div className="adminDashStatLabel">Cancelled</div></button>
+        <button className="adminDashStatCard adminDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="adminDashStatNum">{stockSummary.healthyCount}</div><div className="adminDashStatLabel">Healthy Stock</div></button>
       </div>
 
       <div className="adminDashTopGrid">
@@ -201,6 +276,22 @@ export default function AdminDashboard({ goTo }) {
           <div>
             <div className="adminCalMain">Bookings Overview</div>
             <div className="adminCalMini">Selected: {selectedKey} • {todays.length} booking(s)</div>
+            <div className="adminUpcomingBlock">
+              <div className="adminCalMain">Upcoming Bookings</div>
+              <div className="adminCalMini">Next scheduled appointments from the current booking list.</div>
+              <div className="adminOverviewList">
+                {upcomingBookings.length === 0 ? (
+                  <div className="adminOverviewItem"><div className="adminOverviewName">No upcoming bookings</div><div className="adminOverviewMeta">Future schedules will appear here once new appointments are added.</div></div>
+                ) : (
+                  upcomingBookings.map((booking) => (
+                    <button className="adminOverviewItem adminAttentionItemClickable" type="button" key={`upcoming-${booking.id}`} onClick={() => setSelectedBooking(booking)}>
+                      <div className="adminOverviewName">{booking.customer} — {booking.service}</div>
+                      <div className="adminOverviewMeta">{booking.date} {booking.time ? `• ${booking.time}` : ""} • {booking.status}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
             <div className="adminOverviewList">
               {todays.length === 0 ? (
                 <div className="adminOverviewItem"><div className="adminOverviewName">No bookings</div><div className="adminOverviewMeta">No bookings on selected date.</div></div>
