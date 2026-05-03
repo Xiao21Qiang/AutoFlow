@@ -278,19 +278,6 @@ export default function CustomerServices() {
                 </div>
               ) : null}
 
-              <div className="clSvcConsumablesPanel">
-                <div className="clSvcConsumablesTitle">Consumables Included</div>
-                {(selectedService.consumables || []).length ? (
-                  <ul className="clSvcConsumablesList">
-                    {(selectedService.consumables || []).map((consumable) => (
-                      <li key={consumable}>{consumable}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="clSvcConsumablesEmpty">No consumables listed for this service yet.</div>
-                )}
-              </div>
-
               <label className="clSvcField">
                 <span>Preferred Date</span>
                 <input
