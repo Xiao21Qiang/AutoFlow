@@ -8,7 +8,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
-const USER_TYPE_OPTIONS = ["Admin", "Staff", "Customer"];
+const USER_TYPE_OPTIONS = ["Admin", "Staff"];
 const ROLE_OPTIONS_BY_USER_TYPE = {
   Admin: ["Owner", "Co-Owner"],
   Staff: ["Mechanic", "Inspector", "Coordinator"],
@@ -81,9 +81,17 @@ export default function AdminUsers() {
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
 
+  const manageableUsers = useMemo(
+    () => users.filter((user) => {
+      const userType = normalizeUserType(user);
+      return userType === "admin" || userType === "staff";
+    }),
+    [users]
+  );
+
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    return users.filter((user) => {
+    return manageableUsers.filter((user) => {
       const userType = toDisplayUserType(user);
       const role = getUserManagementRoleLabel(user);
       const matchesQuery =
@@ -92,7 +100,7 @@ export default function AdminUsers() {
       const matchesStatus = !filters.status || user.status === filters.status.toLowerCase();
       return matchesQuery && matchesUserType && matchesStatus;
     });
-  }, [users, query, filters]);
+  }, [manageableUsers, query, filters]);
 
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
