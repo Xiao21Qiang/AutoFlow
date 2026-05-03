@@ -187,7 +187,7 @@ export default function CustomerProfile({ session }) {
   }, [saved]);
 
   const personalAuditLogs = useMemo(
-    () => (Array.isArray(auditLogs) ? auditLogs.slice(0, 6) : []),
+    () => (Array.isArray(auditLogs) ? auditLogs : []),
     [auditLogs]
   );
 

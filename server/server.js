@@ -2934,6 +2934,24 @@ function isCustomerVisibleAuditLog(log, customerScope) {
   return getAuditCustomerScopeValues(log).some((value) => customerScope.has(value));
 }
 
+function isAuditLogWithinDays(log, days) {
+  const safeDays = Math.max(0, Number(days || 0));
+  if (!safeDays) return true;
+
+  const candidates = [log?.createdAt, log?.updatedAt, log?.archivedAt, log?.ts]
+    .map((value) => {
+      const date = value ? new Date(value) : null;
+      return date && !Number.isNaN(date.getTime()) ? date : null;
+    })
+    .filter(Boolean);
+
+  if (!candidates.length) return false;
+
+  const newestDate = candidates.sort((left, right) => right.getTime() - left.getTime())[0];
+  const cutoff = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+  return newestDate.getTime() >= cutoff;
+}
+
 function isCustomerScopedAuditLog(log) {
   return getAuditCustomerScopeValues(log).length > 0;
 }
@@ -2970,8 +2988,8 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       payments: data.payments.filter((payment) => String(payment.customerEmail || "").trim().toLowerCase() === email),
       users: ownUser ? [ownUser] : [],
       stockMonitoring: [],
-      auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope)),
-      archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope)),
+      auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
+      archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
       quoteRequests: [],
       expenses: [],
       commissions: [],
