@@ -957,7 +957,7 @@ function normalizeTrackingIssueNoteAiOutput(payload) {
 }
 
 function normalizeFinancialAiOutput(payload) {
-  const summary = normalizeAiText(payload?.summary, 220);
+  const summary = normalizeAiText(payload?.summary, 1200);
   const dedupeAcrossSections = (values, exclusions = []) => {
     const seen = new Set(
       exclusions
@@ -982,7 +982,7 @@ function normalizeFinancialAiOutput(payload) {
     keyObservations,
     recommendations,
     warnings,
-    insights: keyObservations,
+    insights: summary ? [summary] : [],
   };
 }
 
@@ -1082,15 +1082,16 @@ async function handleFinancialAiInterpret(req, res, next) {
       systemPrompt: [
         "You are an executive financial advisor for an auto detailing and car care business.",
         "Return only JSON with keys: summary, keyObservations, recommendations, warnings.",
-        "Use concise management-focused language for a dashboard.",
-        "Summary must be 1 to 2 sentences on financial position, margin direction, or cost pressure.",
-        "Key observations should focus on revenue, expenses, commission load, expense category mix, and date or filter context when relevant.",
-        "Recommendations must be practical for a car care business, such as pricing discipline, cost control, supplier review, staffing mix, or service mix actions.",
-        "Warnings should call out financial risks or watchpoints only when justified by the numbers.",
-        "Avoid filler, avoid repeating points across sections, and do not mention missing data unless it changes the conclusion.",
+        "Use management-level financial language suitable for an owner or operations lead.",
+        "summary must be one detailed paragraph of 5 to 7 sentences.",
+        "The summary paragraph must explicitly cover revenue, expenses, revenue versus expenses, profit pressure or financial health, worker commissions when relevant, key risks or watchpoints, and one practical business recommendation.",
+        "Make the paragraph sound like a financial interpretation, not a generic recap.",
+        "Avoid filler, avoid vague statements, avoid numbered points, and avoid repeating the same idea in different words.",
+        "If commissions are low or absent, mention them briefly only if that affects the financial picture.",
+        "keyObservations, recommendations, and warnings may be returned as empty arrays unless the data supports a distinct extra point not already covered by the summary.",
       ].join(" "),
       userPayload: sanitizedInput,
-      maxTokens: 380,
+      maxTokens: 520,
     });
 
     if (!aiPayload.available) {
