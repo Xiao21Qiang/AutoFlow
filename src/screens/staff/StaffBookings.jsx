@@ -60,6 +60,11 @@ function isRescheduledStatus(status) {
   return String(status || "").trim().toLowerCase() === "rescheduled";
 }
 
+function isPendingSchedulingStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "pending" || normalized === "pending confirmation";
+}
+
 function isScheduleBlockingStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   return normalized !== "completed" && normalized !== "cancelled";
@@ -144,6 +149,7 @@ export default function StaffBookings() {
     [bookings, selectedBookingId]
   );
   const isCompletedBookingLocked = modal === "edit" && isCompletedStatus(selectedBooking?.status);
+  const isPendingBookingEdit = modal === "edit" && isPendingSchedulingStatus(selectedBooking?.status);
   const matchedCustomer = useMemo(
     () =>
       customerOptions.find(
@@ -462,7 +468,9 @@ export default function StaffBookings() {
 
                 setFormError("");
                 const isReschedule = isRescheduledStatus(form.status);
-                const requiresTime = modal === "add" || isReschedule;
+                const isAutoSchedulingPending = isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled");
+                const canPersistScheduleEdit = isReschedule || isAutoSchedulingPending;
+                const requiresTime = modal === "add" || canPersistScheduleEdit;
 
                 if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
                   setFormError("Please select today or a future date for the booking.");
@@ -499,12 +507,13 @@ export default function StaffBookings() {
                   ...form,
                   selectedCar: undefined,
                   placeSlot: Number(form.placeSlot || 0),
+                  status: isAutoSchedulingPending ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || 0),
                   amount: Number(resolvedPrice || 0),
                 };
-                if (modal === "edit" && selectedBooking && !isReschedule) {
+                if (modal === "edit" && selectedBooking && !canPersistScheduleEdit) {
                   payload.date = selectedBooking.date;
                   payload.time = selectedBooking.time || "";
                   payload.placeSlot = selectedBooking.placeSlot || 0;
@@ -697,11 +706,11 @@ export default function StaffBookings() {
                   <input
                     type="time"
                     value={form.time}
-                    disabled={modal === "edit" && form.status !== "Rescheduled"}
+                    disabled={modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit}
                     onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
-                    required={modal === "add" || form.status === "Rescheduled"}
+                    required={modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled"))}
                   />
-                  {!form.time && modal === "edit" && form.status !== "Rescheduled" ? <div className="stBookSlotHint">No time selected</div> : null}
+                  {!form.time && modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit ? <div className="stBookSlotHint">No time selected</div> : null}
                 </label>
 
                 <label className="stBookField">

@@ -46,6 +46,11 @@ function isRescheduledStatus(status) {
   return String(status || "").trim().toLowerCase() === "rescheduled";
 }
 
+function isPendingSchedulingStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "pending" || normalized === "pending confirmation";
+}
+
 function isCancelledStatus(status) {
   return String(status || "").trim().toLowerCase() === "cancelled";
 }
@@ -154,6 +159,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   
   const selectedBooking = useMemo(() => bookings.find((booking) => booking.id === selectedBookingId) || null, [bookings, selectedBookingId]);
   const isCompletedBookingLocked = modal === "edit" && isCompletedStatus(selectedBooking?.status);
+  const isPendingBookingEdit = modal === "edit" && isPendingSchedulingStatus(selectedBooking?.status);
   const matchedCustomer = useMemo(
     () =>
       customerOptions.find(
@@ -367,7 +373,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   return;
                 }
                 const isReschedule = isRescheduledStatus(form.status);
-                const requiresTime = modal === "add" || isReschedule;
+                const isAutoSchedulingPending = isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled");
+                const canPersistScheduleEdit = isReschedule || isAutoSchedulingPending;
+                const requiresTime = modal === "add" || canPersistScheduleEdit;
 
                 if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
                   setFormError("Please select today or a future date for the booking.");
@@ -395,12 +403,13 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   ...form,
                   selectedCar: undefined,
                   placeSlot: Number(form.placeSlot || 0),
+                  status: isAutoSchedulingPending ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || form.amount || 0),
                   amount: Number(resolvedPrice || form.amount || 0),
                 };
-                if (modal === "edit" && selectedBooking && !isReschedule) {
+                if (modal === "edit" && selectedBooking && !canPersistScheduleEdit) {
                   payload.date = selectedBooking.date;
                   payload.time = selectedBooking.time || "";
                   payload.placeSlot = selectedBooking.placeSlot || 0;
@@ -550,7 +559,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                 </label>
                 <label className="bookField"><span>Staff</span><ModalSelect value={form.assigned} options={staffOptions} placeholder="Select staff" onSelect={(option) => setForm((prev) => ({ ...prev, assigned: option }))} /></label>
                 <label className="bookField"><span>Date</span><input type="date" min={todayKey} value={form.date} disabled={modal === "edit" && form.status !== "Rescheduled"} onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))} required /></label>
-                <label className="bookField"><span>Time</span><input type="time" value={form.time} disabled={modal === "edit" && form.status !== "Rescheduled"} onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))} required={modal === "add" || form.status === "Rescheduled"} />{!form.time && modal === "edit" && form.status !== "Rescheduled" ? <div className="bookSlotHint">No time selected</div> : null}</label>
+                <label className="bookField"><span>Time</span><input type="time" value={form.time} disabled={modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit} onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))} required={modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled"))} />{!form.time && modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit ? <div className="bookSlotHint">No time selected</div> : null}</label>
                 <label className="bookField">
                   <span>Status</span>
                   {isCompletedBookingLocked ? (

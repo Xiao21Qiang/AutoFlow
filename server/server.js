@@ -3883,7 +3883,19 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     }
 
     const bookingDate = String(req.body.date || existingBooking.date || "").trim();
-    const nextStatus = normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
+    const currentStatusRaw = String(existingBooking.status || "").trim().toLowerCase();
+    const nextTime = String(req.body.time ?? existingBooking.time ?? "").trim();
+    const nextPlaceSlot = Number(req.body.placeSlot ?? existingBooking.placeSlot ?? 0);
+    const hasValidScheduleTime = /^\d{1,2}:\d{2}$/.test(nextTime);
+    const shouldAutoSchedulePending =
+      (currentStatusRaw === "pending" || currentStatusRaw === "pending confirmation") &&
+      hasValidScheduleTime &&
+      nextPlaceSlot > 0 &&
+      String(req.body.status || "").trim().toLowerCase() !== "cancelled" &&
+      String(req.body.status || "").trim().toLowerCase() !== "completed";
+    const nextStatus = shouldAutoSchedulePending
+      ? "Scheduled"
+      : normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
     const previousStatus = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     const isSensitiveStatusChange =
@@ -3899,9 +3911,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const timeChanged = Object.prototype.hasOwnProperty.call(req.body, "time") && String(req.body.time || "") !== String(existingBooking.time || "");
     const slotChanged = Object.prototype.hasOwnProperty.call(req.body, "placeSlot") && Number(req.body.placeSlot || 0) !== Number(existingBooking.placeSlot || 0);
     const scheduleChanged = dateChanged || timeChanged || slotChanged;
-    const requiresScheduleValidation = nextStatus === "Rescheduled";
-    const nextTime = String(req.body.time ?? existingBooking.time ?? "").trim();
-    const hasValidScheduleTime = /^\d{1,2}:\d{2}$/.test(nextTime);
+    const requiresScheduleValidation = nextStatus === "Rescheduled" || shouldAutoSchedulePending;
 
     if ((dateChanged || requiresScheduleValidation) && isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
