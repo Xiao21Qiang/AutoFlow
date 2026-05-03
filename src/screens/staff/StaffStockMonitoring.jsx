@@ -20,6 +20,44 @@ function clampNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function getConfiguredMaxStock(value) {
+  const maxStock = clampNumber(value);
+  return maxStock > 0 ? maxStock : 0;
+}
+
+function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
+  const nextCurrentStock = clampNumber(currentStock);
+  const nextMaxStock = clampNumber(maxStock);
+  const configuredMaxStock = getConfiguredMaxStock(nextMaxStock);
+
+  if (nextCurrentStock < 0) {
+    return "Current stock quantity cannot be negative.";
+  }
+
+  if (nextMaxStock < 0) {
+    return "Max stock quantity cannot be negative.";
+  }
+
+  if (qtyToAdd !== null) {
+    const nextQtyToAdd = clampNumber(qtyToAdd);
+    if (nextQtyToAdd <= 0) {
+      return "Restock quantity must be greater than zero.";
+    }
+
+    if (configuredMaxStock && nextCurrentStock + nextQtyToAdd > configuredMaxStock) {
+      return `This restock would exceed the max stock quantity of ${configuredMaxStock}.`;
+    }
+
+    return "";
+  }
+
+  if (configuredMaxStock && nextCurrentStock > configuredMaxStock) {
+    return `Current stock quantity cannot exceed the max stock quantity of ${configuredMaxStock}.`;
+  }
+
+  return "";
+}
+
 function getStockPercent(item) {
   if (!item.maxStock) return 0;
   return Math.max(0, Math.min(100, Math.round((item.currentStock / item.maxStock) * 100)));
@@ -167,6 +205,15 @@ export default function StaffStockMonitoring() {
   const handleEditSubmit = async (event) => {
     event.preventDefault();
     try {
+      const validationMessage = validateStockLimit({
+        currentStock: editForm.currentStock,
+        maxStock: editForm.maxStock,
+      });
+      if (validationMessage) {
+        showToast("error", validationMessage);
+        return;
+      }
+
       await updateStockMonitoringItem(selectedItem.id, {
         ...selectedItem,
         name: editForm.name.trim(),
@@ -206,6 +253,16 @@ export default function StaffStockMonitoring() {
   const handleRestockSubmit = async (event) => {
     event.preventDefault();
     try {
+      const validationMessage = validateStockLimit({
+        currentStock: selectedItem?.currentStock,
+        maxStock: selectedItem?.maxStock,
+        qtyToAdd: restockForm.qtyToAdd,
+      });
+      if (validationMessage) {
+        showToast("error", validationMessage);
+        return;
+      }
+
       await restockStockMonitoringItem(selectedItem.id, {
         ...restockForm,
         qtyToAdd: clampNumber(restockForm.qtyToAdd),

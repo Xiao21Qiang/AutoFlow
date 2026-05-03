@@ -3995,6 +3995,49 @@ app.delete("/api/admin/services/:id", requireAdminUser, async (req, res, next) =
   }
 });
 
+function normalizeStockQuantityValue(value) {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) ? quantity : 0;
+}
+
+function getConfiguredMaxStockQuantity(value) {
+  const quantity = normalizeStockQuantityValue(value);
+  return quantity > 0 ? quantity : 0;
+}
+
+function validateStockQuantityLimit({ currentStock, maxStock, qtyToAdd = null }) {
+  const nextCurrentStock = normalizeStockQuantityValue(currentStock);
+  const nextMaxStock = normalizeStockQuantityValue(maxStock);
+  const configuredMaxStock = getConfiguredMaxStockQuantity(nextMaxStock);
+
+  if (nextCurrentStock < 0) {
+    return "Current stock quantity cannot be negative.";
+  }
+
+  if (nextMaxStock < 0) {
+    return "Max stock quantity cannot be negative.";
+  }
+
+  if (qtyToAdd !== null) {
+    const nextQtyToAdd = normalizeStockQuantityValue(qtyToAdd);
+    if (nextQtyToAdd <= 0) {
+      return "Restock quantity must be greater than zero.";
+    }
+
+    if (configuredMaxStock && nextCurrentStock + nextQtyToAdd > configuredMaxStock) {
+      return `This restock would exceed the max stock quantity of ${configuredMaxStock}.`;
+    }
+
+    return "";
+  }
+
+  if (configuredMaxStock && nextCurrentStock > configuredMaxStock) {
+    return `Current stock quantity cannot exceed the max stock quantity of ${configuredMaxStock}.`;
+  }
+
+  return "";
+}
+
 app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.create({ id: createId("INV"), ...req.body });
@@ -4023,7 +4066,24 @@ app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), async (r
 
 app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, req.body, { new: true });
+    const validationMessage = validateStockQuantityLimit({
+      currentStock: req.body.currentStock,
+      maxStock: req.body.maxStock,
+    });
+    if (validationMessage) {
+      res.status(400).json({ message: validationMessage });
+      return;
+    }
+
+    const nextPayload = { ...req.body };
+    if (Object.prototype.hasOwnProperty.call(req.body, "currentStock")) {
+      nextPayload.currentStock = normalizeStockQuantityValue(req.body.currentStock);
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "maxStock")) {
+      nextPayload.maxStock = normalizeStockQuantityValue(req.body.maxStock);
+    }
+
+    const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, nextPayload, { new: true });
     await recordAudit(req.body.auditUser, "Updated stock monitoring item", req.params.id);
     res.json(item);
   } catch (error) {
@@ -4039,8 +4099,18 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
       return;
     }
 
-    const qtyToAdd = Number(req.body.qtyToAdd || 0);
-    item.currentStock += qtyToAdd;
+    const qtyToAdd = normalizeStockQuantityValue(req.body.qtyToAdd);
+    const validationMessage = validateStockQuantityLimit({
+      currentStock: item.currentStock,
+      maxStock: item.maxStock,
+      qtyToAdd,
+    });
+    if (validationMessage) {
+      res.status(400).json({ message: validationMessage });
+      return;
+    }
+
+    item.currentStock = normalizeStockQuantityValue(item.currentStock) + qtyToAdd;
     item.pricePerUnit = Number(req.body.costPerUnit || item.pricePerUnit || 0);
     item.lastRestocked = req.body.date || item.lastRestocked;
     item.restockHistory.unshift({
