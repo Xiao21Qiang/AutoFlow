@@ -1,5 +1,5 @@
 import "../../styles/css/admin/adminFinancialTrackerStyle.css";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
@@ -38,7 +38,7 @@ function createExpenseForm() {
 }
 
 export default function AdminFinancialTracker() {
-  const { expenses, commissions, payments, users, createExpense, currentUser } = useAdminData();
+  const { expenses, commissions, payments, users, createExpense, currentUser, generateFinancialInterpretation } = useAdminData();
   const [expenseQuery, setExpenseQuery] = useState("");
   const [expenseType, setExpenseType] = useState("All types");
   const [expensePage, setExpensePage] = useState(1);
@@ -50,8 +50,9 @@ export default function AdminFinancialTracker() {
   const [formError, setFormError] = useState("");
   const [expenseForm, setExpenseForm] = useState(createExpenseForm);
   const [securityConfirm, setSecurityConfirm] = useState(null);
-  const aiInterpretationLines = [];
-  const isAiFeatureEnabled = false;
+  const [aiInterpretation, setAiInterpretation] = useState(null);
+  const [aiState, setAiState] = useState("idle");
+  const [aiMessage, setAiMessage] = useState("");
 
   const paidPayments = useMemo(
     () => payments.filter((item) => String(item.status || "").toLowerCase() === "paid"),
@@ -97,8 +98,128 @@ export default function AdminFinancialTracker() {
     });
   }, [commissions, workerQuery]);
 
+  const filteredRevenuePayments = useMemo(
+    () =>
+      paidPayments.filter((item) => {
+        const matchesFrom = !dateFrom || item.date >= dateFrom;
+        const matchesTo = !dateTo || item.date <= dateTo;
+        return matchesFrom && matchesTo;
+      }),
+    [paidPayments, dateFrom, dateTo]
+  );
+
+  const filteredCommissionsForAi = useMemo(
+    () =>
+      filteredCommissions.filter((item) => {
+        const matchesFrom = !dateFrom || item.date >= dateFrom;
+        const matchesTo = !dateTo || item.date <= dateTo;
+        return matchesFrom && matchesTo;
+      }),
+    [filteredCommissions, dateFrom, dateTo]
+  );
+
+  const financialAiPayload = useMemo(() => {
+    const expenseCategories = Object.values(
+      filteredExpenses.reduce((acc, item) => {
+        const category = String(item.category || "Uncategorized").trim() || "Uncategorized";
+        if (!acc[category]) {
+          acc[category] = { category, total: 0, count: 0 };
+        }
+        acc[category].total += Number(item.amount || 0);
+        acc[category].count += 1;
+        return acc;
+      }, {})
+    )
+      .sort((left, right) => Number(right.total || 0) - Number(left.total || 0))
+      .slice(0, 6);
+
+    const topCommissionWorkers = Object.values(
+      filteredCommissionsForAi.reduce((acc, item) => {
+        const worker = String(item.worker || "Unassigned").trim() || "Unassigned";
+        if (!acc[worker]) {
+          acc[worker] = { worker, total: 0, count: 0 };
+        }
+        acc[worker].total += Number(item.earned || 0);
+        acc[worker].count += 1;
+        return acc;
+      }, {})
+    )
+      .sort((left, right) => Number(right.total || 0) - Number(left.total || 0))
+      .slice(0, 5);
+
+    const revenueInScope = filteredRevenuePayments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const expensesInScope = filteredExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const commissionsInScope = filteredCommissionsForAi.reduce((sum, item) => sum + Number(item.earned || 0), 0);
+
+    return {
+      filters: {
+        dateFrom,
+        dateTo,
+        expenseType: expenseType === "All types" ? "" : expenseType,
+        workerQuery: String(workerQuery || "").trim(),
+      },
+      totals: {
+        revenue: revenueInScope,
+        expenses: expensesInScope,
+        commissions: commissionsInScope,
+        netAfterExpenses: revenueInScope - expensesInScope,
+        netAfterCommissions: revenueInScope - expensesInScope - commissionsInScope,
+        paidTransactions: filteredRevenuePayments.length,
+        expenseEntries: filteredExpenses.length,
+        commissionEntries: filteredCommissionsForAi.length,
+      },
+      expenseCategories,
+      topCommissionWorkers,
+    };
+  }, [dateFrom, dateTo, expenseType, workerQuery, filteredRevenuePayments, filteredExpenses, filteredCommissionsForAi]);
+
   const compareMax = useMemo(() => Math.max(totalRevenue, totalExpenses, 0), [totalRevenue, totalExpenses]);
-  const displayedInterpretationLines = aiInterpretationLines;
+  const displayedInterpretationLines = useMemo(() => {
+    if (!aiInterpretation) return [];
+
+    const lines = [];
+    if (aiInterpretation.summary) {
+      lines.push(`Summary: ${aiInterpretation.summary}`);
+    }
+    (aiInterpretation.keyObservations || []).forEach((item) => lines.push(`Observation: ${item}`));
+    (aiInterpretation.warnings || []).forEach((item) => lines.push(`Watchpoint: ${item}`));
+    (aiInterpretation.recommendations || []).forEach((item) => lines.push(`Recommendation: ${item}`));
+    return lines;
+  }, [aiInterpretation]);
+
+  useEffect(() => {
+    setAiInterpretation(null);
+    setAiState("idle");
+    setAiMessage("");
+  }, [payments, expenses, commissions, dateFrom, dateTo, expenseType, workerQuery]);
+
+  const handleGenerateAiInterpretation = async () => {
+    setAiState("loading");
+    setAiMessage("");
+
+    try {
+      const payload = await generateFinancialInterpretation(financialAiPayload);
+      if (!payload?.available) {
+        setAiInterpretation(null);
+        setAiState("unavailable");
+        setAiMessage(payload?.message || "AI unavailable.");
+        return;
+      }
+
+      setAiInterpretation({
+        summary: payload.summary || "",
+        keyObservations: Array.isArray(payload.keyObservations) ? payload.keyObservations : [],
+        warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+        recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
+        model: payload.model || "",
+      });
+      setAiState("success");
+    } catch (error) {
+      setAiInterpretation(null);
+      setAiState("error");
+      setAiMessage(error.message || "Unable to generate interpretation right now.");
+    }
+  };
 
   const openExpenseModal = () => {
     setExpenseForm(createExpenseForm());
@@ -296,19 +417,32 @@ export default function AdminFinancialTracker() {
             <div className="finInterpretationHead">
               <div className="finCardTitle">Interpretation</div>
               <div className="finInterpretationMeta">
+                {aiState === "success" ? <div className="finInterpretationStatus">AI ready</div> : null}
+                {aiState === "loading" ? <div className="finInterpretationStatus">Generating...</div> : null}
+                {aiState === "unavailable" ? <div className="finInterpretationStatus fallback">AI unavailable</div> : null}
+                {aiState === "error" ? <div className="finInterpretationStatus fallback">Unable to generate</div> : null}
                 <button
                   className="finInterpretationBtn"
                   type="button"
-                  disabled={!isAiFeatureEnabled}
-                  title="AI feature coming soon"
+                  disabled={aiState === "loading"}
+                  onClick={handleGenerateAiInterpretation}
                 >
-                  AI feature coming soon
+                  {aiState === "loading" ? "Generating..." : "Generate AI Interpretation"}
                 </button>
               </div>
             </div>
+            {aiMessage ? <div className="finInterpretationError">{aiMessage}</div> : null}
             <div className="finInterpretationList">
-              {displayedInterpretationLines.length === 0 ? (
-                <div className="finInterpretationEmpty">AI insights are temporarily unavailable while a hosted provider is being prepared.</div>
+              {aiState === "loading" ? (
+                <div className="finInterpretationEmpty">Generating a short financial interpretation from the current tracker data...</div>
+              ) : displayedInterpretationLines.length === 0 ? (
+                <div className="finInterpretationEmpty">
+                  {aiState === "unavailable"
+                    ? "AI interpretation is unavailable right now. You can try again later."
+                    : aiState === "error"
+                      ? "Unable to generate interpretation right now. Please try again."
+                      : "Generate an AI interpretation to review revenue, expenses, commissions, risks, and recommended actions."}
+                </div>
               ) : (
                 displayedInterpretationLines.map((line) => (
                   <div key={line} className="finInterpretationItem">{line}</div>

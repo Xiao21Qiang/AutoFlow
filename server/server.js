@@ -760,6 +760,83 @@ function buildTrackingIssueNoteAiInput(body = {}) {
   return hasContent ? payload : null;
 }
 
+function buildFinancialAiInput(body = {}) {
+  const totalsSource = body && typeof body.totals === "object" ? body.totals : {};
+  const revenue = Math.max(0, Number(totalsSource.revenue || 0));
+  const expenses = Math.max(0, Number(totalsSource.expenses || 0));
+  const commissions = Math.max(0, Number(totalsSource.commissions || 0));
+  const netAfterExpenses = Number(totalsSource.netAfterExpenses ?? revenue - expenses);
+  const netAfterCommissions = Number(totalsSource.netAfterCommissions ?? revenue - expenses - commissions);
+
+  const expenseCategories = Array.isArray(body.expenseCategories)
+    ? body.expenseCategories
+        .map((entry) => {
+          const category = normalizeAiText(entry?.category, 60);
+          const total = Math.max(0, Number(entry?.total || 0));
+          const count = Math.max(0, Number(entry?.count || 0));
+          if (!category) return null;
+          return { category, total, count };
+        })
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
+
+  const topCommissionWorkers = Array.isArray(body.topCommissionWorkers)
+    ? body.topCommissionWorkers
+        .map((entry) => {
+          const worker = normalizeAiText(entry?.worker, 80);
+          const total = Math.max(0, Number(entry?.total || 0));
+          const count = Math.max(0, Number(entry?.count || 0));
+          if (!worker) return null;
+          return { worker, total, count };
+        })
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
+
+  const filters = {
+    dateFrom: normalizeAiText(body?.filters?.dateFrom, 20),
+    dateTo: normalizeAiText(body?.filters?.dateTo, 20),
+    expenseType: normalizeAiText(body?.filters?.expenseType, 40),
+    workerQuery: normalizeAiText(body?.filters?.workerQuery, 80),
+  };
+
+  const payload = {
+    scopeLabel: filters.dateFrom || filters.dateTo
+      ? `${filters.dateFrom || "start"} to ${filters.dateTo || "present"}`
+      : "All available records",
+    filters,
+    totals: {
+      revenue,
+      expenses,
+      commissions,
+      netAfterExpenses: Number.isFinite(netAfterExpenses) ? netAfterExpenses : 0,
+      netAfterCommissions: Number.isFinite(netAfterCommissions) ? netAfterCommissions : 0,
+      paidTransactions: Math.max(0, Number(totalsSource.paidTransactions || 0)),
+      expenseEntries: Math.max(0, Number(totalsSource.expenseEntries || 0)),
+      commissionEntries: Math.max(0, Number(totalsSource.commissionEntries || 0)),
+    },
+    expenseCategories,
+    topCommissionWorkers,
+  };
+
+  const hasContent =
+    payload.totals.revenue > 0 ||
+    payload.totals.expenses > 0 ||
+    payload.totals.commissions > 0 ||
+    payload.totals.paidTransactions > 0 ||
+    payload.totals.expenseEntries > 0 ||
+    payload.totals.commissionEntries > 0 ||
+    expenseCategories.length > 0 ||
+    topCommissionWorkers.length > 0 ||
+    filters.dateFrom ||
+    filters.dateTo ||
+    filters.expenseType ||
+    filters.workerQuery;
+
+  return hasContent ? payload : null;
+}
+
 async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, maxTokens = 420 }) {
   if (!GROQ_API_KEY) {
     return createAiUnavailablePayload(feature);
@@ -879,6 +956,36 @@ function normalizeTrackingIssueNoteAiOutput(payload) {
   };
 }
 
+function normalizeFinancialAiOutput(payload) {
+  const summary = normalizeAiText(payload?.summary, 220);
+  const dedupeAcrossSections = (values, exclusions = []) => {
+    const seen = new Set(
+      exclusions
+        .map((value) => normalizeAiText(value, 180).toLowerCase())
+        .filter(Boolean)
+    );
+
+    return normalizeAiStringList(values, { maxItems: 5, maxLength: 140 }).filter((item) => {
+      const normalized = item.toLowerCase();
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  };
+
+  const keyObservations = dedupeAcrossSections(payload?.keyObservations, [summary]).slice(0, 4);
+  const recommendations = dedupeAcrossSections(payload?.recommendations, [summary, ...keyObservations]).slice(0, 4);
+  const warnings = dedupeAcrossSections(payload?.warnings, [summary, ...keyObservations, ...recommendations]).slice(0, 3);
+
+  return {
+    summary,
+    keyObservations,
+    recommendations,
+    warnings,
+    insights: keyObservations,
+  };
+}
+
 async function handleAnalyticsAiInterpret(req, res, next) {
   try {
     const sanitizedInput = buildAnalyticsAiInput(req.body);
@@ -956,6 +1063,47 @@ async function handleTrackingIssueNoteAi(req, res, next) {
       message: "",
       model: aiPayload.model,
       ...normalizeTrackingIssueNoteAiOutput(aiPayload),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function handleFinancialAiInterpret(req, res, next) {
+  try {
+    const sanitizedInput = buildFinancialAiInput(req.body);
+    if (!sanitizedInput) {
+      res.status(400).json({ message: "Financial data is required." });
+      return;
+    }
+
+    const aiPayload = await requestGroqStructuredJson({
+      feature: "financial-interpretation",
+      systemPrompt: [
+        "You are an executive financial advisor for an auto detailing and car care business.",
+        "Return only JSON with keys: summary, keyObservations, recommendations, warnings.",
+        "Use concise management-focused language for a dashboard.",
+        "Summary must be 1 to 2 sentences on financial position, margin direction, or cost pressure.",
+        "Key observations should focus on revenue, expenses, commission load, expense category mix, and date or filter context when relevant.",
+        "Recommendations must be practical for a car care business, such as pricing discipline, cost control, supplier review, staffing mix, or service mix actions.",
+        "Warnings should call out financial risks or watchpoints only when justified by the numbers.",
+        "Avoid filler, avoid repeating points across sections, and do not mention missing data unless it changes the conclusion.",
+      ].join(" "),
+      userPayload: sanitizedInput,
+      maxTokens: 380,
+    });
+
+    if (!aiPayload.available) {
+      res.json(aiPayload);
+      return;
+    }
+
+    res.json({
+      available: true,
+      feature: aiPayload.feature,
+      message: "",
+      model: aiPayload.model,
+      ...normalizeFinancialAiOutput(aiPayload),
     });
   } catch (error) {
     next(error);
@@ -3142,18 +3290,8 @@ app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (
 app.post("/api/ai/analytics/interpret", requireAdminUser, handleAnalyticsAiInterpret);
 app.post("/api/admin/analytics/interpretation", requireAdminUser, handleAnalyticsAiInterpret);
 
-app.post("/api/admin/financials/interpretation", requireAdminUser, async (req, res, next) => {
-  try {
-    res.json(createAiUnavailablePayload("financial-interpretation"));
-  } catch (error) {
-    if (error.statusCode) {
-      res.status(error.statusCode).json({ message: error.message });
-      return;
-    }
-
-    next(error);
-  }
-});
+app.post("/api/ai/financial/interpret", requireAdminUser, handleFinancialAiInterpret);
+app.post("/api/admin/financials/interpretation", requireAdminUser, handleFinancialAiInterpret);
 
 app.get("/api/tracking/:id/warranty", async (req, res, next) => {
   try {
