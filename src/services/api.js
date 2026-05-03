@@ -16,6 +16,11 @@ function resolveApiBaseUrl() {
 }
 
 const API_BASE_URL = resolveApiBaseUrl();
+const AUTH_RESET_MESSAGES = new Set([
+  "Authentication required.",
+  "Invalid or expired session.",
+  "Session expired. Please log in again.",
+]);
 
 function buildRequestUrl(path) {
   const requestPath = String(path || "").trim();
@@ -91,7 +96,12 @@ export async function apiRequest(path, options = {}) {
     }
   }
   if (!response.ok) {
-    if (response.status === 401 && typeof window !== "undefined" && window.localStorage) {
+    if (
+      response.status === 401 &&
+      AUTH_RESET_MESSAGES.has(String(data.message || "").trim()) &&
+      typeof window !== "undefined" &&
+      window.localStorage
+    ) {
       ["token", "user", "session", "currentUser", "authLoginAt", "authLastActivity"].forEach((key) => {
         localStorage.removeItem(key);
       });
