@@ -10,8 +10,8 @@ import icoFilter from "../../styles/icons/filter.png";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Tools"];
 const STOCK_LEGEND = [
-  { tone: "danger", label: "Low Stock", range: "0% - 25%", note: "Needs restock soon" },
-  { tone: "warning", label: "Monitor", range: "26% - 60%", note: "Watch usage level" },
+  { tone: "danger", label: "Critical", range: "0% - 25%", note: "Needs restock soon" },
+  { tone: "warning", label: "Low", range: "26% - 60%", note: "Watch usage level" },
   { tone: "healthy", label: "Healthy", range: "61% - 100%", note: "Stock level is good" },
 ];
 
@@ -333,7 +333,7 @@ export default function StaffStockMonitoring() {
                 <div className="stInvGuidePanel">
                   <div className="stInvGuideCopy">
                     <div className="stInvGuideEyebrow">Stock Status Guide</div>
-                    <div className="stInvGuideText">Use the indicator color to quickly understand whether an item is low, needs monitoring, or is still healthy.</div>
+                    <div className="stInvGuideText">Use the indicator color to quickly understand whether an item is critical, low, or still healthy.</div>
                   </div>
                   <div className="stInvLegendList">
                     {STOCK_LEGEND.map((item) => (
