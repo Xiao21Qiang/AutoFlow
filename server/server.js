@@ -249,6 +249,15 @@ function createId(prefix) {
   return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
 }
 
+function ensureUserDocumentId(user, prefix = "USR") {
+  if (!user) return "";
+  const currentId = String(user.id || "").trim();
+  if (currentId) return currentId;
+  const nextId = createId(prefix);
+  user.id = nextId;
+  return nextId;
+}
+
 function toTimestamp() {
   return new Date().toLocaleString("en-PH", { hour12: true });
 }
@@ -2562,11 +2571,27 @@ async function migratePlaintextPasswords() {
 
   await Promise.all(
     usersWithPlaintextPasswords.map(async (user) => {
+      ensureUserDocumentId(user);
       if (isPasswordHash(user.password)) return;
       user.password = hashPassword(user.password);
       await user.save();
     })
   );
+}
+
+async function migrateMissingUserIds() {
+  const usersMissingIds = await User.find({
+    $or: [
+      { id: { $exists: false } },
+      { id: null },
+      { id: "" },
+    ],
+  });
+
+  for (const user of usersMissingIds) {
+    ensureUserDocumentId(user);
+    await user.save();
+  }
 }
 
 async function migrateUsersToUserTypes() {
@@ -2579,6 +2604,7 @@ async function migrateUsersToUserTypes() {
   });
 
   for (const user of users) {
+    ensureUserDocumentId(user);
     const normalizedEmail = String(user.email || "").trim().toLowerCase();
     const reservedOverride = RESERVED_USER_OVERRIDES[normalizedEmail];
     const nextUserType = reservedOverride?.userType || toDisplayUserType(user.userType, user.role);
@@ -2609,6 +2635,7 @@ async function migrateCustomerCars() {
     ],
   });
   for (const user of usersWithLegacyCarShape) {
+    ensureUserDocumentId(user);
     const nextCars = normalizeCustomerCars(user.cars);
     user.cars = nextCars;
     await user.save();
@@ -2699,6 +2726,7 @@ async function syncCustomerSubtypeByEmail(email) {
       String(user.userType || "").trim() !== reservedOverride.userType ||
       String(user.role || "").trim() !== reservedOverride.role;
     if (shouldSave) {
+      ensureUserDocumentId(user);
       user.userType = reservedOverride.userType;
       user.role = reservedOverride.role;
       await user.save();
@@ -2711,9 +2739,11 @@ async function syncCustomerSubtypeByEmail(email) {
   const bookingCount = await Booking.countDocuments({ customerEmail: normalizedEmail });
   const nextRole = bookingCount >= 2 ? "Returning" : "New";
   if (String(user.userType || "").trim() !== "Customer") {
+    ensureUserDocumentId(user);
     user.userType = "Customer";
   }
   if (String(user.role || "").trim() !== nextRole) {
+    ensureUserDocumentId(user);
     user.role = nextRole;
     await user.save();
   }
@@ -3402,6 +3432,7 @@ app.post("/api/auth/login", async (req, res, next) => {
     }
 
     if (!isPasswordHash(user.password)) {
+      ensureUserDocumentId(user);
       user.password = hashPassword(password);
       await user.save();
     }
@@ -3681,6 +3712,7 @@ app.post("/api/auth/password-change/reset", async (req, res, next) => {
       return;
     }
 
+    ensureUserDocumentId(user);
     user.password = hashPassword(password);
     await user.save();
     passwordChangeOtpStore.delete(verificationId);
@@ -4477,6 +4509,8 @@ app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), han
 
 app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
   try {
+    if (respondIfDatabaseUnavailable(res)) return;
+
     const adminUser = await verifyAdminAccountPassword(req.authUser?.email, req.body.currentPassword);
     if (!adminUser) {
       res.status(401).json({ message: "Current account password is incorrect." });
@@ -4522,20 +4556,34 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     const nameParts = name.split(/\s+/).filter(Boolean);
     const first = nameParts[0] || name;
     const last = nameParts.slice(1).join(" ");
+    const userId = String(createId("USR") || "").trim();
+    if (!userId) {
+      res.status(500).json({ message: "Could not generate a user ID for the new staff account." });
+      return;
+    }
 
-    const user = await User.create({
-      id: createId("USR"),
-      name,
-      first,
-      last,
-      userType: "Staff",
-      role,
-      email,
-      phone,
-      password: hashPassword(password),
-      status: "active",
-      cars: [],
-    });
+    let user;
+    try {
+      user = await User.create({
+        id: userId,
+        name,
+        first,
+        last,
+        userType: "Staff",
+        role,
+        email,
+        phone,
+        password: hashPassword(password),
+        status: "active",
+        cars: [],
+      });
+    } catch (error) {
+      if (error?.name === "ValidationError") {
+        res.status(400).json({ message: error.message || "Invalid staff account details." });
+        return;
+      }
+      throw error;
+    }
 
     await recordAudit(req.authUser?.email || req.body.auditUser, "Created staff account", user.id, {
       email: user.email,
@@ -5031,6 +5079,7 @@ async function start() {
   await clearSeededServiceConsumables();
   await removeSeededEngagementData();
   await ensureDefaultRewardPool();
+  await migrateMissingUserIds();
   await migrateUsersToUserTypes();
   await migrateCustomerCars();
   await migratePromoChannels();
