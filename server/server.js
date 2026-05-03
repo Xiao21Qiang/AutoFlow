@@ -4475,6 +4475,80 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
 app.post("/api/ai/tracking/issue-note", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
 app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
 
+app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
+  try {
+    const adminUser = await verifyAdminAccountPassword(req.authUser?.email, req.body.currentPassword);
+    if (!adminUser) {
+      res.status(401).json({ message: "Current account password is incorrect." });
+      return;
+    }
+
+    const name = String(req.body.name || "").trim();
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const phone = String(req.body.phone || "").trim();
+    const password = String(req.body.password || "");
+    const role = toDisplaySubtype("Staff", req.body.role || "Mechanic");
+
+    if (!name) {
+      res.status(400).json({ message: "Full name is required." });
+      return;
+    }
+    if (!email || !email.includes("@")) {
+      res.status(400).json({ message: "Valid email is required." });
+      return;
+    }
+    if (!phone) {
+      res.status(400).json({ message: "Contact number is required." });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ message: "Password must be at least 8 characters." });
+      return;
+    }
+
+    const [existingEmail, existingPhone] = await Promise.all([
+      User.findOne({ email }).lean(),
+      User.findOne({ phone }).lean(),
+    ]);
+    if (existingEmail) {
+      res.status(409).json({ message: "That email is already registered." });
+      return;
+    }
+    if (existingPhone) {
+      res.status(409).json({ message: "That contact number is already registered." });
+      return;
+    }
+
+    const nameParts = name.split(/\s+/).filter(Boolean);
+    const first = nameParts[0] || name;
+    const last = nameParts.slice(1).join(" ");
+
+    const user = await User.create({
+      id: createId("USR"),
+      name,
+      first,
+      last,
+      userType: "Staff",
+      role,
+      email,
+      phone,
+      password: hashPassword(password),
+      status: "active",
+      cars: [],
+    });
+
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Created staff account", user.id, {
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    });
+
+    res.status(201).json(sanitizeUser(user));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.put("/api/admin/users/:id", async (req, res, next) => {
   try {
     const existingUser = await User.findOne({ id: req.params.id }).lean();

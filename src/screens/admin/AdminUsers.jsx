@@ -15,6 +15,8 @@ const ROLE_OPTIONS_BY_USER_TYPE = {
   Customer: ["New", "Returning"],
 };
 
+const EMPLOYEE_ROLE_OPTIONS = ROLE_OPTIONS_BY_USER_TYPE.Staff;
+
 function normalizeUserType(user) {
   const normalizedUserType = String(user?.userType || "").trim().toLowerCase();
   if (["admin", "staff", "customer"].includes(normalizedUserType)) {
@@ -39,6 +41,12 @@ function toDisplayRole(userType, role) {
   return normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1);
 }
 
+function getUserManagementRoleLabel(user) {
+  const userType = toDisplayUserType(user);
+  if (userType === "Customer") return "";
+  return toDisplayRole(userType, user.role);
+}
+
 const createEditForm = (user) => {
   const userType = toDisplayUserType(user);
   return {
@@ -52,8 +60,16 @@ const createEditForm = (user) => {
   };
 };
 
+const createEmployeeForm = () => ({
+  name: "",
+  email: "",
+  phone: "",
+  password: "",
+  role: EMPLOYEE_ROLE_OPTIONS[0] || "Mechanic",
+});
+
 export default function AdminUsers() {
-  const { users, currentUser, updateUser, deleteUser } = useAdminData();
+  const { users, currentUser, updateUser, deleteUser, createEmployeeAccount } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -61,6 +77,7 @@ export default function AdminUsers() {
   const [modal, setModal] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
+  const [employeeForm, setEmployeeForm] = useState(() => createEmployeeForm());
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
 
@@ -68,7 +85,7 @@ export default function AdminUsers() {
     const q = String(query || "").trim().toLowerCase();
     return users.filter((user) => {
       const userType = toDisplayUserType(user);
-      const role = toDisplayRole(userType, user.role);
+      const role = getUserManagementRoleLabel(user);
       const matchesQuery =
         !q || `${user.name} ${userType} ${role} ${user.email} ${user.status}`.toLowerCase().includes(q);
       const matchesUserType = !filters.userType || userType === filters.userType;
@@ -87,6 +104,7 @@ export default function AdminUsers() {
   const closeModal = () => {
     setModal(null);
     setSelectedUser(null);
+    setEmployeeForm(createEmployeeForm());
   };
 
   const showToast = (type, message) => {
@@ -100,18 +118,26 @@ export default function AdminUsers() {
         <button className="usersFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img className="usersFilterIcon" src={icoFilter} alt="" /></button>
       </div>
 
+      <div className="usersCreateCard">
+        <div>
+          <div className="usersCreateTitle">Employee Accounts</div>
+          <p className="usersCreateText">Create new staff accounts here for mechanics, inspectors, or coordinators.</p>
+        </div>
+        <button className="usersCreateBtn" type="button" onClick={() => { setEmployeeForm(createEmployeeForm()); setModal("employee"); }}>Add Employee Account</button>
+      </div>
+
       <div className="usersBoard">
         <table className="usersTable">
           <thead><tr><th>Name</th><th>User Type</th><th>Role</th><th>Email</th><th>Phone</th><th>Status</th><th className="thCenter">Actions</th></tr></thead>
           <tbody>
             {paged.length > 0 ? paged.map((user, index) => {
               const userType = toDisplayUserType(user);
-              const role = toDisplayRole(userType, user.role);
+              const role = getUserManagementRoleLabel(user);
               return (
                 <tr key={`${user.email}-${index}`}>
                   <td className="uName">{user.name}</td>
                   <td><span className={`rolePill role-${userType.toLowerCase()}`}>{userType}</span></td>
-                  <td>{role}</td>
+                  <td>{role || "—"}</td>
                   <td>{user.email}</td>
                   <td>{user.phone}</td>
                   <td><span className={user.status === "active" ? "stActive" : "stInactive"}>{user.status}</span></td>
@@ -127,7 +153,7 @@ export default function AdminUsers() {
 
       {modal && (
         <div className="usersModalOverlay" onClick={closeModal}>
-          <div className={`usersModalCard ${modal !== "edit" ? "compact" : ""}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className={`usersModalCard ${modal === "delete" ? "compact" : ""}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
@@ -157,7 +183,7 @@ export default function AdminUsers() {
                   <label className="usersField">
                     <span>Role</span>
                     {isCustomerUser ? (
-                      <input value={editForm.role} readOnly placeholder="Automatic based on booking history" />
+                      <input value="—" readOnly placeholder="Customer account" />
                     ) : (
                       <select value={editForm.role} onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))} required>
                         {currentRoleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -165,11 +191,6 @@ export default function AdminUsers() {
                     )}
                   </label>
                 </div>
-                {isCustomerUser ? (
-                  <div className="usersInfoNote">
-                    <p className="usersConfirmText">Customer role is automatic. It changes from New to Returning after the second booking.</p>
-                  </div>
-                ) : null}
                 <div className="usersFieldGrid usersFieldGridEven">
                   <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} required><option value="active">Active</option><option value="Deactivated">Deactivate</option></select></label>
                   <label className="usersField"><span>Phone</span><input value={editForm.phone} onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))} /></label>
@@ -179,6 +200,49 @@ export default function AdminUsers() {
                   <label className="usersField"><span>New Password</span><input type="password" value={editForm.password} onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="Leave blank to keep current password" /></label>
                 </div>
                 <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save User</button></div>
+              </form>
+            )}
+
+            {modal === "employee" && (
+              <form className="usersEditForm" onSubmit={(e) => {
+                e.preventDefault();
+                setSecurityConfirm({
+                  mode: "currentPassword",
+                  title: "Create Employee Account",
+                  message: "Enter your current admin account password before creating this employee account.",
+                  onConfirm: async ({ secret }) => {
+                    try {
+                      await createEmployeeAccount({
+                        ...employeeForm,
+                        name: employeeForm.name.trim(),
+                        email: employeeForm.email.trim(),
+                        phone: employeeForm.phone.trim(),
+                        password: employeeForm.password,
+                        currentPassword: secret,
+                      });
+                      setSecurityConfirm(null);
+                      showToast("success", "Employee account created.");
+                      closeModal();
+                    } catch (error) {
+                      showToast("error", error.message || "Could not create employee account.");
+                      throw error;
+                    }
+                  },
+                });
+              }}>
+                <div className="usersModalTitle">Add Employee Account</div>
+                <div className="usersFieldGroup">
+                  <label className="usersField"><span>Full Name</span><input value={employeeForm.name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+                  <label className="usersField"><span>Email</span><input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, email: e.target.value }))} required /></label>
+                </div>
+                <div className="usersFieldGrid usersFieldGridEven">
+                  <label className="usersField"><span>Contact Number</span><input value={employeeForm.phone} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, phone: e.target.value }))} required /></label>
+                  <label className="usersField"><span>Role</span><select value={employeeForm.role} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, role: e.target.value }))} required>{EMPLOYEE_ROLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                </div>
+                <div className="usersFieldGroup">
+                  <label className="usersField"><span>Password</span><input type="password" value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="Minimum 8 characters" required /></label>
+                </div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersPrimaryBtn" type="submit">Create Employee</button></div>
               </form>
             )}
 
