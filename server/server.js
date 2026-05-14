@@ -44,6 +44,7 @@ const DEFAULT_SPECIAL_PIN = "2468";
 const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
 const DEFAULT_STAFF_SPECIAL_PIN = "1357";
 const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
+const DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT = 0;
 const SPECIAL_CREDENTIAL_HASH_ROUNDS = 12;
 const ADMIN_SEED_EMAIL = String(process.env.ADMIN_SEED_EMAIL || "").trim().toLowerCase();
 const ADMIN_SEED_PASSWORD = String(process.env.ADMIN_SEED_PASSWORD || "");
@@ -1283,6 +1284,7 @@ async function getOrCreateSecuritySetting() {
       adminSpecialPasswordHash: await hashSpecialCredential(DEFAULT_SPECIAL_PASSWORD),
       staffSpecialPinHash: await hashSpecialCredential(DEFAULT_STAFF_SPECIAL_PIN),
       staffSpecialPasswordHash: await hashSpecialCredential(DEFAULT_STAFF_SPECIAL_PASSWORD),
+      requiredDownPaymentAmount: DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT,
       updatedBy: "system",
     });
   }
@@ -1322,11 +1324,18 @@ async function getOrCreateSecuritySetting() {
       changed = true;
     }
   }
+  if (!Number.isFinite(Number(setting.requiredDownPaymentAmount)) || Number(setting.requiredDownPaymentAmount) < 0) {
+    setting.requiredDownPaymentAmount = DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT;
+    changed = true;
+  }
   if (changed) await setting.save();
 
   await SecuritySetting.collection.updateOne(
     { id: SECURITY_SETTING_ID },
     {
+      $set: {
+        requiredDownPaymentAmount: Math.max(0, Number(setting.requiredDownPaymentAmount) || 0),
+      },
       $unset: {
         specialPinHash: "",
         specialPasswordHash: "",
@@ -2013,6 +2022,118 @@ function parseRewardDiscount(value, amount) {
 
 function roundMoney(value) {
   return Number((Number(value || 0)).toFixed(2));
+}
+
+function calculateRemainingBalance(totalAmount, amountPaid) {
+  return Math.max(0, roundMoney(Number(totalAmount || 0) - Number(amountPaid || 0)));
+}
+
+function isDownPaymentExemptService(service) {
+  const normalizedService = String(service?.name || service || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, " ");
+  return normalizedService.includes("car wash");
+}
+
+function getRequiredDownPaymentAmount(settings, service) {
+  if (isDownPaymentExemptService(service)) return 0;
+  return Math.max(0, roundMoney(settings?.requiredDownPaymentAmount || 0));
+}
+
+function normalizePaymentStageStatus(status, fallback = "Pending") {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "not required") return "Not Required";
+  if (normalized === "pending") return "Pending";
+  if (normalized === "for verification") return "For Verification";
+  if (normalized === "paid") return "Paid";
+  if (normalized === "rejected") return "Rejected";
+  return fallback;
+}
+
+function getPaymentTotalAmount(payment = {}) {
+  const candidates = [payment.totalAmount, payment.finalAmount, payment.amount, payment.originalAmount];
+  for (const value of candidates) {
+    const amount = Number(value);
+    if (Number.isFinite(amount) && amount > 0) return Math.max(0, roundMoney(amount));
+  }
+  return 0;
+}
+
+function normalizePaymentStageFields(payment = {}) {
+  const source = typeof payment.toObject === "function" ? payment.toObject() : { ...payment };
+  const totalAmount = getPaymentTotalAmount(source);
+  const existingAmountPaid = Number(source.amountPaid);
+  const amountPaid = Number.isFinite(existingAmountPaid)
+    ? Math.min(totalAmount, Math.max(0, roundMoney(existingAmountPaid)))
+    : (isPaidStatus(source.status) ? totalAmount : 0);
+  const remainingBalance = calculateRemainingBalance(totalAmount, amountPaid);
+  const downPaymentRequired = typeof source.downPaymentRequired === "boolean"
+    ? source.downPaymentRequired
+    : false;
+  const downPaymentAmount = Math.min(totalAmount, Math.max(0, roundMoney(source.downPaymentAmount || 0)));
+  const fallbackDownPaymentStatus = downPaymentRequired
+    ? normalizePaymentStageStatus(source.status, "Pending")
+    : "Not Required";
+  const downPaymentStatus = downPaymentRequired
+    ? normalizePaymentStageStatus(source.downPaymentStatus, fallbackDownPaymentStatus)
+    : "Not Required";
+  const finalPaymentStatus = normalizePaymentStageStatus(
+    source.finalPaymentStatus,
+    normalizePaymentStageStatus(source.status, "Pending")
+  );
+
+  return {
+    ...source,
+    downPaymentRequired,
+    downPaymentAmount,
+    downPaymentStatus,
+    downPaymentMethod: source.downPaymentMethod || "",
+    downPaymentReference: source.downPaymentReference || "",
+    downPaymentProofUrl: source.downPaymentProofUrl || "",
+    downPaymentProofName: source.downPaymentProofName || "",
+    downPaymentVerifiedAt: source.downPaymentVerifiedAt || null,
+    downPaymentVerifiedBy: source.downPaymentVerifiedBy || "",
+    downPaymentNotes: source.downPaymentNotes || "",
+    totalAmount,
+    amountPaid,
+    remainingBalance,
+    finalPaymentStatus,
+    finalPaymentMethod: source.finalPaymentMethod || source.method || "",
+    finalPaymentReference: source.finalPaymentReference || source.reference || "",
+    finalPaymentProofUrl: source.finalPaymentProofUrl || source.proofImage || "",
+    finalPaymentProofName: source.finalPaymentProofName || source.proofFileName || "",
+    finalPaymentVerifiedAt: source.finalPaymentVerifiedAt || (isPaidStatus(source.status) ? source.reviewedAt || null : null),
+    finalPaymentVerifiedBy: source.finalPaymentVerifiedBy || (isPaidStatus(source.status) ? source.reviewedBy || "" : ""),
+    finalPaymentNotes: source.finalPaymentNotes || source.notes || "",
+  };
+}
+
+function getPaymentStageFields(payment = {}) {
+  const normalized = normalizePaymentStageFields(payment);
+  return {
+    downPaymentRequired: normalized.downPaymentRequired,
+    downPaymentAmount: normalized.downPaymentAmount,
+    downPaymentStatus: normalized.downPaymentStatus,
+    downPaymentMethod: normalized.downPaymentMethod,
+    downPaymentReference: normalized.downPaymentReference,
+    downPaymentProofUrl: normalized.downPaymentProofUrl,
+    downPaymentProofName: normalized.downPaymentProofName,
+    downPaymentVerifiedAt: normalized.downPaymentVerifiedAt,
+    downPaymentVerifiedBy: normalized.downPaymentVerifiedBy,
+    downPaymentNotes: normalized.downPaymentNotes,
+    totalAmount: normalized.totalAmount,
+    amountPaid: normalized.amountPaid,
+    remainingBalance: normalized.remainingBalance,
+    finalPaymentStatus: normalized.finalPaymentStatus,
+    finalPaymentMethod: normalized.finalPaymentMethod,
+    finalPaymentReference: normalized.finalPaymentReference,
+    finalPaymentProofUrl: normalized.finalPaymentProofUrl,
+    finalPaymentProofName: normalized.finalPaymentProofName,
+    finalPaymentVerifiedAt: normalized.finalPaymentVerifiedAt,
+    finalPaymentVerifiedBy: normalized.finalPaymentVerifiedBy,
+    finalPaymentNotes: normalized.finalPaymentNotes,
+  };
 }
 
 function buildInvoiceSnapshot(finalAmount, rewardDiscountAmount = 0) {
@@ -2861,7 +2982,8 @@ async function loadBootstrapData() {
   const inProgressCount = bookings.filter((booking) => String(booking.status || "").toLowerCase().includes("progress")).length;
   const completedCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "completed").length;
   const cancelledCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "cancelled").length;
-  const paidRevenue = payments.filter((payment) => String(payment.status || "").toLowerCase() === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const normalizedPayments = payments.map((payment) => normalizePaymentStageFields(payment));
+  const paidRevenue = normalizedPayments.filter((payment) => String(payment.status || "").toLowerCase() === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
 
   const alerts = [];
   if (lowStockCount > 0) {
@@ -2878,7 +3000,7 @@ async function loadBootstrapData() {
     bookings,
     services: services.map((service) => hydrateService(service)),
     stockMonitoring,
-    payments,
+    payments: normalizedPayments,
     users: users.map((user) => sanitizeUser(user)),
     auditLogs,
     archivedAuditLogs,
@@ -3795,12 +3917,32 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       ...req.body,
       customer: bookingCustomerName,
       customerEmail: bookingCustomerEmail,
+      customerId: isCustomerRequested ? req.authUser?.id || "" : String(req.body.customerId || ""),
+      bookingSource: req.body.bookingSource || (isCustomerRequested ? "customer" : actorType),
+      customerRequested: isCustomerRequested,
+      createdByUserType: toDisplayUserType(actorType),
       time: bookingTime || "Pending Assignment",
       status: bookingTime ? (req.body.status || "Scheduled") : (req.body.status || "Pending Confirmation"),
       placeSlot: bookingTime ? Number(req.body.placeSlot || 0) : 0,
       ...pricing,
       ...rewardPricing,
       consumablesApplied: Boolean(req.body.consumablesApplied) || isCompletedStatus(req.body.status),
+    });
+
+    const securitySetting = await getOrCreateSecuritySetting();
+    const paymentTotalAmount = Math.max(0, Number(booking.finalAmount || booking.amount || 0));
+    const downPaymentAmount = getRequiredDownPaymentAmount(securitySetting, booking.service);
+    const downPaymentRequired = downPaymentAmount > 0 && paymentTotalAmount > 0;
+    const paymentStageDefaults = getPaymentStageFields({
+      service: booking.service,
+      amount: Number(booking.amount || 0),
+      finalAmount: paymentTotalAmount,
+      totalAmount: paymentTotalAmount,
+      status: "Pending",
+      downPaymentRequired,
+      downPaymentAmount,
+      downPaymentStatus: downPaymentRequired ? "Pending" : "Not Required",
+      finalPaymentStatus: "Pending",
     });
 
     await Payment.create({
@@ -3828,6 +3970,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       finalAmount: Number(booking.finalAmount || booking.amount || 0),
       status: "Pending",
       method: "",
+      ...paymentStageDefaults,
     });
 
     if (booking.promoId) {
@@ -4038,29 +4181,47 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       await incrementPromoUsage(booking.promoId);
     }
 
+    const paymentPricingPayload = {
+      date: booking.date,
+      customer: booking.customer,
+      customerEmail: booking.customerEmail || "",
+      service: booking.service,
+      amount: Number(booking.amount || 0),
+      originalAmount: Number(booking.originalAmount || 0),
+      promoId: booking.promoId || "",
+      promoTitle: booking.promoTitle || "",
+      promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
+      promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
+      rewardId: booking.rewardId || "",
+      rewardName: booking.rewardName || "",
+      rewardType: booking.rewardType || "",
+      rewardValue: booking.rewardValue || "",
+      rewardClaimCode: booking.rewardClaimCode || "",
+      rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
+      discountAmount: Number(booking.discountAmount || booking.rewardDiscountAmount || 0),
+      subtotalAfterDiscount: Number(booking.subtotalAfterDiscount || 0),
+      taxAmount: Number(booking.taxAmount || 0),
+      finalAmount: Number(booking.finalAmount || booking.amount || 0),
+    };
+    const fallbackDownPaymentAmount = getRequiredDownPaymentAmount(await getOrCreateSecuritySetting(), booking.service);
+    const hasExistingDownPaymentRequired = Object.prototype.hasOwnProperty.call(linkedPaymentForReward || {}, "downPaymentRequired");
+    const hasExistingDownPaymentAmount = Object.prototype.hasOwnProperty.call(linkedPaymentForReward || {}, "downPaymentAmount");
+
     await Payment.findOneAndUpdate(
       { bookingId: booking.id },
       {
-        date: booking.date,
-        customer: booking.customer,
-        customerEmail: booking.customerEmail || "",
-        service: booking.service,
-        amount: Number(booking.amount || 0),
-        originalAmount: Number(booking.originalAmount || 0),
-        promoId: booking.promoId || "",
-        promoTitle: booking.promoTitle || "",
-        promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
-        promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
-        rewardId: booking.rewardId || "",
-        rewardName: booking.rewardName || "",
-        rewardType: booking.rewardType || "",
-        rewardValue: booking.rewardValue || "",
-        rewardClaimCode: booking.rewardClaimCode || "",
-        rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
-        discountAmount: Number(booking.discountAmount || booking.rewardDiscountAmount || 0),
-        subtotalAfterDiscount: Number(booking.subtotalAfterDiscount || 0),
-        taxAmount: Number(booking.taxAmount || 0),
-        finalAmount: Number(booking.finalAmount || booking.amount || 0),
+        ...paymentPricingPayload,
+        ...getPaymentStageFields({
+          ...linkedPaymentForReward,
+          ...paymentPricingPayload,
+          totalAmount: Number(paymentPricingPayload.finalAmount || paymentPricingPayload.amount || 0),
+          downPaymentRequired: hasExistingDownPaymentRequired
+            ? linkedPaymentForReward.downPaymentRequired
+            : fallbackDownPaymentAmount > 0 && Number(paymentPricingPayload.finalAmount || paymentPricingPayload.amount || 0) > 0,
+          downPaymentAmount: hasExistingDownPaymentAmount
+            ? linkedPaymentForReward.downPaymentAmount
+            : fallbackDownPaymentAmount,
+        }),
       }
     );
 
@@ -4361,11 +4522,12 @@ app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), as
 
 app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
-    const existingPayment = await Payment.findOne({ id: req.params.id }).lean();
-    if (!existingPayment) {
+    const foundPayment = await Payment.findOne({ id: req.params.id }).lean();
+    if (!foundPayment) {
       res.status(404).json({ message: "Payment not found" });
       return;
     }
+    const existingPayment = normalizePaymentStageFields(foundPayment);
 
     if (
       isPaidStatus(existingPayment.status) &&
@@ -4456,15 +4618,33 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
         };
+    const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
+    const nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
+      ? Number(req.body.amountPaid || 0)
+      : (isPaidStatus(nextPayload.status || existingPayment.status) ? nextTotalAmount : existingPayment.amountPaid);
+    const stagedNextPayload = {
+      ...nextPayload,
+      ...getPaymentStageFields({
+        ...existingPayment,
+        ...nextPayload,
+        totalAmount: nextTotalAmount,
+        amountPaid: nextAmountPaid,
+        finalPaymentStatus: nextPayload.finalPaymentStatus || nextPayload.status || existingPayment.finalPaymentStatus,
+        finalPaymentMethod: nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod,
+        finalPaymentReference: nextPayload.finalPaymentReference || nextPayload.reference || existingPayment.finalPaymentReference,
+        finalPaymentProofUrl: nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl,
+        finalPaymentProofName: nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName,
+      }),
+    };
 
     const payment = await Payment.findOneAndUpdate(
       { id: req.params.id },
-      nextPayload,
+      stagedNextPayload,
       { new: true }
     );
     await recordAudit(
       req.authUser?.email || req.body.auditUser,
-      getPaymentAuditAction(existingPayment, nextPayload),
+      getPaymentAuditAction(existingPayment, stagedNextPayload),
       req.params.id,
       {
         status: payment?.status || req.body.status || "",
@@ -4508,7 +4688,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         return;
       }
     }
-    res.json(payment);
+    res.json(normalizePaymentStageFields(payment));
   } catch (error) {
     next(error);
   }
