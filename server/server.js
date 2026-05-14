@@ -428,11 +428,26 @@ function isPastDateKey(value) {
 }
 
 const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
+const SHOP_OPEN_MINUTES = 8 * 60;
+const SHOP_CLOSE_MINUTES = 17 * 60;
 
 function timeToMinutes(value) {
-  const [hours, minutes] = String(value || "").split(":").map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
+}
+
+function isValidScheduleTime(value) {
+  return /^\d{2}:\d{2}$/.test(String(value || "").trim()) && timeToMinutes(value) !== null;
+}
+
+function throwValidationError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  throw error;
 }
 
 function isScheduleBlockingStatus(status) {
@@ -2036,6 +2051,18 @@ function isDownPaymentExemptService(service) {
   return normalizedService === "car wash";
 }
 
+function isWarrantyExemptService(service) {
+  const normalizedService = String(service?.name || service || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return new Set([
+    "car wash",
+    "maintenance + hydrophobic sealant",
+    "maintenance + light buffing",
+  ]).has(normalizedService);
+}
+
 function getRequiredDownPaymentAmount(settings, service) {
   if (isDownPaymentExemptService(service)) return 0;
   return Math.max(0, roundMoney(settings?.requiredDownPaymentAmount || 0));
@@ -2146,6 +2173,205 @@ function getPaymentStageFields(payment = {}) {
     finalPaymentVerifiedBy: normalized.finalPaymentVerifiedBy,
     finalPaymentNotes: normalized.finalPaymentNotes,
   };
+}
+
+function isPaymentFullyPaid(payment = {}) {
+  return isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status);
+}
+
+async function getLinkedPaymentForBooking(booking = {}) {
+  const bookingId = String(booking?.id || "").trim();
+  const mongoId = String(booking?._id || "").trim();
+  const candidates = [...new Set([bookingId, mongoId].filter(Boolean))];
+  if (!candidates.length) return null;
+
+  const payment = await Payment.findOne({
+    $or: [
+      { bookingId: { $in: candidates } },
+      { reference: { $in: candidates } },
+    ],
+  }).lean();
+  return payment ? normalizePaymentStageFields(payment) : null;
+}
+
+function hasPaidDownPaymentForBooking(booking = {}, payment = null) {
+  if (isDownPaymentExemptService(booking.service)) return true;
+  return Boolean(
+    payment &&
+    payment.downPaymentRequired === true &&
+    normalizePaymentStageStatus(payment.downPaymentStatus, "") === "Paid"
+  );
+}
+
+function hasAssignedStaff(booking = {}) {
+  return Boolean(String(booking.assigned || "").trim());
+}
+
+function hasMeaningfulIssueNotes(booking = {}) {
+  const note = String(booking.issueNote || "").trim();
+  const issueTypes = Array.isArray(booking.issueTypes) ? booking.issueTypes : [];
+  const issueMarkers = Array.isArray(booking.issueMarkers) ? booking.issueMarkers : [];
+  return Boolean(
+    note ||
+    issueTypes.some((issueType) => String(issueType || "").trim()) ||
+    issueMarkers.some((marker) => String(marker?.issueType || "").trim())
+  );
+}
+
+const WARRANTY_FIELDS = [
+  "warrantyChecklist",
+  "warrantyChecklistItems",
+  "warrantyCoveragePackage",
+  "warrantyAcknowledgement",
+  "warrantyReleased",
+  "warrantyReleasedAt",
+  "warrantyQrCode",
+];
+
+function stableStringify(value) {
+  if (value === undefined || value === null) return "";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value !== "object") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return String(value);
+  }
+}
+
+function hasWarrantyFieldChanges(previousBooking = {}, nextBody = {}) {
+  if (!WARRANTY_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(nextBody, field))) {
+    return false;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(nextBody, "warrantyReleased") &&
+    Boolean(nextBody.warrantyReleased) !== Boolean(previousBooking.warrantyReleased)
+  ) {
+    return true;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(nextBody, "warrantyChecklist") &&
+    String(nextBody.warrantyChecklist || "").trim() !== String(previousBooking.warrantyChecklist || "").trim()
+  ) {
+    return Boolean(String(nextBody.warrantyChecklist || previousBooking.warrantyChecklist || "").trim());
+  }
+
+  if (Object.prototype.hasOwnProperty.call(nextBody, "warrantyChecklistItems")) {
+    const previousMeaningfulItems = (Array.isArray(previousBooking.warrantyChecklistItems) ? previousBooking.warrantyChecklistItems : [])
+      .map((item) => ({ id: item?.id || "", done: Boolean(item?.done), doneBy: String(item?.doneBy || ""), notes: String(item?.notes || "") }))
+      .filter((item) => item.done || item.doneBy || item.notes);
+    const nextMeaningfulItems = (Array.isArray(nextBody.warrantyChecklistItems) ? nextBody.warrantyChecklistItems : [])
+      .map((item) => ({ id: item?.id || "", done: Boolean(item?.done), doneBy: String(item?.doneBy || ""), notes: String(item?.notes || "") }))
+      .filter((item) => item.done || item.doneBy || item.notes);
+    if (stableStringify(previousMeaningfulItems) !== stableStringify(nextMeaningfulItems)) return true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(nextBody, "warrantyAcknowledgement")) {
+    const previousAck = previousBooking.warrantyAcknowledgement || {};
+    const nextAck = nextBody.warrantyAcknowledgement || {};
+    for (const field of ["dateLocation", "clientSignature"]) {
+      if (String(nextAck[field] || "").trim() !== String(previousAck[field] || "").trim()) {
+        return Boolean(String(nextAck[field] || previousAck[field] || "").trim());
+      }
+    }
+  }
+
+  return false;
+}
+
+function hasRequiredWarrantyDetails(booking = {}) {
+  if (isWarrantyExemptService(booking.service)) return true;
+
+  const checklistItems = Array.isArray(booking.warrantyChecklistItems) ? booking.warrantyChecklistItems : [];
+  const acknowledgement = booking.warrantyAcknowledgement || {};
+
+  // Completion requires the editable warranty essentials only: a selected package,
+  // at least one checklist item marked done, and date/location acknowledgement.
+  return Boolean(
+    String(booking.warrantyCoveragePackage || "").trim() &&
+    checklistItems.some((item) => Boolean(item?.done)) &&
+    String(acknowledgement.dateLocation || "").trim()
+  );
+}
+
+async function validateShopHours({ time = "", service = "" }) {
+  const startMinutes = timeToMinutes(time);
+  if (startMinutes === null || startMinutes < SHOP_OPEN_MINUTES || startMinutes > SHOP_CLOSE_MINUTES) {
+    throwValidationError("Booking time must be within shop hours of 08:00 to 17:00.");
+  }
+
+  const selectedService = await Service.findOne({ name: String(service || "").trim() }).lean();
+  const serviceMinutes = Number(selectedService?.mins || 0);
+  if (Number.isFinite(serviceMinutes) && serviceMinutes > 0 && startMinutes + serviceMinutes > SHOP_CLOSE_MINUTES) {
+    throwValidationError("Booking time must allow the service to finish before shop closing at 17:00.");
+  }
+}
+
+async function validateScheduledRequirements({ booking, payment, bookingId = "" }) {
+  if (!hasAssignedStaff(booking)) {
+    throwValidationError("Assigned staff is required before updating this booking status.");
+  }
+
+  if (!hasPaidDownPaymentForBooking(booking, payment)) {
+    if (!payment) {
+      throwValidationError("A linked payment record is required before scheduling this booking.");
+    }
+    throwValidationError("Down payment must be verified as paid before scheduling this booking.");
+  }
+
+  const date = String(booking.date || "").trim();
+  const time = String(booking.time || "").trim();
+  const placeSlot = Number(booking.placeSlot || 0);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidScheduleTime(time) || !PLACE_SLOT_OPTIONS.includes(placeSlot)) {
+    throwValidationError("A valid time and place slot are required before scheduling.");
+  }
+
+  await validateShopHours({ time, service: booking.service });
+  await validateBookingSlotAvailability({
+    bookingId,
+    date,
+    time,
+    service: booking.service,
+    placeSlot,
+  });
+}
+
+async function validateBookingLifecycleTransition({ previousBooking, nextBooking, payment, nextStatus, scheduleChanged = false }) {
+  const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
+  const statusChanged = previousStatus !== nextStatus;
+  const needsScheduleGate =
+    (statusChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus)) ||
+    (scheduleChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus));
+
+  if (needsScheduleGate) {
+    await validateScheduledRequirements({
+      booking: nextBooking,
+      payment,
+      bookingId: previousBooking.id,
+    });
+  }
+
+  if (statusChanged && nextStatus === "In Progress" && !hasMeaningfulIssueNotes(nextBooking)) {
+    throwValidationError("Issue notes must be saved before starting the service.");
+  }
+
+  if (statusChanged && nextStatus === "Completed") {
+    if (!payment) {
+      throwValidationError("A linked payment record is required before completing this booking.");
+    }
+    if (!isPaymentFullyPaid(payment)) {
+      throwValidationError("Full payment must be marked as paid before completing this booking.");
+    }
+    if (!hasMeaningfulIssueNotes(nextBooking)) {
+      throwValidationError("Issue notes must be saved before completing this booking.");
+    }
+    if (!hasRequiredWarrantyDetails(nextBooking)) {
+      throwValidationError("Warranty details must be completed before marking this booking as completed.");
+    }
+  }
 }
 
 function buildInvoiceSnapshot(finalAmount, rewardDiscountAmount = 0) {
@@ -4034,6 +4260,14 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       res.status(404).json({ message: "Booking not found" });
       return;
     }
+    const existingBookingObject = typeof existingBooking.toObject === "function"
+      ? existingBooking.toObject()
+      : { ...existingBooking };
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    if (actorType === "customer") {
+      res.status(403).json({ message: "Customers cannot update booking workflow fields." });
+      return;
+    }
 
     const requestedService = String(req.body.service || "").trim();
     if (requestedService && requestedService !== String(existingBooking.service || "").trim()) {
@@ -4049,7 +4283,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const currentStatusRaw = String(existingBooking.status || "").trim().toLowerCase();
     const nextTime = String(req.body.time ?? existingBooking.time ?? "").trim();
     const nextPlaceSlot = Number(req.body.placeSlot ?? existingBooking.placeSlot ?? 0);
-    const hasValidScheduleTime = /^\d{1,2}:\d{2}$/.test(nextTime);
+    const hasValidScheduleTime = isValidScheduleTime(nextTime);
     const shouldAutoSchedulePending =
       (currentStatusRaw === "pending" || currentStatusRaw === "pending confirmation") &&
       hasValidScheduleTime &&
@@ -4060,7 +4294,6 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       ? "Scheduled"
       : normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
     const previousStatus = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
-    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     const isSensitiveStatusChange =
       (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
       (nextStatus === "Rescheduled" && previousStatus !== "Rescheduled");
@@ -4102,6 +4335,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         service: req.body.service || existingBooking.service,
         placeSlot: req.body.placeSlot || existingBooking.placeSlot,
       });
+      await validateShopHours({ time: nextTime, service: req.body.service || existingBooking.service });
     }
 
     const nextPromoId = String(req.body.promoId || "").trim();
@@ -4131,7 +4365,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       baseAmount,
       promoResolution?.hydratedPromo || null
     );
-    const linkedPaymentForReward = await Payment.findOne({ bookingId: existingBooking.id }).lean();
+    const linkedPaymentForReward = await getLinkedPaymentForBooking(existingBookingObject);
     const requestedRewardId = String(req.body.rewardId ?? existingBooking.rewardId ?? "").trim();
     const rewardChanged = Object.prototype.hasOwnProperty.call(req.body, "rewardId") && requestedRewardId !== String(existingBooking.rewardId || "").trim();
     const rewardPricing = requestedRewardId && !rewardChanged
@@ -4192,6 +4426,24 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       });
     }
 
+    const nextBookingForValidation = {
+      ...existingBookingObject,
+      ...updatePayload,
+    };
+    if (hasWarrantyFieldChanges(existingBookingObject, req.body)) {
+      if (!linkedPaymentForReward || !isPaymentFullyPaid(linkedPaymentForReward)) {
+        res.status(400).json({ message: "Full payment must be marked as paid before editing warranty details." });
+        return;
+      }
+    }
+    await validateBookingLifecycleTransition({
+      previousBooking: existingBookingObject,
+      nextBooking: nextBookingForValidation,
+      payment: linkedPaymentForReward,
+      nextStatus,
+      scheduleChanged,
+    });
+
     const booking = await Booking.findOneAndUpdate({ id: req.params.id }, updatePayload, { new: true });
 
     if (previousPromoId && previousPromoId !== booking.promoId) {
@@ -4232,7 +4484,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       {
         ...paymentPricingPayload,
         ...getPaymentStageFields({
-          ...linkedPaymentForReward,
+          ...(linkedPaymentForReward || {}),
           ...paymentPricingPayload,
           totalAmount: Number(paymentPricingPayload.finalAmount || paymentPricingPayload.amount || 0),
           downPaymentRequired: hasExistingDownPaymentRequired
