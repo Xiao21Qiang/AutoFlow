@@ -8,6 +8,12 @@ import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import carDiagram from "../../assets/IMAGE/car.jpg";
 import { WARRANTY_COVERAGE_NOTES, WARRANTY_COVERAGE_OPTIONS, WARRANTY_ISSUE_TYPES, createWarrantyAcknowledgement, normalizeWarrantyChecklist } from "../../utils/warrantyChecklist";
+import {
+  buildIssueNotePayload,
+  canEditIssueNotes,
+  getIssueNotesLockedMessage,
+  hasMeaningfulIssueNotes,
+} from "../../utils/trackingIssueNotes";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -64,7 +70,7 @@ function getMarkerTone(index) {
   return tones[index % tones.length];
 }
 
-function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker }) {
+function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker, disabled = false }) {
   return (
     <div className="bookIssueMapShell">
       <div className="bookIssueMap bookIssueMapImg" style={{ backgroundImage: `url(${carDiagram})` }}>
@@ -77,7 +83,11 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
               className="bookIssueMarker"
               type="button"
               style={{ left: `${marker.x}%`, top: `${marker.y}%`, background: tone.fill, boxShadow: `0 4px 12px ${tone.shadow}` }}
-              onPointerDown={(event) => onMarkerPointerDown(event, marker.id)}
+              disabled={disabled}
+              onPointerDown={(event) => {
+                if (disabled) return;
+                onMarkerPointerDown(event, marker.id);
+              }}
               title={marker.issueType ? `Marker ${marker.id}: ${marker.issueType}` : `Marker ${marker.id}`}
             >
               {marker.id}
@@ -88,8 +98,8 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker })
       <div className="bookIssueLegend">
         <div className="bookIssueHint">Drag markers onto the car diagram to pinpoint separate issue spots.</div>
         <div className="bookIssueActions">
-          <button className="bookIssueActionBtn" type="button" onClick={onAddMarker}>Add Marker</button>
-          {markers.length > 1 && <button className="bookIssueActionBtn ghost" type="button" onClick={onRemoveMarker}>Remove Last</button>}
+          <button className="bookIssueActionBtn" type="button" onClick={onAddMarker} disabled={disabled}>Add Marker</button>
+          {markers.length > 1 && <button className="bookIssueActionBtn ghost" type="button" onClick={onRemoveMarker} disabled={disabled}>Remove Last</button>}
         </div>
       </div>
     </div>
@@ -108,6 +118,7 @@ export default function AdminTracking() {
   const [activeMarkerId, setActiveMarkerId] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [issueNoteMessage, setIssueNoteMessage] = useState("");
   const [issueNoteAi, setIssueNoteAi] = useState({
     status: "idle",
     message: "",
@@ -118,6 +129,9 @@ export default function AdminTracking() {
   });
   const mapRef = useRef(null);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
+  const issueNotesEditable = canEditIssueNotes({ booking: selectedRow, currentUser, allowAdmin: true });
+  const issueNotesLockedMessage = getIssueNotesLockedMessage({ booking: selectedRow, currentUser, allowAdmin: true });
+  const savedIssueNotesPresent = hasMeaningfulIssueNotes(selectedRow || {});
 
   useEffect(() => {
     if (!activeMarkerId) return undefined;
@@ -253,13 +267,89 @@ export default function AdminTracking() {
   };
 
   const handleInsertIssueNote = () => {
-    if (!issueNoteAi.suggestion) return;
+    if (!issueNoteAi.suggestion || !issueNotesEditable) return;
     setEditForm((prev) => ({
       ...prev,
       issueNote: prev.issueNote.trim()
         ? `${prev.issueNote.trim()}\n${issueNoteAi.suggestion}`
         : issueNoteAi.suggestion,
     }));
+  };
+
+  const handleSaveIssueNotes = async () => {
+    setIssueNoteMessage("");
+    if (!issueNotesEditable) {
+      setIssueNoteMessage(issueNotesLockedMessage || "Issue notes cannot be edited for this booking.");
+      return;
+    }
+    if (!hasMeaningfulIssueNotes(editForm)) {
+      setIssueNoteMessage("Add issue notes or problem location details before saving.");
+      return;
+    }
+
+    const payload = buildIssueNotePayload(editForm, selectedRow.status);
+    try {
+      const updated = await updateBooking(selectedRow.id, payload);
+      const nextRow = { ...selectedRow, ...(updated || {}), ...payload };
+      setSelectedRow(nextRow);
+      setEditForm((prev) => ({ ...prev, ...createEditForm(nextRow), status: prev.status }));
+      setIssueNoteMessage("Issue notes saved and ready to start service.");
+      showToast("success", "Issue notes saved.");
+    } catch (error) {
+      const message = error.message || "Failed to save issue notes.";
+      setIssueNoteMessage(message);
+      showToast("error", message);
+    }
+  };
+
+  const handleSaveTracking = (event) => {
+    event.preventDefault();
+    setIssueNoteMessage("");
+
+    if (editForm.status === "In Progress" && !savedIssueNotesPresent) {
+      setIssueNoteMessage("Issue notes must be saved before starting the service.");
+      return;
+    }
+
+    const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased;
+    const payload = {
+      ...selectedRow,
+      status: editForm.status,
+      issueNote: selectedRow.issueNote || "",
+      issueMarkers: Array.isArray(selectedRow.issueMarkers) ? selectedRow.issueMarkers : [],
+      issueTypes: Array.isArray(selectedRow.issueTypes) ? selectedRow.issueTypes : [],
+      warrantyChecklist: editForm.warrantyChecklist,
+      warrantyChecklistItems: editForm.warrantyChecklistItems,
+      warrantyCoveragePackage: editForm.warrantyCoveragePackage,
+      warrantyAcknowledgement: editForm.warrantyAcknowledgement,
+      warrantyReleased: releaseAllowed,
+      warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "",
+      warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "",
+    };
+    const saveTracking = async (securityPayload = {}, keepModalError = false) => {
+      try {
+        await updateBooking(selectedRow.id, { ...payload, ...securityPayload });
+        showToast("success", "Service tracking updated.");
+        setSecurityConfirm(null);
+        setModal(null);
+      } catch (error) {
+        showToast("error", error.message || "Failed to update service tracking.");
+        if (keepModalError) throw error;
+      }
+    };
+    const needsPin = editForm.status === "Cancelled" || (releaseAllowed && !selectedRow.warrantyReleased);
+    if (needsPin) {
+      setSecurityConfirm({
+        mode: "pin",
+        title: editForm.status === "Cancelled" ? "Cancel Tracking Record" : "Release Warranty",
+        message: editForm.status === "Cancelled" ? "Enter the admin special PIN before cancelling this tracking record." : "Enter the admin special PIN before releasing the warranty document.",
+        onConfirm: async ({ secret }) => {
+          await saveTracking({ specialPin: secret }, true);
+        },
+      });
+      return;
+    }
+    saveTracking();
   };
 
   return (
@@ -276,7 +366,7 @@ export default function AdminTracking() {
           {paged.length === 0 ? <div className="stEmptyRow">No tracking records found.</div> : paged.map((r) => (
             <div className="stRow" key={r.id}>
               <div className="stId">{r.id}</div><div>{r.date}</div><div>{r.customer}</div><div>{r.vehicle}</div><div>{r.service}</div><div><span className={`stPill ${statusClass(r.status)}`}>{r.status}</span></div><div>{r.assigned}</div>
-              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setModal("edit"); }}>Edit</button></div></div>
+              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setIssueNoteMessage(""); setModal("edit"); }}>Edit</button></div></div>
             </div>
           ))}
         </div>
@@ -287,7 +377,7 @@ export default function AdminTracking() {
       {modal === "edit" && selectedRow && (
         <div className="usersModalOverlay" onClick={() => setModal(null)}>
           <div className="usersModalCard" onClick={(e) => e.stopPropagation()}>
-            <form className="trackEditForm" onSubmit={(e) => { e.preventDefault(); const releaseAllowed = editForm.status === "Completed" && editForm.warrantyReleased; const payload = { ...selectedRow, status: editForm.status, issueNote: editForm.issueNote, issueMarkers: editForm.issueMarkers, issueTypes: editForm.issueMarkers.map((marker) => marker.issueType).filter(Boolean), warrantyChecklist: editForm.warrantyChecklist, warrantyChecklistItems: editForm.warrantyChecklistItems, warrantyCoveragePackage: editForm.warrantyCoveragePackage, warrantyAcknowledgement: editForm.warrantyAcknowledgement, warrantyReleased: releaseAllowed, warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "", warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "" }; const saveTracking = async (securityPayload = {}, keepModalError = false) => { try { await updateBooking(selectedRow.id, { ...payload, ...securityPayload }); showToast("success", "Service tracking updated."); setSecurityConfirm(null); setModal(null); } catch (error) { showToast("error", error.message || "Failed to update service tracking."); if (keepModalError) throw error; } }; const needsPin = editForm.status === "Cancelled" || (releaseAllowed && !selectedRow.warrantyReleased); if (needsPin) { setSecurityConfirm({ mode: "pin", title: editForm.status === "Cancelled" ? "Cancel Tracking Record" : "Release Warranty", message: editForm.status === "Cancelled" ? "Enter the admin special PIN before cancelling this tracking record." : "Enter the admin special PIN before releasing the warranty document.", onConfirm: async ({ secret }) => { await saveTracking({ specialPin: secret }, true); } }); return; } saveTracking(); }}>
+            <form className="trackEditForm" onSubmit={handleSaveTracking}>
               <div className="trackModalHead"><div className="usersModalTitle">Edit Tracking Row</div><button className="usersModalClose" type="button" onClick={() => setModal(null)}>x</button></div>
               <div className="trackModalBody">
               <label className="usersField"><span>Customer</span><input value={editForm.customer} readOnly disabled /></label>
@@ -295,7 +385,7 @@ export default function AdminTracking() {
               <label className="usersField"><span>Service</span><input value={editForm.service} readOnly disabled /></label>
               <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} readOnly disabled /></label>
               <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} readOnly disabled /></label>
-              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={option === "In Progress" && !savedIssueNotesPresent}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}</label>
               <div className="bookIssueSection">
                 <div className="bookIssueSectionHead"><div className="bookIssueTitle">Problem Location</div><div className="bookIssueSub">Issue details are managed in Service Tracking.</div></div>
                 <div className="bookIssueLayout">
@@ -305,9 +395,15 @@ export default function AdminTracking() {
                       onMarkerPointerDown={(event, markerId) => { event.preventDefault(); setActiveMarkerId(markerId); }}
                       onAddMarker={() => setEditForm((prev) => ({ ...prev, issueMarkers: [...prev.issueMarkers, { id: prev.issueMarkers.reduce((highest, marker) => Math.max(highest, marker.id), 0) + 1, x: 50, y: 50, issueType: "" }] }))}
                       onRemoveMarker={() => setEditForm((prev) => ({ ...prev, issueMarkers: prev.issueMarkers.length > 1 ? prev.issueMarkers.slice(0, -1) : prev.issueMarkers }))}
+                      disabled={!issueNotesEditable}
                     />
                   </div>
                   <div className="bookIssueRightPanel">
+                    <div className={issueNotesEditable ? "trackIssueHelper success" : "trackIssueHelper"}>
+                      {issueNotesEditable
+                        ? "Issue notes can be edited while this booking is Scheduled."
+                        : issueNotesLockedMessage}
+                    </div>
                     <div className="bookField">
                       <span>Marker Issue Type</span>
                       <div className="bookIssueMarkerFields">
@@ -316,7 +412,7 @@ export default function AdminTracking() {
                           return (
                             <label key={marker.id} className="bookIssueMarkerField">
                               <div className="bookIssueMarkerFieldLabel"><span className="bookIssueMarkerLegendDot" style={{ background: tone.fill }} /><strong>Marker {marker.id}</strong></div>
-                              <select value={marker.issueType || ""} onChange={(event) => setEditForm((prev) => ({ ...prev, issueMarkers: prev.issueMarkers.map((item) => item.id === marker.id ? { ...item, issueType: event.target.value } : item) }))}>
+                              <select value={marker.issueType || ""} disabled={!issueNotesEditable} onChange={(event) => setEditForm((prev) => ({ ...prev, issueMarkers: prev.issueMarkers.map((item) => item.id === marker.id ? { ...item, issueType: event.target.value } : item) }))}>
                                 <option value="">Select issue type</option>
                                 {ISSUE_TYPES.map((option) => <option key={option}>{option}</option>)}
                               </select>
@@ -328,7 +424,7 @@ export default function AdminTracking() {
                     <div className="bookIssueAiHelper">
                       <div className="bookIssueAiHead">
                         <div className="bookIssueAiTitle">AI Issue Note Helper</div>
-                        <button className="bookIssueAiBtn" type="button" onClick={handleGenerateIssueNote} disabled={issueNoteAi.status === "loading"}>
+                        <button className="bookIssueAiBtn" type="button" onClick={handleGenerateIssueNote} disabled={!issueNotesEditable || issueNoteAi.status === "loading"}>
                           {issueNoteAi.status === "loading" ? "Generating..." : "Generate Suggestion"}
                         </button>
                       </div>
@@ -344,11 +440,17 @@ export default function AdminTracking() {
                           <div className="bookIssueAiResultText">{issueNoteAi.suggestion}</div>
                           {issueNoteAi.nextAction && <div className="bookIssueAiMeta"><strong>Next action:</strong> {issueNoteAi.nextAction}</div>}
                           {issueNoteAi.customerSummary && <div className="bookIssueAiMeta"><strong>Customer summary:</strong> {issueNoteAi.customerSummary}</div>}
-                          <button className="bookIssueAiInsertBtn" type="button" onClick={handleInsertIssueNote}>Insert Suggestion</button>
+                          <button className="bookIssueAiInsertBtn" type="button" onClick={handleInsertIssueNote} disabled={!issueNotesEditable}>Insert Suggestion</button>
                         </div>
                       )}
                     </div>
-                    <label className="bookField bookIssueNoteField"><span>Issue Notes</span><textarea className="bookIssueNoteTextarea" rows="5" value={editForm.issueNote} onChange={(e) => setEditForm((prev) => ({ ...prev, issueNote: e.target.value }))} /></label>
+                    <label className="bookField bookIssueNoteField"><span>Issue Notes</span><textarea className="bookIssueNoteTextarea" rows="5" value={editForm.issueNote} disabled={!issueNotesEditable} onChange={(e) => setEditForm((prev) => ({ ...prev, issueNote: e.target.value }))} /></label>
+                    <div className="trackIssueSaveRow">
+                      <button className="usersPrimaryBtn" type="button" onClick={handleSaveIssueNotes} disabled={!issueNotesEditable}>
+                        Save Issue Notes
+                      </button>
+                      {issueNoteMessage && <div className="trackIssueSaveMessage">{issueNoteMessage}</div>}
+                    </div>
                   </div>
                 </div>
               </div>
