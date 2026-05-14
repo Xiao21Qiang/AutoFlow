@@ -2032,13 +2032,25 @@ function isDownPaymentExemptService(service) {
   const normalizedService = String(service?.name || service || "")
     .trim()
     .toLowerCase()
-    .replace(/[\s_-]+/g, " ");
-  return normalizedService.includes("car wash");
+    .replace(/\s+/g, " ");
+  return normalizedService === "car wash";
 }
 
 function getRequiredDownPaymentAmount(settings, service) {
   if (isDownPaymentExemptService(service)) return 0;
   return Math.max(0, roundMoney(settings?.requiredDownPaymentAmount || 0));
+}
+
+function getPreferredDetailerFields(body = {}) {
+  const preferredDetailer = String(body.preferredDetailer || body.preferredDetailerName || body.preferredDetailerId || "").trim();
+  const preferredDetailerName = String(body.preferredDetailerName || body.preferredDetailer || "").trim();
+  const preferredDetailerId = String(body.preferredDetailerId || "").trim();
+
+  return {
+    preferredDetailer,
+    preferredDetailerName,
+    preferredDetailerId,
+  };
 }
 
 function normalizePaymentStageStatus(status, fallback = "Pending") {
@@ -3853,10 +3865,11 @@ app.post("/api/auth/password-change/reset", async (req, res, next) => {
 app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
     const bookingDate = String(req.body.date || "").trim();
-    const bookingTime = String(req.body.time || "").trim();
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     const isCustomerRequested =
       actorType === "customer";
+    const bookingTime = isCustomerRequested ? "" : String(req.body.time || "").trim();
+    const bookingPlaceSlot = isCustomerRequested ? 0 : Number(req.body.placeSlot || 0);
     const bookingCustomerEmail = isCustomerRequested
       ? String(req.authUser?.email || "").trim().toLowerCase()
       : String(req.body.customerEmail || "").trim().toLowerCase();
@@ -3871,17 +3884,12 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
 
     await ensureBookableService(req.body.service);
 
-    if (!bookingTime && !isCustomerRequested) {
-      res.status(400).json({ message: "Please assign a booking time before creating this booking." });
-      return;
-    }
-
     if (bookingTime) {
       await validateBookingSlotAvailability({
         date: bookingDate,
         time: bookingTime,
         service: req.body.service,
-        placeSlot: req.body.placeSlot,
+        placeSlot: bookingPlaceSlot,
       });
     }
 
@@ -3911,33 +3919,45 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       baseAmount: pricing.amount,
     });
 
+    const preferredDetailerFields = getPreferredDetailerFields(req.body);
     const booking = await Booking.create({
       id: createId("B"),
-      plate: "",
-      ...req.body,
       customer: bookingCustomerName,
       customerEmail: bookingCustomerEmail,
       customerId: isCustomerRequested ? req.authUser?.id || "" : String(req.body.customerId || ""),
-      bookingSource: req.body.bookingSource || (isCustomerRequested ? "customer" : actorType),
+      bookingSource: isCustomerRequested ? "customer" : (req.body.bookingSource || actorType),
       customerRequested: isCustomerRequested,
       createdByUserType: toDisplayUserType(actorType),
+      vehicle: String(req.body.vehicle || "").trim(),
+      carSize: String(req.body.carSize || "").trim(),
+      plate: String(req.body.plate || "").trim().toUpperCase(),
+      service: String(req.body.service || "").trim(),
+      assigned: isCustomerRequested ? "" : String(req.body.assigned || "").trim(),
+      ...preferredDetailerFields,
+      date: bookingDate,
       time: bookingTime || "Pending Assignment",
-      status: bookingTime ? (req.body.status || "Scheduled") : (req.body.status || "Pending Confirmation"),
-      placeSlot: bookingTime ? Number(req.body.placeSlot || 0) : 0,
+      status: "Pending",
+      placeSlot: bookingTime ? bookingPlaceSlot : 0,
       ...pricing,
       ...rewardPricing,
-      consumablesApplied: Boolean(req.body.consumablesApplied) || isCompletedStatus(req.body.status),
+      consumablesApplied: false,
+      issueNote: String(req.body.issueNote || "").trim(),
+      issueTypes: Array.isArray(req.body.issueTypes) ? req.body.issueTypes : [],
+      issueMarkers: Array.isArray(req.body.issueMarkers) ? req.body.issueMarkers : [],
     });
 
     const securitySetting = await getOrCreateSecuritySetting();
     const paymentTotalAmount = Math.max(0, Number(booking.finalAmount || booking.amount || 0));
-    const downPaymentAmount = getRequiredDownPaymentAmount(securitySetting, booking.service);
-    const downPaymentRequired = downPaymentAmount > 0 && paymentTotalAmount > 0;
+    const downPaymentRequired = !isDownPaymentExemptService(booking.service);
+    const downPaymentAmount = downPaymentRequired
+      ? Math.min(paymentTotalAmount, getRequiredDownPaymentAmount(securitySetting, booking.service))
+      : 0;
     const paymentStageDefaults = getPaymentStageFields({
       service: booking.service,
       amount: Number(booking.amount || 0),
       finalAmount: paymentTotalAmount,
       totalAmount: paymentTotalAmount,
+      amountPaid: 0,
       status: "Pending",
       downPaymentRequired,
       downPaymentAmount,
