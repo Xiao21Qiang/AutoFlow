@@ -163,6 +163,11 @@
   color: #b91c1c;
 }
 
+.stPayBadge.balance {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
 /* ── ACTION CELL ── */
 .stPayActions {
   display: flex;
@@ -272,7 +277,9 @@
 }
 
 .stPayModalCard {
-  width: min(100%, 430px);
+  width: min(100%, 520px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: #fff;
   border-radius: 18px;
   border: 1px solid #e5e7eb;
@@ -344,9 +351,71 @@
 .stPayProofPreview {
   width: 100%;
   max-height: 220px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 12px;
   border: 1px solid #dbe2ef;
+  background: #fff;
+}
+
+.stPayStageSection {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.stPayStageTitle {
+  font-size: 12px;
+  font-weight: 950;
+  color: #111827;
+  margin-bottom: 12px;
+}
+
+.stPayStageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stPayAmountGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.stPayAmountGrid div {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+}
+
+.stPayAmountGrid span {
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.stPayAmountGrid strong {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.stPayStageHint,
+.stPayProofName {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 10px;
 }
 
 .stPayModalActions {

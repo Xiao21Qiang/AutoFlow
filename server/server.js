@@ -2175,6 +2175,10 @@ function getPaymentStageFields(payment = {}) {
   };
 }
 
+function clampPaymentAmount(value, totalAmount) {
+  return Math.min(Math.max(0, roundMoney(value || 0)), Math.max(0, roundMoney(totalAmount || 0)));
+}
+
 function isPaymentFullyPaid(payment = {}) {
   return isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status);
 }
@@ -4815,6 +4819,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const customerEmail = String(existingPayment.customerEmail || "").trim().toLowerCase();
     const isCustomerSubmittingOwnPayment = actorType === "customer" && Boolean(actorEmail && customerEmail && actorEmail === customerEmail);
     const nextStatus = String(req.body.status || "");
+    const nextDownPaymentStatus = normalizePaymentStageStatus(req.body.downPaymentStatus, existingPayment.downPaymentStatus || "Pending");
+    const nextFinalPaymentStatus = normalizePaymentStageStatus(req.body.finalPaymentStatus, existingPayment.finalPaymentStatus || existingPayment.status || "Pending");
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
       res.status(403).json({ message: "You can only update your own payment records." });
       return;
@@ -4823,12 +4829,30 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       res.status(403).json({ message: "Customers can only submit payments for verification." });
       return;
     }
+    if (
+      actorType === "customer" &&
+      ["downPaymentStatus", "finalPaymentStatus", "amountPaid", "remainingBalance", "downPaymentVerifiedAt", "downPaymentVerifiedBy", "finalPaymentVerifiedAt", "finalPaymentVerifiedBy"]
+        .some((field) => Object.prototype.hasOwnProperty.call(req.body, field))
+    ) {
+      res.status(403).json({ message: "Customers cannot update payment verification fields." });
+      return;
+    }
+    if (existingPayment.downPaymentRequired !== false && nextDownPaymentStatus === "Not Required") {
+      res.status(400).json({ message: "Down payment cannot be marked not required for this service." });
+      return;
+    }
 
     const isMarkingPaid = isPaidStatus(nextStatus) && !isPaidStatus(existingPayment.status);
-    if ((actorType === "admin" || actorType === "staff") && isMarkingPaid) {
+    const isMarkingDownPaymentPaid = nextDownPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.downPaymentStatus, "") !== "Paid";
+    const isMarkingFinalPaymentPaid = nextFinalPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.finalPaymentStatus, "") !== "Paid";
+    if ((actorType === "admin" || actorType === "staff") && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
       await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin" });
 
-      const methodForVerification = normalizePaymentMethodLabel(req.body.method || existingPayment.method);
+      const methodForVerification = normalizePaymentMethodLabel(
+        isMarkingDownPaymentPaid
+          ? (req.body.downPaymentMethod || existingPayment.downPaymentMethod || existingPayment.method)
+          : (req.body.finalPaymentMethod || req.body.method || existingPayment.finalPaymentMethod || existingPayment.method)
+      );
       const requiresAccountName = actorType === "staff" || String(methodForVerification || "").trim().toLowerCase() === "cash";
       if (requiresAccountName) {
         requireAccountNameMatch(req);
@@ -4864,12 +4888,25 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           excludePaymentId: existingPayment.id,
         });
     const reviewFields =
-      actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected")
+      actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
         ? {
             reviewedAt: new Date().toISOString(),
             reviewedBy: req.authUser?.email || req.body.auditUser || "",
           }
         : {};
+    const verifier = req.authUser?.email || req.body.auditUser || "";
+    const stageReviewFields = actorType !== "customer"
+      ? {
+          ...(isMarkingDownPaymentPaid ? {
+            downPaymentVerifiedAt: existingPayment.downPaymentVerifiedAt || new Date(),
+            downPaymentVerifiedBy: existingPayment.downPaymentVerifiedBy || verifier,
+          } : {}),
+          ...(isMarkingFinalPaymentPaid || isMarkingPaid ? {
+            finalPaymentVerifiedAt: existingPayment.finalPaymentVerifiedAt || new Date(),
+            finalPaymentVerifiedBy: existingPayment.finalPaymentVerifiedBy || verifier,
+          } : {}),
+        }
+      : {};
     const nextPayload = isCustomerSubmittingOwnPayment
       ? {
           method: normalizePaymentMethodLabel(req.body.method || existingPayment.method),
@@ -4885,25 +4922,44 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       : {
           ...req.body,
           ...reviewFields,
+          ...stageReviewFields,
           ...rewardPricing,
           auditUser: req.authUser?.email || req.body.auditUser || "",
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
         };
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
-    const nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
+    let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
       ? Number(req.body.amountPaid || 0)
-      : (isPaidStatus(nextPayload.status || existingPayment.status) ? nextTotalAmount : existingPayment.amountPaid);
+      : Number(existingPayment.amountPaid || 0);
+    if (nextDownPaymentStatus === "Paid") {
+      nextAmountPaid = Math.max(nextAmountPaid, Number(nextPayload.downPaymentAmount ?? existingPayment.downPaymentAmount ?? 0));
+    }
+    if (nextFinalPaymentStatus === "Paid" || isPaidStatus(nextPayload.status || existingPayment.status)) {
+      nextAmountPaid = nextTotalAmount;
+    }
+    nextAmountPaid = clampPaymentAmount(nextAmountPaid, nextTotalAmount);
+    const syncedLegacyStatus = nextFinalPaymentStatus === "Paid"
+      ? "Paid"
+      : nextFinalPaymentStatus === "For Verification"
+        ? "For Verification"
+        : nextFinalPaymentStatus === "Rejected"
+          ? "Rejected"
+          : nextPayload.status || existingPayment.status || "Pending";
     const stagedNextPayload = {
       ...nextPayload,
+      status: syncedLegacyStatus,
       ...getPaymentStageFields({
         ...existingPayment,
         ...nextPayload,
+        status: syncedLegacyStatus,
         totalAmount: nextTotalAmount,
         amountPaid: nextAmountPaid,
-        finalPaymentStatus: nextPayload.finalPaymentStatus || nextPayload.status || existingPayment.finalPaymentStatus,
-        finalPaymentMethod: nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod,
-        finalPaymentReference: nextPayload.finalPaymentReference || nextPayload.reference || existingPayment.finalPaymentReference,
+        downPaymentStatus: nextDownPaymentStatus,
+        downPaymentMethod: normalizePaymentMethodLabel(nextPayload.downPaymentMethod || existingPayment.downPaymentMethod || ""),
+        finalPaymentStatus: nextFinalPaymentStatus,
+        finalPaymentMethod: normalizePaymentMethodLabel(nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod),
+        finalPaymentReference: nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference,
         finalPaymentProofUrl: nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl,
         finalPaymentProofName: nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName,
       }),
