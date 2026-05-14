@@ -5,7 +5,15 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
-import { getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
+import {
+  PAYMENT_METHOD_OPTIONS,
+  getAmountPaid,
+  getPaymentStageClass,
+  getPaymentStageLabel,
+  getPaymentTotal,
+  getRemainingBalance,
+  normalizeStageStatus,
+} from "../../utils/paymentStages";
 
 const SALES_TAX_RATE = 0.12;
 
@@ -46,14 +54,6 @@ function getInvoiceBreakdown(payment) {
   };
 }
 
-const statusMeta = (status) => {
-  const s = String(status || "").toLowerCase();
-  if (s.includes("paid")) return { cls: "paid", label: "Paid" };
-  if (s.includes("verification")) return { cls: "review", label: "For Verification" };
-  if (s.includes("reject")) return { cls: "rejected", label: "Rejected" };
-  return { cls: "pending", label: status || "Pending" };
-};
-
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -90,7 +90,7 @@ async function compressImageFile(file) {
 }
 
 export default function CustomerPayments() {
-  const { payments, rewards, customerRewards, currentUser, submitPaymentProof } = useAdminData();
+  const { payments, currentUser, submitPaymentProof } = useAdminData();
   const customerName = String(currentUser?.name || "").trim().toLowerCase();
   const customerEmail = String(currentUser?.email || "").trim().toLowerCase();
   const data = useMemo(
@@ -115,31 +115,8 @@ export default function CustomerPayments() {
     method: "",
     proofImage: "",
     proofFileName: "",
-    rewardId: "",
   });
   const [proofError, setProofError] = useState("");
-  const activeRewardPoolIds = useMemo(
-    () => new Set((rewards || []).filter((reward) => reward.active !== false).map((reward) => reward.id)),
-    [rewards]
-  );
-  const usableRewards = useMemo(
-    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
-    [activeRewardPoolIds, customerRewards, currentUser]
-  );
-  const selectedProofReward = useMemo(
-    () => usableRewards.find((reward) => reward.id === proofForm.rewardId) || null,
-    [proofForm.rewardId, usableRewards]
-  );
-  const selectedPaymentBaseBeforeReward = useMemo(
-    () => selectedPayment
-      ? Math.max(0, Number(selectedPayment.originalAmount || 0) - Number(selectedPayment.promoDiscountAmount || 0))
-      : 0,
-    [selectedPayment]
-  );
-  const selectedProofRewardPreview = useMemo(
-    () => getRewardPreview(selectedProofReward, selectedPaymentBaseBeforeReward),
-    [selectedPaymentBaseBeforeReward, selectedProofReward]
-  );
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -149,11 +126,11 @@ export default function CustomerPayments() {
         String(row.id || "").toLowerCase().includes(q) ||
         String(row.customer || "").toLowerCase().includes(q) ||
         String(row.service || "").toLowerCase().includes(q) ||
-        String(row.status || "").toLowerCase().includes(q) ||
-        String(row.method || "").toLowerCase().includes(q) ||
+        getPaymentStageLabel(row).toLowerCase().includes(q) ||
+        String(row.downPaymentMethod || row.method || "").toLowerCase().includes(q) ||
         formatDate(row.date).toLowerCase().includes(q);
-      const matchesStatus = !filters.status || row.status === filters.status;
-      const matchesMethod = !filters.method || row.method === filters.method;
+      const matchesStatus = !filters.status || getPaymentStageLabel(row) === filters.status || row.status === filters.status;
+      const matchesMethod = !filters.method || row.downPaymentMethod === filters.method || row.method === filters.method;
       return matchesQuery && matchesStatus && matchesMethod;
     });
   }, [data, query, filters]);
@@ -169,7 +146,7 @@ export default function CustomerPayments() {
   const closeModal = () => {
     setModal(null);
     setSelectedPayment(null);
-    setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "", rewardId: "" });
+    setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
   };
 
@@ -212,18 +189,21 @@ export default function CustomerPayments() {
           <div className="clPayEmptyRow"><div>No records found.</div></div>
         ) : (
           pageRows.map((row) => {
-            const meta = statusMeta(row.status);
+            const stageLabel = getPaymentStageLabel(row);
+            const stageClass = getPaymentStageClass(row);
+            const downPaymentStatus = normalizeStageStatus(row.downPaymentStatus, row.downPaymentRequired === false ? "Not Required" : "Pending");
+            const proofDisabled = downPaymentStatus === "For Verification" || downPaymentStatus === "Paid" || downPaymentStatus === "Not Required";
             return (
               <div className="clPayRow" key={row.id}>
                 <div>{row.id}</div>
                 <div>{formatDate(row.date)}</div>
                 <div>{row.customer}</div>
                 <div>{row.service}</div>
-                <div>P {Number(row.amount || 0).toLocaleString()}</div>
+                <div>{formatCurrency(getPaymentTotal(row))}</div>
                 <div>
-                  <span className={`clPayBadge ${meta.cls}`}>{meta.label}</span>
+                  <span className={`clPayBadge ${stageClass}`}>{stageLabel}</span>
                 </div>
-                <div>{row.method || "-"}</div>
+                <div>{row.downPaymentMethod || row.method || "-"}</div>
                 <div>
                   <button
                     className="clPayViewBtn"
@@ -243,18 +223,18 @@ export default function CustomerPayments() {
                     onClick={() => {
                       setSelectedPayment(row);
                       setProofForm({
-                        reference: row.reference || "",
-                        notes: row.notes || "",
-                        method: row.method || "",
-                        proofImage: row.proofImage || "",
-                        proofFileName: row.proofFileName || "",
-                        rewardId: row.rewardId || "",
+                        reference: row.downPaymentReference || "",
+                        notes: row.downPaymentNotes || "",
+                        method: row.downPaymentMethod || "",
+                        proofImage: row.downPaymentProofUrl || row.proofImage || "",
+                        proofFileName: row.downPaymentProofName || row.proofFileName || "",
                       });
                       setProofError("");
                       setModal("proof");
                     }}
+                    disabled={proofDisabled}
                   >
-                    {row.proofImage ? "Update" : "Upload"}
+                    {downPaymentStatus === "For Verification" ? "Reviewing" : downPaymentStatus === "Paid" ? "Verified" : downPaymentStatus === "Not Required" ? "N/A" : row.downPaymentProofUrl || row.proofImage ? "Resubmit" : "Upload"}
                   </button>
                 </div>
               </div>
@@ -306,9 +286,17 @@ export default function CustomerPayments() {
                       <div className="clPayInvoiceBlockTitle">Appointment Details</div>
                       <div><strong>Service:</strong> {selectedPayment.service || "-"}</div>
                       <div><strong>Appointment:</strong> {selectedPayment.service || "Checking"}</div>
-                      <div><strong>Status:</strong> {selectedPayment.status || "-"}</div>
-                      <div><strong>Method:</strong> {selectedPayment.method || "-"}</div>
+                      <div><strong>Status:</strong> {getPaymentStageLabel(selectedPayment)}</div>
+                      <div><strong>Method:</strong> {selectedPayment.downPaymentMethod || selectedPayment.method || "-"}</div>
                     </div>
+                  </div>
+                  <div className="clPayStageSummary">
+                    <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
+                    <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                    <div><span>Amount Paid</span><strong>{formatCurrency(getAmountPaid(selectedPayment))}</strong></div>
+                    <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
+                    <div><span>Down Payment Status</span><strong>{normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}</strong></div>
+                    <div><span>Full Payment Status</span><strong>{normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")}</strong></div>
                   </div>
 
                   <div className="clPayBreakdownCard">
@@ -364,15 +352,15 @@ export default function CustomerPayments() {
                   </div>
 
                   <div className="clPayDetailList clPayDetailListCompact">
-                    {selectedPayment.reference && <div><strong>Reference:</strong> {selectedPayment.reference}</div>}
+                    {(selectedPayment.downPaymentReference || selectedPayment.reference) && <div><strong>Reference:</strong> {selectedPayment.downPaymentReference || selectedPayment.reference}</div>}
                     {selectedPayment.rewardId && <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"} ({selectedPayment.rewardValue || selectedPayment.rewardType || "-"})</div>}
                     {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}
                   </div>
 
-                  {selectedPayment.proofImage && (
+                  {(selectedPayment.downPaymentProofUrl || selectedPayment.proofImage) && (
                     <div className="clPayProofPreviewWrap">
-                      <strong>Proof:</strong>
-                      <img className="clPayProofPreview" src={selectedPayment.proofImage} alt="Payment proof" />
+                      <strong>Down Payment Proof:</strong>
+                      <img className="clPayProofPreview" src={selectedPayment.downPaymentProofUrl || selectedPayment.proofImage} alt="Payment proof" />
                     </div>
                   )}
                 </div>
@@ -389,18 +377,31 @@ export default function CustomerPayments() {
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setProofError("");
+                  const reference = String(proofForm.reference || "").trim();
+                  if (!proofForm.method) {
+                    setProofError("Please select a down payment method.");
+                    return;
+                  }
+                  if (!reference) {
+                    setProofError("Please enter a reference number.");
+                    return;
+                  }
+                  if (reference.length > 80) {
+                    setProofError("Reference number must be 80 characters or less.");
+                    return;
+                  }
                   if (!proofForm.proofImage) {
-                    setProofError("Please upload a payment proof image.");
+                    setProofError("Please upload a down payment proof image.");
                     return;
                   }
                   try {
                     await submitPaymentProof(selectedPayment, {
-                      method: proofForm.method,
-                      reference: proofForm.reference,
-                      notes: selectedPayment.notes || proofForm.notes || "",
-                      proofImage: proofForm.proofImage,
-                      proofFileName: proofForm.proofFileName,
-                      rewardId: proofForm.rewardId,
+                      downPaymentStatus: "For Verification",
+                      downPaymentMethod: proofForm.method,
+                      downPaymentReference: reference,
+                      downPaymentNotes: proofForm.notes,
+                      downPaymentProofUrl: proofForm.proofImage,
+                      downPaymentProofName: proofForm.proofFileName,
                     });
                     closeModal();
                   } catch (error) {
@@ -408,10 +409,16 @@ export default function CustomerPayments() {
                   }
                 }}
               >
-                <div className="clPayModalTitle">Submit Payment Proof</div>
+                <div className="clPayModalTitle">Submit Down Payment Proof</div>
+                <div className="clPayStageSummary clPayStageSummaryCompact">
+                  <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
+                  <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                  <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
+                  <div><span>Current DP Status</span><strong>{normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}</strong></div>
+                </div>
 
                 <label className="clPayField">
-                  <span>Payment Method</span>
+                  <span>Down Payment Method</span>
                   <select
                     value={proofForm.method}
                     onChange={(e) => setProofForm((prev) => ({ ...prev, method: e.target.value }))}
@@ -420,39 +427,13 @@ export default function CustomerPayments() {
                     <option value="" disabled>
                       Select payment method
                     </option>
-                    {["Cash", "E-Wallet", "Bank Transfer", "Online Transfer"].map((option) => (
+                    {PAYMENT_METHOD_OPTIONS.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
                     ))}
                   </select>
                 </label>
-
-                <label className="clPayField">
-                  <span>Apply Reward</span>
-                  <select
-                    value={proofForm.rewardId}
-                    disabled={selectedPayment.status === "Paid"}
-                    onChange={(e) => setProofForm((prev) => ({ ...prev, rewardId: e.target.value }))}
-                  >
-                    <option value="">No reward</option>
-                    {usableRewards.map((reward) => (
-                      <option key={reward.id} value={reward.id}>
-                        {reward.rewardName} - {reward.rewardValue || reward.rewardType}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {selectedProofReward ? (
-                  <div className="clPayRewardPreview">
-                    <strong>{selectedProofReward.rewardName}</strong>
-                    <span>{selectedProofReward.rewardType} • {selectedProofReward.rewardValue || "Reward benefit"}</span>
-                    <span>Discount preview: -{formatCurrency(selectedProofRewardPreview.discountAmount)}</span>
-                    <span>Final amount due: {formatCurrency(selectedProofRewardPreview.finalAmount)}</span>
-                    <small>{selectedProofReward.expirationDate ? `Expires ${selectedProofReward.expirationDate}` : "No expiration date"}</small>
-                  </div>
-                ) : null}
 
                 <label className="clPayField">
                   <span>Reference Number</span>
@@ -498,8 +479,8 @@ export default function CustomerPayments() {
                   <textarea
                     rows="4"
                     value={proofForm.notes}
-                    readOnly
-                    placeholder="Admin/staff notes will appear here."
+                    onChange={(e) => setProofForm((prev) => ({ ...prev, notes: e.target.value }))}
+                    placeholder="Optional note for admin/staff review."
                   />
                 </label>
 
@@ -521,8 +502,8 @@ export default function CustomerPayments() {
         open={isFilterOpen}
         title="Filter Payments"
         fields={[
-          { key: "status", label: "Status", type: "select", options: [...new Set(data.map((row) => row.status).filter(Boolean))] },
-          { key: "method", label: "Method", type: "select", options: [...new Set(data.map((row) => row.method).filter(Boolean))] },
+          { key: "status", label: "Status", type: "select", options: [...new Set(data.map((row) => getPaymentStageLabel(row)).filter(Boolean))] },
+          { key: "method", label: "Method", type: "select", options: [...new Set(data.map((row) => row.downPaymentMethod || row.method).filter(Boolean))] },
         ]}
         values={filters}
         onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}

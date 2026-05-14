@@ -469,8 +469,8 @@ export function AdminDataProvider({ children, session }) {
       mutate("/api/admin/payments/" + payment.id, {
         method: "PUT",
         body: JSON.stringify({
-          ...payment,
           ...payload,
+          downPaymentStatus: "For Verification",
           status: "For Verification",
           proofSubmittedAt: new Date().toISOString(),
           auditUser,
