@@ -273,6 +273,7 @@
 }
 
 .clSvcField input,
+.clSvcField select,
 .clSvcField textarea {
   border: 1px solid #d5deed;
   border-radius: 8px;

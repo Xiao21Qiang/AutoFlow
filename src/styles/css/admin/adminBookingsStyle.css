@@ -466,6 +466,17 @@
   background: #f8fafc;
 }
 
+.bookSuggestItem:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.bookSuggestItem:disabled span,
+.bookSuggestItem:disabled small {
+  color: #94a3b8;
+}
+
 .bookSuggestItem span {
   font-size: 12px;
   font-weight: 800;
@@ -868,6 +879,11 @@
   background: #e5e7eb;
   color: #94a3b8;
   cursor: not-allowed;
+}
+
+.bookPlaceSlot:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .bookSlotHint {

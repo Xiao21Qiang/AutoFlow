@@ -364,6 +364,16 @@
   background: #f8fafc;
 }
 
+.stBookSuggestItem:disabled {
+  background: #f8fafc;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.stBookSuggestItem:disabled span {
+  color: #94a3b8;
+}
+
 .stBookSuggestItem span {
   font-size: 12px;
   font-weight: 800;
@@ -779,6 +789,11 @@
   background: #e5e7eb;
   color: #94a3b8;
   cursor: not-allowed;
+}
+
+.stBookPlaceSlot:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .stBookSlotHint {

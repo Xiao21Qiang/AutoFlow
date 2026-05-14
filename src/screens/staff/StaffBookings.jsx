@@ -8,6 +8,17 @@ import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
+import {
+  PLACE_SLOT_OPTIONS,
+  SHOP_TIME_OPTIONS,
+  canScheduleBooking,
+  getLinkedPaymentForBooking,
+  getPreferredDetailerDisplay,
+  getSchedulingValidationMessage,
+  isBookingDownPaymentSatisfied,
+  isScheduledStatus,
+  isValidShopTime,
+} from "../../utils/bookingWorkflow";
 
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 
@@ -44,8 +55,6 @@ function getTodayKey() {
   return `${year}-${month}-${day}`;
 }
 
-const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
-
 function timeToMinutes(value) {
   const [hours, minutes] = String(value || "").split(":").map(Number);
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
@@ -62,7 +71,7 @@ function isRescheduledStatus(status) {
 
 function isPendingSchedulingStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
-  return normalized === "pending" || normalized === "pending confirmation";
+  return normalized === "pending" || normalized === "pending confirmation" || normalized === "pending assignment";
 }
 
 function isScheduleBlockingStatus(status) {
@@ -85,8 +94,9 @@ function normalizeCustomerCars(cars) {
     .filter((car) => car.vehicle && car.plate);
 }
 
-function ModalSelect({ value, options, placeholder, onSelect, className = "", disabled = false }) {
+function ModalSelect({ value, options, placeholder, onSelect, className = "", disabled = false, disabledOptions = [] }) {
   const [open, setOpen] = useState(false);
+  const disabledOptionSet = new Set(disabledOptions);
 
   return (
     <div className={`stBookSuggestWrap stBookModalSelect ${className}`.trim()}>
@@ -100,20 +110,25 @@ function ModalSelect({ value, options, placeholder, onSelect, className = "", di
       </button>
       {open && (
         <div className="stBookSuggestMenu stBookModalSelectMenu">
-          {options.map((option) => (
-            <button
-              key={option}
-              className="stBookSuggestItem stBookModalSelectItem"
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onSelect(option);
-                setOpen(false);
-              }}
-            >
-              <span>{option}</span>
-            </button>
-          ))}
+          {options.map((option) => {
+            const optionDisabled = disabledOptionSet.has(option);
+            return (
+              <button
+                key={option}
+                className="stBookSuggestItem stBookModalSelectItem"
+                type="button"
+                disabled={optionDisabled}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  if (optionDisabled) return;
+                  onSelect(option);
+                  setOpen(false);
+                }}
+              >
+                <span>{option}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -121,7 +136,7 @@ function ModalSelect({ value, options, placeholder, onSelect, className = "", di
 }
 
 export default function StaffBookings() {
-  const { bookings, services, users, currentUser, createBooking, updateBooking } = useAdminData();
+  const { bookings, services, users, payments, currentUser, createBooking, updateBooking } = useAdminData();
   const serviceOptions = services.filter((service) => service.name && service.enabled !== false).map((service) => service.name);
   const customerOptions = users
     .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
@@ -150,6 +165,32 @@ export default function StaffBookings() {
   );
   const isCompletedBookingLocked = modal === "edit" && isCompletedStatus(selectedBooking?.status);
   const isPendingBookingEdit = modal === "edit" && isPendingSchedulingStatus(selectedBooking?.status);
+  const isScheduledBookingEdit = modal === "edit" && isScheduledStatus(selectedBooking?.status);
+  const linkedPayment = useMemo(
+    () => getLinkedPaymentForBooking(selectedBooking, payments),
+    [payments, selectedBooking]
+  );
+  const draftBookingForScheduling = useMemo(
+    () => ({
+      ...(selectedBooking || {}),
+      ...form,
+      placeSlot: Number(form.placeSlot || 0),
+    }),
+    [form, selectedBooking]
+  );
+  const downPaymentSatisfied = isBookingDownPaymentSatisfied(draftBookingForScheduling, linkedPayment);
+  const scheduleRequirementsMet = canScheduleBooking(draftBookingForScheduling, linkedPayment);
+  const schedulingValidationMessage = getSchedulingValidationMessage(draftBookingForScheduling, linkedPayment);
+  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
+  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
+  const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
+  const disabledStatusOptions = useMemo(() => {
+    if (isCompletedBookingLocked) return [];
+    const disabledOptions = [];
+    if (isPendingBookingEdit && !scheduleRequirementsMet) disabledOptions.push("Scheduled");
+    if (isScheduledBookingEdit) disabledOptions.push("Pending");
+    return disabledOptions;
+  }, [isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, scheduleRequirementsMet]);
   const matchedCustomer = useMemo(
     () =>
       customerOptions.find(
@@ -468,8 +509,8 @@ export default function StaffBookings() {
 
                 setFormError("");
                 const isReschedule = isRescheduledStatus(form.status);
-                const isAutoSchedulingPending = isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled");
-                const canPersistScheduleEdit = isReschedule || isAutoSchedulingPending;
+                const isSchedulingPending = isPendingBookingEdit && String(form.status || "").trim().toLowerCase() === "scheduled";
+                const canPersistScheduleEdit = isReschedule || isSchedulingPending;
                 const requiresTime = modal === "add" || canPersistScheduleEdit;
 
                 if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
@@ -477,13 +518,26 @@ export default function StaffBookings() {
                   return;
                 }
 
+                if (isSchedulingPending) {
+                  const schedulingError = getSchedulingValidationMessage(draftBookingForScheduling, linkedPayment);
+                  if (schedulingError) {
+                    setFormError(schedulingError);
+                    return;
+                  }
+                }
+
                 if (requiresTime && !form.time) {
-                  setFormError(isReschedule ? "Please choose a booking time before rescheduling." : "Please assign a booking time before creating this booking.");
+                  setFormError(isReschedule ? "Please choose a booking time before rescheduling." : "A valid time is required before scheduling.");
+                  return;
+                }
+
+                if (requiresTime && !isValidShopTime(form.time)) {
+                  setFormError("A valid time is required before scheduling.");
                   return;
                 }
 
                 if (requiresTime && !form.placeSlot) {
-                  setFormError(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "Please choose one of the 8 place slots.");
+                  setFormError(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "A place slot is required before scheduling.");
                   return;
                 }
 
@@ -507,7 +561,7 @@ export default function StaffBookings() {
                   ...form,
                   selectedCar: undefined,
                   placeSlot: Number(form.placeSlot || 0),
-                  status: isAutoSchedulingPending ? "Scheduled" : form.status,
+                  status: isSchedulingPending ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || 0),
@@ -679,6 +733,13 @@ export default function StaffBookings() {
                   />
                 </label>
 
+                {modal === "edit" && (
+                  <label className="stBookField">
+                    <span>Preferred Detailer</span>
+                    <input value={getPreferredDetailerDisplay(selectedBooking)} readOnly />
+                  </label>
+                )}
+
                 <label className="stBookField">
                   <span>Mechanic / Staff</span>
                   <ModalSelect
@@ -686,7 +747,11 @@ export default function StaffBookings() {
                     options={staffOptions}
                     placeholder="Select staff"
                     onSelect={(option) => setForm((prev) => ({ ...prev, assigned: option }))}
+                    disabled={assignedStaffLocked}
                   />
+                  {isPendingBookingEdit && !String(form.assigned || "").trim() ? (
+                    <div className="stBookFieldError">Assigned staff is required before scheduling this booking.</div>
+                  ) : null}
                 </label>
 
                 <label className="stBookField">
@@ -695,21 +760,30 @@ export default function StaffBookings() {
                     type="date"
                     min={todayKey}
                     value={form.date}
-                    disabled={modal === "edit" && form.status !== "Rescheduled"}
-                    onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
+                    disabled={modal === "edit" && !canEditScheduleFields}
+                    onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value, placeSlot: "" }))}
                     required
                   />
                 </label>
 
                 <label className="stBookField">
                   <span>Time</span>
-                  <input
-                    type="time"
+                  <select
                     value={form.time}
-                    disabled={modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit}
+                    disabled={modal === "edit" && !canEditScheduleFields}
                     onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
-                    required={modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && (Boolean(form.time) || Boolean(form.placeSlot) || String(form.status || "").trim().toLowerCase() === "scheduled"))}
-                  />
+                    required={modal === "add" || isRescheduledStatus(form.status) || String(form.status || "").trim().toLowerCase() === "scheduled"}
+                  >
+                    <option value="">Select time</option>
+                    {SHOP_TIME_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {modal === "edit" && isPendingBookingEdit && !downPaymentSatisfied ? (
+                    <div className="stBookSlotHint">Down payment must be verified as paid before this booking can be scheduled.</div>
+                  ) : null}
                   {!form.time && modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit ? <div className="stBookSlotHint">No time selected</div> : null}
                 </label>
 
@@ -722,9 +796,13 @@ export default function StaffBookings() {
                       value={form.status}
                       options={STATUS_OPTIONS}
                       placeholder="Select status"
+                      disabledOptions={disabledStatusOptions}
                       onSelect={(option) => setForm((prev) => ({ ...prev, status: option }))}
                     />
                   )}
+                  {isPendingBookingEdit && schedulingValidationMessage ? (
+                    <div className="stBookSlotHint">{schedulingValidationMessage}</div>
+                  ) : null}
                 </label>
 
                 {form.date && form.time && (
@@ -739,7 +817,7 @@ export default function StaffBookings() {
                             key={slot}
                             type="button"
                             className={`stBookPlaceSlot${occupied ? " occupied" : ""}${selected ? " selected" : ""}`}
-                            disabled={occupied}
+                            disabled={occupied || !canEditPlaceSlot}
                             onClick={() => setForm((prev) => ({ ...prev, placeSlot: String(slot) }))}
                           >
                             {slot}
@@ -750,7 +828,9 @@ export default function StaffBookings() {
                     <div className={hasNoAvailableSlots ? "stBookFieldError" : "stBookSlotHint"}>
                       {hasNoAvailableSlots
                         ? "All 8 place slots are occupied for this selected schedule."
-                        : `Choose 1 of 8 place slots. Selected service duration: ${selectedServiceDuration} mins.`}
+                        : canEditPlaceSlot
+                          ? `Choose 1 of 8 place slots. Selected service duration: ${selectedServiceDuration} mins.`
+                          : "Assign staff and verify the down payment before selecting a place slot."}
                     </div>
                   </div>
                 )}

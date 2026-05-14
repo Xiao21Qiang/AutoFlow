@@ -7,6 +7,10 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getPriceForCarSize } from "../../utils/servicePricing";
+import {
+  buildPreferredDetailerPayload,
+  getPreferredDetailerOptions,
+} from "../../utils/bookingWorkflow";
 
 function getTodayKey() {
   const now = new Date();
@@ -30,17 +34,30 @@ function getServiceType(service) {
 }
 
 export default function CustomerServices() {
-  const { services, promos, rewards, customerRewards, currentUser, createBooking, loading } = useAdminData();
+  const { services, promos, rewards, customerRewards, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ maxMins: "", maxPrice: "" });
   const [selectedService, setSelectedService] = useState(null);
-  const [bookingForm, setBookingForm] = useState({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "", rewardId: "" });
+  const [bookingForm, setBookingForm] = useState({
+    date: "",
+    selectedCar: "",
+    vehicle: "",
+    carSize: "",
+    plate: "",
+    notes: "",
+    promoId: "",
+    rewardId: "",
+    preferredDetailer: "",
+    preferredDetailerName: "",
+    preferredDetailerId: "",
+  });
   const [bookingError, setBookingError] = useState("");
   const todayKey = getTodayKey();
   const savedCars = useMemo(() => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate), [currentUser]);
   const carOptions = useMemo(() => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`), [savedCars]);
+  const preferredDetailerOptions = useMemo(() => getPreferredDetailerOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
     [promos]
@@ -107,7 +124,19 @@ export default function CustomerServices() {
 
   const closeModal = () => {
     setSelectedService(null);
-    setBookingForm({ date: "", selectedCar: "", vehicle: "", carSize: "", plate: "", notes: "", promoId: "", rewardId: "" });
+    setBookingForm({
+      date: "",
+      selectedCar: "",
+      vehicle: "",
+      carSize: "",
+      plate: "",
+      notes: "",
+      promoId: "",
+      rewardId: "",
+      preferredDetailer: "",
+      preferredDetailerName: "",
+      preferredDetailerId: "",
+    });
     setBookingError("");
   };
 
@@ -193,6 +222,7 @@ export default function CustomerServices() {
                 }
 
                 try {
+                  const preferredDetailerPayload = buildPreferredDetailerPayload(bookingForm, preferredDetailerOptions);
                   await createBooking({
                     customer: currentUser?.name || "Customer",
                     customerEmail: currentUser?.email || "",
@@ -213,6 +243,7 @@ export default function CustomerServices() {
                     issueNote: bookingForm.notes,
                     issueTypes: [],
                     issueMarkers: [{ id: 1, x: 50, y: 50 }],
+                    ...preferredDetailerPayload,
                   });
                   closeModal();
                 } catch (error) {
@@ -320,6 +351,29 @@ export default function CustomerServices() {
                   {CAR_SIZE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
                       {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="clSvcField">
+                <span>Select Preferred Detailer</span>
+                <select
+                  value={bookingForm.preferredDetailerId}
+                  onChange={(e) => {
+                    const option = preferredDetailerOptions.find((entry) => entry.id === e.target.value);
+                    setBookingForm((prev) => ({
+                      ...prev,
+                      preferredDetailerId: option?.id || "",
+                      preferredDetailerName: option?.name || "",
+                      preferredDetailer: option?.name || "",
+                    }));
+                  }}
+                >
+                  <option value="">No preference</option>
+                  {preferredDetailerOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
                     </option>
                   ))}
                 </select>

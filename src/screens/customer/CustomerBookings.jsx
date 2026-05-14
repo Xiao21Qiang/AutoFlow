@@ -7,6 +7,11 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
+import {
+  buildPreferredDetailerPayload,
+  getPreferredDetailerDisplay,
+  getPreferredDetailerOptions,
+} from "../../utils/bookingWorkflow";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -28,6 +33,9 @@ function createEmptyForm(defaultService = "Graphene Coating") {
     service: defaultService,
     promoId: "",
     rewardId: "",
+    preferredDetailer: "",
+    preferredDetailerName: "",
+    preferredDetailerId: "",
   };
 }
 
@@ -79,7 +87,7 @@ function ModalSelect({ value, options, placeholder, onSelect }) {
 }
 
 export default function CustomerBookings({ initialAction = null, onActionHandled }) {
-  const { bookings, services, promos, rewards, customerRewards, currentUser, createBooking, loading } = useAdminData();
+  const { bookings, services, promos, rewards, customerRewards, users, currentUser, createBooking, loading } = useAdminData();
   const bookableServices = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false),
     [services]
@@ -119,6 +127,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     () => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`),
     [savedCars]
   );
+  const preferredDetailerOptions = useMemo(() => getPreferredDetailerOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
     [promos]
@@ -325,6 +334,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   try {
                     const matchedService = bookableServices.find((service) => service.name === form.service);
                     const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
+                    const preferredDetailerPayload = buildPreferredDetailerPayload(form, preferredDetailerOptions);
                     await createBooking({
                       customer: currentUser?.name || "Customer",
                       customerEmail: currentUser?.email || "",
@@ -345,6 +355,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       issueNote: "",
                       issueTypes: [],
                       issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
+                      ...preferredDetailerPayload,
                     });
                     setPage(1);
                     closeModal();
@@ -427,6 +438,28 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       onSelect={(option) => setForm((prev) => ({ ...prev, service: option }))}
                     />
                   </label>
+                  <label className="clBookField">
+                    <span>Select Preferred Detailer</span>
+                    <select
+                      value={form.preferredDetailerId}
+                      onChange={(e) => {
+                        const option = preferredDetailerOptions.find((entry) => entry.id === e.target.value);
+                        setForm((prev) => ({
+                          ...prev,
+                          preferredDetailerId: option?.id || "",
+                          preferredDetailerName: option?.name || "",
+                          preferredDetailer: option?.name || "",
+                        }));
+                      }}
+                    >
+                      <option value="">No preference</option>
+                      {preferredDetailerOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   {activePromos.length > 0 && (
                     <label className="clBookField">
                       <span>Promo</span>
@@ -505,6 +538,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <div><strong>Car Size:</strong> {selectedBooking.carSize || "-"}</div>
                   <div><strong>Plate:</strong> {selectedBooking.plate}</div>
                   <div><strong>Service:</strong> {selectedBooking.service}</div>
+                  <div><strong>Preferred Detailer:</strong> {getPreferredDetailerDisplay(selectedBooking)}</div>
                   <div><strong>Assigned To:</strong> {selectedBooking.assigned || "-"}</div>
                   <div><strong>Status:</strong> {selectedBooking.status}</div>
                 </div>
