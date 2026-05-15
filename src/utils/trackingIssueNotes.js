@@ -3,8 +3,9 @@ export function normalizeComparable(value) {
 }
 
 export function isAdminUser(user = {}) {
-  const userType = normalizeComparable(user.userType);
-  const role = normalizeComparable(user.role);
+  const safeUser = user || {};
+  const userType = normalizeComparable(safeUser.userType);
+  const role = normalizeComparable(safeUser.role);
   if (userType === "admin") return true;
   if (userType === "staff" || userType === "customer") return false;
   return ["admin", "owner", "co-owner"].includes(role);
@@ -31,9 +32,10 @@ export function normalizeIssueMarkers(markers = []) {
 }
 
 export function hasMeaningfulIssueNotes(source = {}) {
-  const issueNote = String(source.issueNote || "").trim();
-  const issueTypes = Array.isArray(source.issueTypes) ? source.issueTypes : [];
-  const issueMarkers = Array.isArray(source.issueMarkers) ? source.issueMarkers : [];
+  const safeSource = source || {};
+  const issueNote = String(safeSource.issueNote || "").trim();
+  const issueTypes = Array.isArray(safeSource.issueTypes) ? safeSource.issueTypes : [];
+  const issueMarkers = Array.isArray(safeSource.issueMarkers) ? safeSource.issueMarkers : [];
 
   return Boolean(
     issueNote ||
@@ -43,23 +45,25 @@ export function hasMeaningfulIssueNotes(source = {}) {
 }
 
 export function isAssignedStaffForBooking(booking = {}, user = {}) {
+  const safeBooking = booking || {};
+  const safeUser = user || {};
   const bookingAssignedValues = [
-    booking.assigned,
-    booking.assignedTo,
-    booking.assignedStaff,
-    booking.assignedStaffName,
-    booking.assignedStaffEmail,
-    booking.assignedStaffId,
+    safeBooking.assigned,
+    safeBooking.assignedTo,
+    safeBooking.assignedStaff,
+    safeBooking.assignedStaffName,
+    safeBooking.assignedStaffEmail,
+    safeBooking.assignedStaffId,
   ]
     .map(normalizeComparable)
     .filter(Boolean);
 
   const userValues = [
-    user.id,
-    user._id,
-    user.name,
-    user.email,
-    `${String(user.first || "").trim()} ${String(user.last || "").trim()}`.trim(),
+    safeUser.id,
+    safeUser._id,
+    safeUser.name,
+    safeUser.email,
+    `${String(safeUser.first || "").trim()} ${String(safeUser.last || "").trim()}`.trim(),
   ]
     .map(normalizeComparable)
     .filter(Boolean);
@@ -69,29 +73,32 @@ export function isAssignedStaffForBooking(booking = {}, user = {}) {
 }
 
 export function canEditIssueNotes({ booking = {}, currentUser = {}, allowAdmin = false } = {}) {
-  if (!isScheduledStatus(booking.status)) return false;
+  const safeBooking = booking || {};
+  if (!isScheduledStatus(safeBooking.status)) return false;
   if (allowAdmin && isAdminUser(currentUser)) return true;
-  return isAssignedStaffForBooking(booking, currentUser);
+  return isAssignedStaffForBooking(safeBooking, currentUser);
 }
 
 export function getIssueNotesLockedMessage({ booking = {}, currentUser = {}, allowAdmin = false } = {}) {
-  if (!isScheduledStatus(booking.status)) {
+  const safeBooking = booking || {};
+  if (!isScheduledStatus(safeBooking.status)) {
     return "Issue notes can only be edited while the booking is Scheduled.";
   }
-  if (!allowAdmin && !isAssignedStaffForBooking(booking, currentUser)) {
+  if (!allowAdmin && !isAssignedStaffForBooking(safeBooking, currentUser)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
-  if (allowAdmin && !isAdminUser(currentUser) && !isAssignedStaffForBooking(booking, currentUser)) {
+  if (allowAdmin && !isAdminUser(currentUser) && !isAssignedStaffForBooking(safeBooking, currentUser)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
   return "";
 }
 
 export function buildIssueNotePayload(source = {}, status = "") {
-  const issueMarkers = normalizeIssueMarkers(source.issueMarkers);
+  const safeSource = source || {};
+  const issueMarkers = normalizeIssueMarkers(safeSource.issueMarkers);
   return {
     status,
-    issueNote: String(source.issueNote || "").trim(),
+    issueNote: String(safeSource.issueNote || "").trim(),
     issueMarkers,
     issueTypes: getIssueTypesFromMarkers(issueMarkers),
   };

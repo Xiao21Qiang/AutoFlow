@@ -295,6 +295,10 @@ export default function AdminTracking() {
 
   const handleSaveIssueNotes = async () => {
     setIssueNoteMessage("");
+    if (!selectedRow) {
+      setIssueNoteMessage("Select a booking before saving issue notes.");
+      return;
+    }
     if (!issueNotesEditable) {
       setIssueNoteMessage(issueNotesLockedMessage || "Issue notes cannot be edited for this booking.");
       return;
@@ -304,7 +308,7 @@ export default function AdminTracking() {
       return;
     }
 
-    const payload = buildIssueNotePayload(editForm, selectedRow.status);
+    const payload = buildIssueNotePayload(editForm, selectedRow?.status || "");
     try {
       const updated = await updateBooking(selectedRow.id, payload);
       const nextRow = { ...selectedRow, ...(updated || {}), ...payload };

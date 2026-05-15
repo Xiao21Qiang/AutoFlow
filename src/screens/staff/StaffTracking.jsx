@@ -278,7 +278,11 @@ export default function StaffTracking() {
   };
 
   const performSaveIssueNotes = async (securityPayload = {}) => {
-    const payload = buildIssueNotePayload(editForm, selectedRow.status);
+    if (!selectedRow) {
+      setIssueNoteMessage("Select a booking before saving issue notes.");
+      return;
+    }
+    const payload = buildIssueNotePayload(editForm, selectedRow?.status || "");
     const updated = await updateBooking(selectedRow.id, { ...payload, ...securityPayload });
     const nextRow = { ...selectedRow, ...(updated || {}), ...payload };
     setSelectedRow(nextRow);
@@ -290,6 +294,10 @@ export default function StaffTracking() {
 
   const handleSaveIssueNotes = () => {
     setIssueNoteMessage("");
+    if (!selectedRow) {
+      setIssueNoteMessage("Select a booking before saving issue notes.");
+      return;
+    }
     if (!issueNotesEditable) {
       setIssueNoteMessage(issueNotesLockedMessage || "Issue notes cannot be edited for this booking.");
       return;
