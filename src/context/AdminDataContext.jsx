@@ -20,6 +20,9 @@ const INITIAL_DATA = {
   rewards: [],
   customerRewards: [],
   alerts: [],
+  settings: {
+    requiredDownPaymentAmount: 0,
+  },
   summary: {},
 };
 
@@ -484,6 +487,11 @@ export function AdminDataProvider({ children, session }) {
       }),
     updateUser: (id, payload) => mutate("/api/admin/users/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     createEmployeeAccount: (payload) => mutate("/api/admin/users/staff", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateRequiredDownPaymentAmount: (requiredDownPaymentAmount, adminSpecialPassword) =>
+      mutate("/api/admin/settings/down-payment", {
+        method: "PATCH",
+        body: JSON.stringify({ requiredDownPaymentAmount, adminSpecialPassword, auditUser }),
+      }),
     toggleUserStatus: (user) => mutate("/api/admin/users/" + user.id, { method: "PUT", body: JSON.stringify({ ...user, status: user.status === "active" ? "inactive" : "active", auditUser }) }),
     deleteUser: (id) => mutate("/api/admin/users/" + id + "?auditUser=" + encodeURIComponent(auditUser), { method: "DELETE" }),
     archiveAuditLogs: () =>

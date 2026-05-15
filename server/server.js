@@ -1411,6 +1411,13 @@ async function getOrCreateSecuritySetting() {
   return setting;
 }
 
+function getSafeSecuritySettings(setting = {}) {
+  return {
+    requiredDownPaymentAmount: Math.max(0, roundMoney(setting?.requiredDownPaymentAmount || 0)),
+    updatedAt: setting?.updatedAt || "",
+  };
+}
+
 async function verifyAdminAccountPassword(email, currentPassword) {
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!normalizedEmail || !currentPassword) return null;
@@ -3283,7 +3290,7 @@ async function migrateStockMonitoringCollection() {
 }
 
 async function loadBootstrapData() {
-  const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions, rewards, customerRewards] = await Promise.all([
+  const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions, rewards, customerRewards, securitySetting] = await Promise.all([
     Booking.find().sort({ createdAt: -1 }).lean(),
     Service.find().sort({ createdAt: -1 }).lean(),
     StockMonitoringItem.find().sort({ createdAt: -1 }).lean(),
@@ -3298,6 +3305,7 @@ async function loadBootstrapData() {
     Commission.find().sort({ date: -1, createdAt: -1 }).lean(),
     Reward.find().sort({ createdAt: -1 }).lean(),
     CustomerReward.find().sort({ createdAt: -1 }).lean(),
+    getOrCreateSecuritySetting(),
   ]);
 
   const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
@@ -3333,6 +3341,7 @@ async function loadBootstrapData() {
     commissions,
     rewards,
     customerRewards,
+    settings: getSafeSecuritySettings(securitySetting),
     alerts,
     summary: {
       bookingsToday: bookings.filter((booking) => booking.date === toDateKey()).length,
@@ -3605,7 +3614,50 @@ app.get("/api/admin/security-controls", requireAdminUser, async (_req, res, next
       adminSpecialPasswordConfigured: Boolean(setting.adminSpecialPasswordHash),
       staffSpecialPinConfigured: Boolean(setting.staffSpecialPinHash),
       staffSpecialPasswordConfigured: Boolean(setting.staffSpecialPasswordHash),
+      requiredDownPaymentAmount: getSafeSecuritySettings(setting).requiredDownPaymentAmount,
       updatedAt: setting.updatedAt || "",
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/settings/down-payment", requireAdminUser, async (req, res, next) => {
+  try {
+    const adminSpecialPassword = String(req.body.adminSpecialPassword || req.body.specialPassword || "").trim();
+    if (!adminSpecialPassword) {
+      res.status(401).json({ message: "Admin special password is required." });
+      return;
+    }
+
+    const validCredential = await validateSpecialCredential("password", adminSpecialPassword, "admin");
+    if (!validCredential) {
+      res.status(401).json({ message: "Incorrect admin special password." });
+      return;
+    }
+
+    const rawAmount = req.body.requiredDownPaymentAmount;
+    const amount = Number(rawAmount);
+    if (rawAmount === undefined || rawAmount === null || String(rawAmount).trim() === "") {
+      res.status(400).json({ message: "Required down payment amount is required." });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount < 0 || amount > 1000000) {
+      res.status(400).json({ message: "Required down payment amount must be between 0 and 1,000,000." });
+      return;
+    }
+
+    const setting = await getOrCreateSecuritySetting();
+    setting.requiredDownPaymentAmount = roundMoney(amount);
+    setting.updatedBy = req.authUser?.email || req.body.auditUser || "admin";
+    await setting.save();
+    await recordAudit(setting.updatedBy, "Updated required down payment amount", SECURITY_SETTING_ID, {
+      requiredDownPaymentAmount: setting.requiredDownPaymentAmount,
+    });
+
+    res.json({
+      message: "Required down payment amount updated.",
+      ...getSafeSecuritySettings(setting),
     });
   } catch (error) {
     next(error);

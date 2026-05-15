@@ -4,7 +4,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import { getSecurityControlStatus, getSpecialPasswordStatus, getSpecialPinStatus, updateSecurityControls } from "../../utils/reauth";
 
 export default function AdminProfile({ session }) {
-  const { currentUser, updateProfile, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
+  const { currentUser, settings, updateProfile, updateRequiredDownPaymentAmount, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
   const initial = useMemo(() => ({
     first: currentUser?.first || session?.first || session?.firstName || "",
     last: currentUser?.last || session?.last || session?.lastName || "",
@@ -29,6 +29,9 @@ export default function AdminProfile({ session }) {
   const [securityMessage, setSecurityMessage] = useState("");
   const [securityStatus, setSecurityStatus] = useState({});
   const [securitySaving, setSecuritySaving] = useState("");
+  const [downPaymentForm, setDownPaymentForm] = useState({ amount: "0", adminSpecialPassword: "" });
+  const [downPaymentMessage, setDownPaymentMessage] = useState("");
+  const [downPaymentSaving, setDownPaymentSaving] = useState(false);
   const [visibleSecrets, setVisibleSecrets] = useState({});
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
@@ -51,6 +54,19 @@ export default function AdminProfile({ session }) {
       mounted = false;
     };
   }, []);
+
+  const currentRequiredDownPaymentAmount = useMemo(
+    () => Number(settings?.requiredDownPaymentAmount ?? securityStatus.requiredDownPaymentAmount ?? 0) || 0,
+    [settings?.requiredDownPaymentAmount, securityStatus.requiredDownPaymentAmount]
+  );
+
+  useEffect(() => {
+    if (downPaymentSaving) return;
+    setDownPaymentForm((prev) => ({
+      ...prev,
+      amount: String(currentRequiredDownPaymentAmount),
+    }));
+  }, [currentRequiredDownPaymentAmount, downPaymentSaving]);
 
   const initialLetter = useMemo(() => {
     const base = String(saved.first || saved.email || "A").trim();
@@ -177,6 +193,34 @@ export default function AdminProfile({ session }) {
     }
   };
 
+  const saveRequiredDownPayment = async () => {
+    setDownPaymentMessage("");
+    const rawAmount = String(downPaymentForm.amount || "").trim();
+    const amount = Number(rawAmount);
+    if (!rawAmount || !Number.isFinite(amount) || amount < 0 || amount > 1000000) {
+      setDownPaymentMessage("Enter a valid amount from 0 to 1,000,000.");
+      return;
+    }
+    if (!String(downPaymentForm.adminSpecialPassword || "").trim()) {
+      setDownPaymentMessage("Enter the Admin special password before saving.");
+      return;
+    }
+
+    setDownPaymentSaving(true);
+    try {
+      const result = await updateRequiredDownPaymentAmount(amount, downPaymentForm.adminSpecialPassword);
+      const nextAmount = Number(result?.requiredDownPaymentAmount ?? amount) || 0;
+      setDownPaymentForm({ amount: String(nextAmount), adminSpecialPassword: "" });
+      setSecurityStatus((prev) => ({ ...prev, requiredDownPaymentAmount: nextAmount }));
+      setVisibleSecrets((prev) => ({ ...prev, downPaymentSpecialPassword: false }));
+      setDownPaymentMessage("Required down payment amount updated.");
+    } catch (error) {
+      setDownPaymentMessage(error.message || "Could not update required down payment amount.");
+    } finally {
+      setDownPaymentSaving(false);
+    }
+  };
+
   const renderSecretInput = ({ visibleKey, className = "ap-input ap-editable-input", value, onChange, placeholder }) => (
     <div className="ap-secret-row">
       <input
@@ -198,6 +242,51 @@ export default function AdminProfile({ session }) {
   return (
     <>
       <div className="ap-wrap"><div className="ap-card"><div className="ap-inner"><div className="ap-avatar-col"><div className="ap-avatar">{initialLetter}</div></div><div className="ap-form"><div className="ap-row2"><div className="ap-field"><div className="ap-label">First Name</div><input className="ap-input" readOnly value={saved.first} /></div><div className="ap-field"><div className="ap-label">Last Name</div><input className="ap-input" readOnly value={saved.last} /></div></div><div className="ap-field"><div className="ap-label">Email</div><input className="ap-input" readOnly value={saved.email} /></div><div className="ap-field"><div className="ap-label">Phone</div><input className="ap-input" readOnly value={saved.phone} /></div><div className="ap-field"><div className="ap-label">Password</div><input className="ap-input" readOnly type="password" value="placeholder" /></div><div className="ap-actions"><button className="ap-edit-btn" type="button" onClick={openModal}>Edit Account</button></div></div></div></div></div>
+      <div className="ap-wrap">
+        <div className="ap-card ap-security-card">
+          <div className="ap-security-head">
+            <div>
+              <div className="ap-security-title">Required Down Payment</div>
+              <div className="ap-security-sub">Set the fixed down payment amount required for services that are not exempt from down payment.</div>
+            </div>
+            <div className="ap-security-status">
+              <span>Current: ₱{Number(currentRequiredDownPaymentAmount || 0).toLocaleString()}</span>
+            </div>
+          </div>
+          <div className="ap-form ap-security-form">
+            <div className="ap-row2">
+              <div className="ap-field">
+                <div className="ap-label">Required Down Payment Amount</div>
+                <input
+                  className="ap-input ap-editable-input"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="0.01"
+                  value={downPaymentForm.amount}
+                  onChange={(e) => setDownPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="ap-field">
+                <div className="ap-label">Admin Special Password</div>
+                {renderSecretInput({
+                  visibleKey: "downPaymentSpecialPassword",
+                  value: downPaymentForm.adminSpecialPassword,
+                  onChange: (e) => setDownPaymentForm((prev) => ({ ...prev, adminSpecialPassword: e.target.value })),
+                  placeholder: "Required before saving",
+                })}
+              </div>
+            </div>
+            <div className="ap-actions ap-security-actions">
+              <button className="ap-edit-btn" type="button" disabled={downPaymentSaving} onClick={saveRequiredDownPayment}>
+                {downPaymentSaving ? "Saving..." : "Save Amount"}
+              </button>
+            </div>
+            {downPaymentMessage && <div className="err-msg">{downPaymentMessage}</div>}
+          </div>
+        </div>
+      </div>
       <div className="ap-wrap">
         <div className="ap-card ap-security-card">
           <div className="ap-security-head">
