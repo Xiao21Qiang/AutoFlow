@@ -14,6 +14,14 @@ import {
   getIssueNotesLockedMessage,
   hasMeaningfulIssueNotes,
 } from "../../utils/trackingIssueNotes";
+import {
+  buildWarrantyPayload,
+  canEditWarranty,
+  getLinkedPaymentForBooking,
+  getWarrantyBlockReason,
+  hasRequiredWarrantyFields,
+  isWarrantyExemptService,
+} from "../../utils/warrantyWorkflow";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -107,7 +115,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker, d
 }
 
 export default function AdminTracking() {
-  const { bookings, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
+  const { bookings, payments, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -119,6 +127,7 @@ export default function AdminTracking() {
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const [issueNoteMessage, setIssueNoteMessage] = useState("");
+  const [warrantyMessage, setWarrantyMessage] = useState("");
   const [issueNoteAi, setIssueNoteAi] = useState({
     status: "idle",
     message: "",
@@ -132,6 +141,12 @@ export default function AdminTracking() {
   const issueNotesEditable = canEditIssueNotes({ booking: selectedRow, currentUser, allowAdmin: true });
   const issueNotesLockedMessage = getIssueNotesLockedMessage({ booking: selectedRow, currentUser, allowAdmin: true });
   const savedIssueNotesPresent = hasMeaningfulIssueNotes(selectedRow || {});
+  const linkedPayment = getLinkedPaymentForBooking(selectedRow, payments);
+  const warrantyExempt = isWarrantyExemptService(selectedRow || {});
+  const warrantyEditable = canEditWarranty(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: true });
+  const warrantyBlockReason = getWarrantyBlockReason(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: true });
+  const warrantyDraft = { ...(selectedRow || {}), ...editForm };
+  const warrantyReadyForCompletion = hasRequiredWarrantyFields(warrantyDraft);
 
   useEffect(() => {
     if (!activeMarkerId) return undefined;
@@ -302,12 +317,40 @@ export default function AdminTracking() {
     }
   };
 
+  const handleSaveWarranty = async () => {
+    setWarrantyMessage("");
+    if (!warrantyEditable) {
+      setWarrantyMessage(warrantyBlockReason || "Warranty details cannot be edited for this booking.");
+      return;
+    }
+
+    const payload = buildWarrantyPayload(editForm, selectedRow.status);
+    try {
+      const updated = await updateBooking(selectedRow.id, payload);
+      const nextRow = { ...selectedRow, ...(updated || {}), ...payload };
+      setSelectedRow(nextRow);
+      setEditForm((prev) => ({ ...prev, ...createEditForm(nextRow), status: prev.status }));
+      setWarrantyMessage("Warranty details saved.");
+      showToast("success", "Warranty details saved.");
+    } catch (error) {
+      const message = error.message || "Failed to save warranty details.";
+      setWarrantyMessage(message);
+      showToast("error", message);
+    }
+  };
+
   const handleSaveTracking = (event) => {
     event.preventDefault();
     setIssueNoteMessage("");
+    setWarrantyMessage("");
 
     if (editForm.status === "In Progress" && !savedIssueNotesPresent) {
       setIssueNoteMessage("Issue notes must be saved before starting the service.");
+      return;
+    }
+
+    if (editForm.status === "Completed" && !warrantyExempt && !warrantyReadyForCompletion) {
+      setWarrantyMessage("Warranty details must be completed before marking this booking as completed.");
       return;
     }
 
@@ -366,7 +409,7 @@ export default function AdminTracking() {
           {paged.length === 0 ? <div className="stEmptyRow">No tracking records found.</div> : paged.map((r) => (
             <div className="stRow" key={r.id}>
               <div className="stId">{r.id}</div><div>{r.date}</div><div>{r.customer}</div><div>{r.vehicle}</div><div>{r.service}</div><div><span className={`stPill ${statusClass(r.status)}`}>{r.status}</span></div><div>{r.assigned}</div>
-              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setIssueNoteMessage(""); setModal("edit"); }}>Edit</button></div></div>
+              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setIssueNoteMessage(""); setWarrantyMessage(""); setModal("edit"); }}>Edit</button></div></div>
             </div>
           ))}
         </div>
@@ -385,7 +428,7 @@ export default function AdminTracking() {
               <label className="usersField"><span>Service</span><input value={editForm.service} readOnly disabled /></label>
               <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} readOnly disabled /></label>
               <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} readOnly disabled /></label>
-              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={option === "In Progress" && !savedIssueNotesPresent}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}</label>
+              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !warrantyExempt && !warrantyReadyForCompletion)}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}{!warrantyExempt && !warrantyReadyForCompletion && <div className="trackWarrantyNotice">Warranty details must be completed before marking this booking as completed.</div>}</label>
               <div className="bookIssueSection">
                 <div className="bookIssueSectionHead"><div className="bookIssueTitle">Problem Location</div><div className="bookIssueSub">Issue details are managed in Service Tracking.</div></div>
                 <div className="bookIssueLayout">
@@ -456,16 +499,19 @@ export default function AdminTracking() {
               </div>
               <div className="bookIssueSection">
                 <div className="bookIssueSectionHead"><div className="bookIssueTitle">Warranty Document</div><div className="bookIssueSub">Use the official checklist.pdf as the warranty document. <a href="/checklist.pdf" target="_blank" rel="noreferrer">Open PDF</a></div></div>
-                <div className="warrantyGrid">
+                <div className={warrantyEditable ? "trackWarrantyNotice success" : "trackWarrantyNotice"}>
+                  {warrantyEditable ? "Warranty details can be edited while this service is In Progress and fully paid." : warrantyBlockReason}
+                </div>
+                <div className={`warrantyGrid${warrantyExempt ? " warrantyLocked" : ""}`}>
                   {editForm.warrantyChecklistItems.map((item) => (
                     <div className="warrantyItem" key={item.id}>
-                      <label><input type="checkbox" checked={item.done} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, done: event.target.checked } : entry) }))} /> <span>{item.label}</span></label>
-                      <input value={item.doneBy} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, doneBy: event.target.value } : entry) }))} placeholder="Done by" />
-                      <input value={item.notes} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, notes: event.target.value } : entry) }))} placeholder="Notes" />
+                      <label><input type="checkbox" checked={item.done} disabled={!warrantyEditable} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, done: event.target.checked } : entry) }))} /> <span>{item.label}</span></label>
+                      <input value={item.doneBy} disabled={!warrantyEditable} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, doneBy: event.target.value } : entry) }))} placeholder="Done by" />
+                      <input value={item.notes} disabled={!warrantyEditable} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyChecklistItems: prev.warrantyChecklistItems.map((entry) => entry.id === item.id ? { ...entry, notes: event.target.value } : entry) }))} placeholder="Notes" />
                     </div>
                   ))}
                 </div>
-                <label className="usersField"><span>Warranty Coverage</span><select value={editForm.warrantyCoveragePackage} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyCoveragePackage: e.target.value }))}>{WARRANTY_COVERAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+                <label className="usersField"><span>Warranty Coverage</span><select value={editForm.warrantyCoveragePackage} disabled={!warrantyEditable} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyCoveragePackage: e.target.value }))}>{WARRANTY_COVERAGE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
                 <details className="warrantyCoverage"><summary>Coverage Notes</summary>{WARRANTY_COVERAGE_NOTES.map((note) => <p key={note}>{note}</p>)}</details>
                 <div className="warrantyAckGrid">
                   {[
@@ -476,12 +522,18 @@ export default function AdminTracking() {
                     ["clientName", "Client Name"],
                     ["clientSignature", "Client Signature"],
                   ].map(([key, label]) => (
-                    <label className="usersField" key={key}><span>{label}</span><input value={editForm.warrantyAcknowledgement[key] || ""} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyAcknowledgement: { ...prev.warrantyAcknowledgement, [key]: event.target.value } }))} /></label>
+                    <label className="usersField" key={key}><span>{label}</span><input value={editForm.warrantyAcknowledgement[key] || ""} readOnly={key !== "dateLocation"} disabled={key !== "dateLocation" || !warrantyEditable} onChange={(event) => setEditForm((prev) => ({ ...prev, warrantyAcknowledgement: { ...prev.warrantyAcknowledgement, [key]: event.target.value } }))} /></label>
                   ))}
                 </div>
-                <label className="usersField"><span>Warranty Notes</span><textarea rows="3" value={editForm.warrantyChecklist} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyChecklist: e.target.value }))} /></label>
-                <label className="usersField"><span>Release Warranty QR</span><select value={editForm.warrantyReleased ? "Released" : "Hold"} disabled={editForm.status !== "Completed"} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyReleased: e.target.value === "Released" }))}><option>Hold</option><option>Released</option></select></label>
+                <label className="usersField"><span>Warranty Notes</span><textarea rows="3" value={editForm.warrantyChecklist} disabled={!warrantyEditable} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyChecklist: e.target.value }))} /></label>
+                <label className="usersField"><span>Release Warranty QR</span><select value={editForm.warrantyReleased ? "Released" : "Hold"} disabled={editForm.status !== "Completed" || !warrantyEditable} onChange={(e) => setEditForm((prev) => ({ ...prev, warrantyReleased: e.target.value === "Released" }))}><option>Hold</option><option>Released</option></select></label>
                 {editForm.status !== "Completed" && <div className="warrantyHint">Warranty release is locked until the booking status is Completed.</div>}
+                <div className="trackIssueSaveRow">
+                  <button className="usersPrimaryBtn" type="button" onClick={handleSaveWarranty} disabled={!warrantyEditable}>
+                    Save Warranty Details
+                  </button>
+                  {warrantyMessage && <div className="trackIssueSaveMessage">{warrantyMessage}</div>}
+                </div>
               </div>
               </div>
               <div className="usersModalActions trackModalFoot"><button className="usersTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save</button></div>

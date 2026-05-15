@@ -91,6 +91,7 @@ export function getLinkedPaymentForBooking(booking = {}, payments = []) {
     [
       booking?.id,
       booking?._id,
+      booking?.bookingId,
       booking?.paymentId,
       booking?.payment?.id,
       booking?.payment?.bookingId,
