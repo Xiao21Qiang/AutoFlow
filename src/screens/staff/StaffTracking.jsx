@@ -21,9 +21,9 @@ import {
   canEditWarranty,
   getLinkedPaymentForBooking,
   getWarrantyBlockReason,
-  hasRequiredWarrantyFields,
   isWarrantyExemptService,
 } from "../../utils/warrantyWorkflow";
+import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 const ISSUE_TYPES = WARRANTY_ISSUE_TYPES;
@@ -146,7 +146,9 @@ export default function StaffTracking() {
   const warrantyEditable = canEditWarranty(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false });
   const warrantyBlockReason = getWarrantyBlockReason(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false });
   const warrantyDraft = { ...(selectedRow || {}), ...editForm };
-  const warrantyReadyForCompletion = hasRequiredWarrantyFields(warrantyDraft);
+  const completionDraft = { ...(selectedRow || {}), ...warrantyDraft, status: selectedRow?.status || "" };
+  const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
+  const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
 
   const closeModal = () => {
     setModal(null);
@@ -359,8 +361,8 @@ export default function StaffTracking() {
       return;
     }
 
-    if (editForm.status === "Completed" && !warrantyExempt && !warrantyReadyForCompletion) {
-      setWarrantyMessage("Warranty details must be completed before marking this booking as completed.");
+    if (editForm.status === "Completed" && !completionReadiness.canComplete) {
+      setWarrantyMessage(completionReadinessMessage || "Booking cannot be completed yet.");
       return;
     }
 
@@ -537,11 +539,11 @@ export default function StaffTracking() {
                     onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}
                   >
                     {STATUS_OPTIONS.map((option) => (
-                      <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !warrantyExempt && !warrantyReadyForCompletion)}>{option}</option>
+                      <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !completionReadiness.canComplete)}>{option}</option>
                     ))}
                   </select>
                   {!savedIssueNotesPresent && <div className="stTrackIssueHelper">Issue notes must be saved before starting the service.</div>}
-                  {!warrantyExempt && !warrantyReadyForCompletion && <div className="stTrackWarrantyNotice">Warranty details must be completed before marking this booking as completed.</div>}
+                  {completionReadinessMessage && <div className="stTrackWarrantyNotice">{completionReadinessMessage}</div>}
                 </label>
               </div>
 

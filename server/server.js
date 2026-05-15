@@ -2186,7 +2186,8 @@ function isPaymentFullyPaid(payment = {}) {
 async function getLinkedPaymentForBooking(booking = {}) {
   const bookingId = String(booking?.id || "").trim();
   const mongoId = String(booking?._id || "").trim();
-  const candidates = [...new Set([bookingId, mongoId].filter(Boolean))];
+  const legacyBookingId = String(booking?.bookingId || "").trim();
+  const candidates = [...new Set([bookingId, mongoId, legacyBookingId].filter(Boolean))];
   if (!candidates.length) return null;
 
   const payment = await Payment.findOne({
@@ -2343,6 +2344,45 @@ async function validateScheduledRequirements({ booking, payment, bookingId = "" 
   });
 }
 
+async function validateBookingCompletion({ previousBooking, nextBooking, payment, bookingId = "" }) {
+  const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
+
+  if (previousStatus !== "In Progress") {
+    throwValidationError("Booking must be in progress with valid schedule details before it can be completed.");
+  }
+
+  if (!hasAssignedStaff(nextBooking)) {
+    throwValidationError("Assigned staff is required before completing this booking.");
+  }
+
+  const date = String(nextBooking.date || "").trim();
+  const time = String(nextBooking.time || "").trim();
+  const placeSlot = Number(nextBooking.placeSlot || 0);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidScheduleTime(time) || !PLACE_SLOT_OPTIONS.includes(placeSlot)) {
+    throwValidationError("Booking must be in progress with valid schedule details before it can be completed.");
+  }
+
+  await validateShopHours({ time, service: nextBooking.service });
+  await validateBookingSlotAvailability({
+    bookingId,
+    date,
+    time,
+    service: nextBooking.service,
+    placeSlot,
+  });
+
+  if (!payment || !isPaymentFullyPaid(payment)) {
+    throwValidationError("Full payment must be marked as paid before completing this booking.");
+  }
+  if (!hasMeaningfulIssueNotes(nextBooking)) {
+    throwValidationError("Issue notes must be saved before completing this booking.");
+  }
+  if (!hasRequiredWarrantyDetails(nextBooking)) {
+    throwValidationError("Warranty details must be completed before completing this booking.");
+  }
+}
+
 async function validateBookingLifecycleTransition({ previousBooking, nextBooking, payment, nextStatus, scheduleChanged = false }) {
   const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
   const statusChanged = previousStatus !== nextStatus;
@@ -2363,18 +2403,12 @@ async function validateBookingLifecycleTransition({ previousBooking, nextBooking
   }
 
   if (statusChanged && nextStatus === "Completed") {
-    if (!payment) {
-      throwValidationError("A linked payment record is required before completing this booking.");
-    }
-    if (!isPaymentFullyPaid(payment)) {
-      throwValidationError("Full payment must be marked as paid before completing this booking.");
-    }
-    if (!hasMeaningfulIssueNotes(nextBooking)) {
-      throwValidationError("Issue notes must be saved before completing this booking.");
-    }
-    if (!hasRequiredWarrantyDetails(nextBooking)) {
-      throwValidationError("Warranty details must be completed before marking this booking as completed.");
-    }
+    await validateBookingCompletion({
+      previousBooking,
+      nextBooking,
+      payment,
+      bookingId: previousBooking.id,
+    });
   }
 }
 
@@ -4393,12 +4427,15 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
           baseAmount: promoPricing.amount,
           excludePaymentId: linkedPaymentForReward?.id || "",
         });
+    const wasCompleted = isCompletedStatus(existingBooking.status);
+    const willComplete = isCompletedStatus(nextStatus);
     const shouldApplyConsumables =
-      isCompletedStatus(nextStatus) &&
+      !wasCompleted &&
+      willComplete &&
       !existingBooking.consumablesApplied;
     const shouldCreateCommission =
-      isCompletedStatus(nextStatus) &&
-      !isCompletedStatus(existingBooking.status);
+      !wasCompleted &&
+      willComplete;
 
     const updatePayload = {
       ...req.body,

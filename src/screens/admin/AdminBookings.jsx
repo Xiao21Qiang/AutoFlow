@@ -21,6 +21,7 @@ import {
   isScheduledStatus,
   isValidShopTime,
 } from "../../utils/bookingWorkflow";
+import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 function formatDate(dateStr) {
@@ -191,6 +192,17 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const downPaymentSatisfied = isBookingDownPaymentSatisfied(draftBookingForScheduling, linkedPayment);
   const scheduleRequirementsMet = canScheduleBooking(draftBookingForScheduling, linkedPayment);
   const schedulingValidationMessage = getSchedulingValidationMessage(draftBookingForScheduling, linkedPayment);
+  const completionDraft = useMemo(
+    () => ({
+      ...(selectedBooking || {}),
+      ...form,
+      status: selectedBooking?.status || form.status,
+      placeSlot: Number(form.placeSlot || selectedBooking?.placeSlot || 0),
+    }),
+    [form, selectedBooking]
+  );
+  const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
+  const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
   const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
   const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
@@ -199,8 +211,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     const disabledOptions = [];
     if (isPendingBookingEdit && !scheduleRequirementsMet) disabledOptions.push("Scheduled");
     if (isScheduledBookingEdit) disabledOptions.push("Pending");
+    if (modal === "add" || !completionReadiness.canComplete) disabledOptions.push("Completed");
     return disabledOptions;
-  }, [isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, scheduleRequirementsMet]);
+  }, [completionReadiness.canComplete, isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, modal, scheduleRequirementsMet]);
   const matchedCustomer = useMemo(
     () =>
       customerOptions.find(
@@ -451,6 +464,11 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   return;
                 }
 
+                if (String(form.status || "").trim().toLowerCase() === "completed" && !completionReadiness.canComplete) {
+                  setFormError(completionReadinessMessage || "Booking cannot be completed yet.");
+                  return;
+                }
+
                 const matchedService = services.find((service) => service.name === form.service);
                 const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
                 const payload = {
@@ -676,6 +694,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   )}
                   {isPendingBookingEdit && schedulingValidationMessage ? (
                     <div className="bookSlotHint">{schedulingValidationMessage}</div>
+                  ) : null}
+                  {modal === "edit" && !completionReadiness.canComplete ? (
+                    <div className="bookSlotHint">{completionReadinessMessage}</div>
                   ) : null}
                 </label>
                 {form.date && form.time && (

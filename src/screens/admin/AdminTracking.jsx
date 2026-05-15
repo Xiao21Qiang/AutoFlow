@@ -19,9 +19,9 @@ import {
   canEditWarranty,
   getLinkedPaymentForBooking,
   getWarrantyBlockReason,
-  hasRequiredWarrantyFields,
   isWarrantyExemptService,
 } from "../../utils/warrantyWorkflow";
+import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -146,7 +146,9 @@ export default function AdminTracking() {
   const warrantyEditable = canEditWarranty(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: true });
   const warrantyBlockReason = getWarrantyBlockReason(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: true });
   const warrantyDraft = { ...(selectedRow || {}), ...editForm };
-  const warrantyReadyForCompletion = hasRequiredWarrantyFields(warrantyDraft);
+  const completionDraft = { ...(selectedRow || {}), ...warrantyDraft, status: selectedRow?.status || "" };
+  const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
+  const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
 
   useEffect(() => {
     if (!activeMarkerId) return undefined;
@@ -349,8 +351,8 @@ export default function AdminTracking() {
       return;
     }
 
-    if (editForm.status === "Completed" && !warrantyExempt && !warrantyReadyForCompletion) {
-      setWarrantyMessage("Warranty details must be completed before marking this booking as completed.");
+    if (editForm.status === "Completed" && !completionReadiness.canComplete) {
+      setWarrantyMessage(completionReadinessMessage || "Booking cannot be completed yet.");
       return;
     }
 
@@ -428,7 +430,7 @@ export default function AdminTracking() {
               <label className="usersField"><span>Service</span><input value={editForm.service} readOnly disabled /></label>
               <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} readOnly disabled /></label>
               <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} readOnly disabled /></label>
-              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !warrantyExempt && !warrantyReadyForCompletion)}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}{!warrantyExempt && !warrantyReadyForCompletion && <div className="trackWarrantyNotice">Warranty details must be completed before marking this booking as completed.</div>}</label>
+              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !completionReadiness.canComplete)}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}{completionReadinessMessage && <div className="trackWarrantyNotice">{completionReadinessMessage}</div>}</label>
               <div className="bookIssueSection">
                 <div className="bookIssueSectionHead"><div className="bookIssueTitle">Problem Location</div><div className="bookIssueSub">Issue details are managed in Service Tracking.</div></div>
                 <div className="bookIssueLayout">
