@@ -1137,21 +1137,53 @@ async function handleFinancialAiInterpret(req, res, next) {
 }
 
 const USER_TYPE_DEFAULT_ROLE = {
-  admin: "Owner",
-  staff: "Mechanic",
+  admin: "Admin",
+  staff: "Junior Detailer",
   customer: "New",
 };
 
 const RESERVED_USER_OVERRIDES = {
-  "admin@allprotec.com": { userType: "Admin", role: "Owner" },
-  "staff@allprotec.com": { userType: "Staff", role: "Mechanic" },
+  "admin@allprotec.com": { userType: "Admin", role: "Admin" },
+  "staff@allprotec.com": { userType: "Staff", role: "Junior Detailer" },
 };
 
+const STAFF_ROLE_OPTIONS = [
+  "Admin",
+  "General Manager",
+  "Sales Manager",
+  "Sales Associate",
+  "Inventory Clerk",
+  "Junior Detailer",
+  "Senior Detailer",
+  "Marketing",
+];
+
+const STAFF_ROLE_LABELS = new Map(
+  STAFF_ROLE_OPTIONS.map((role) => [normalizeRoleKey(role), role])
+);
+
+const LEGACY_STAFF_ROLE_KEYS = new Set([
+  "mechanic",
+  "inspector",
+  "coordinator",
+  "staff",
+  "detailer",
+  "technician",
+  "employee",
+  "manager",
+  "senior staff",
+  "junior staff",
+]);
+
 const ROLE_OPTIONS_BY_USER_TYPE = {
-  admin: new Set(["owner", "co-owner"]),
-  staff: new Set(["mechanic", "inspector", "coordinator"]),
+  admin: new Set(STAFF_ROLE_LABELS.keys()),
+  staff: new Set(STAFF_ROLE_LABELS.keys()),
   customer: new Set(["new", "returning"]),
 };
+
+function normalizeRoleKey(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 function toTitleCase(value) {
   return String(value || "")
@@ -1172,19 +1204,23 @@ function normalizeUserType(userType, role) {
     return "customer";
   }
 
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = normalizeRoleKey(role);
   if (["admin", "owner", "co-owner"].includes(normalizedRole)) return "admin";
-  if (["staff", "mechanic", "inspector", "coordinator"].includes(normalizedRole)) return "staff";
+  if (LEGACY_STAFF_ROLE_KEYS.has(normalizedRole) || (STAFF_ROLE_LABELS.has(normalizedRole) && normalizedRole !== "admin")) return "staff";
   if (["customer", LEGACY_CUSTOMER_ALIAS, "new", "returning"].includes(normalizedRole)) return "customer";
   return "customer";
 }
 
 function normalizeSubtype(userType, role) {
   const normalizedUserType = normalizeUserType(userType, role);
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = normalizeRoleKey(role);
   const validRoles = ROLE_OPTIONS_BY_USER_TYPE[normalizedUserType];
 
   if (validRoles?.has(normalizedRole)) {
+    return normalizedRole;
+  }
+
+  if ((normalizedUserType === "admin" || normalizedUserType === "staff") && normalizedRole && !["admin", "staff", "customer"].includes(normalizedRole)) {
     return normalizedRole;
   }
 
@@ -1196,8 +1232,18 @@ function toDisplayUserType(userType, role) {
 }
 
 function toDisplaySubtype(userType, role) {
-  const label = toTitleCase(normalizeSubtype(userType, role));
+  const normalizedSubtype = normalizeSubtype(userType, role);
+  const label = STAFF_ROLE_LABELS.get(normalizedSubtype) || toTitleCase(normalizedSubtype);
   return label === "Co Owner" ? "Co-Owner" : label;
+}
+
+function isValidStaffRole(role) {
+  return STAFF_ROLE_LABELS.has(normalizeRoleKey(role));
+}
+
+function normalizeStaffRoleForSave(role) {
+  const normalizedRole = normalizeRoleKey(role);
+  return STAFF_ROLE_LABELS.get(normalizedRole) || "";
 }
 
 function buildAuthPayload(user) {
@@ -2722,7 +2768,7 @@ async function ensureSeedData() {
         first: "Admin",
         last: "User",
         userType: "Admin",
-        role: "Owner",
+        role: "Admin",
         email: "admin@allprotec.com",
         phone: "09171234567",
         password: "Admin@123",
@@ -2734,7 +2780,7 @@ async function ensureSeedData() {
         first: "Staff",
         last: "User",
         userType: "Staff",
-        role: "Mechanic",
+        role: "Junior Detailer",
         email: "staff@allprotec.com",
         phone: "09181234567",
         password: "Staff@123",
@@ -2828,7 +2874,7 @@ async function ensureProductionAdminFromEnv() {
     first,
     last,
     userType: "Admin",
-    role: "Owner",
+    role: "Admin",
     email: ADMIN_SEED_EMAIL,
     phone: ADMIN_SEED_PHONE,
     password: hashPassword(ADMIN_SEED_PASSWORD),
@@ -5149,7 +5195,7 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     const email = String(req.body.email || "").trim().toLowerCase();
     const phone = String(req.body.phone || "").trim();
     const password = String(req.body.password || "");
-    const role = toDisplaySubtype("Staff", req.body.role || "Mechanic");
+    const role = normalizeStaffRoleForSave(req.body.role || USER_TYPE_DEFAULT_ROLE.staff);
 
     if (!name) {
       res.status(400).json({ message: "Full name is required." });
@@ -5165,6 +5211,10 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     }
     if (password.length < 8) {
       res.status(400).json({ message: "Password must be at least 8 characters." });
+      return;
+    }
+    if (!role) {
+      res.status(400).json({ message: "Select a valid staff role." });
       return;
     }
 
@@ -5248,6 +5298,16 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     const requestedSubtype = Object.prototype.hasOwnProperty.call(req.body, "role")
       ? normalizeSubtype(req.body.userType || existingUser.userType, req.body.role)
       : existingSubtype;
+    const nextAccountTypeForRole = toDisplayUserType(req.body.userType || existingUser.userType, req.body.role);
+    if (
+      actorType === "admin" &&
+      ["Admin", "Staff"].includes(nextAccountTypeForRole) &&
+      Object.prototype.hasOwnProperty.call(req.body, "role") &&
+      !isValidStaffRole(req.body.role)
+    ) {
+      res.status(400).json({ message: "Select a valid staff role." });
+      return;
+    }
     const isRoleUpdate = actorType === "admin" && (requestedUserType !== existingUserType || requestedSubtype !== existingSubtype);
     if (isRoleUpdate) {
       await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin" });
@@ -5260,7 +5320,9 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       ? {
           ...req.body,
           userType: nextUserType,
-          role: toDisplaySubtype(nextUserType, req.body.role),
+          role: ["Admin", "Staff"].includes(nextUserType)
+            ? normalizeStaffRoleForSave(req.body.role || USER_TYPE_DEFAULT_ROLE[nextUserType.toLowerCase()])
+            : toDisplaySubtype(nextUserType, req.body.role),
           name: req.body.name || (String(req.body.first || "") + " " + String(req.body.last || "")).trim(),
         }
       : {

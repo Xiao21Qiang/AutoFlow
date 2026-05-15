@@ -10,6 +10,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
+import { getDetailerStaffOptions } from "../../utils/staffRoles";
 import {
   PLACE_SLOT_OPTIONS,
   SHOP_TIME_OPTIONS,
@@ -137,7 +138,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const customerOptions = users
     .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
     .map((user) => ({ name: user.name, email: user.email || "", cars: Array.isArray(user.cars) ? user.cars : [] }));
-  const staffOptions = users.filter((user) => ["staff", "admin"].includes(String(user.userType || "").toLowerCase())).map((user) => user.name).filter(Boolean);
+  const staffOptions = useMemo(() => getDetailerStaffOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
     [promos]
@@ -636,11 +637,11 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   </label>
                 )}
                 <label className="bookField">
-                  <span>Staff</span>
+                  <span>Assigned Detailer</span>
                   <ModalSelect
                     value={form.assigned}
                     options={staffOptions}
-                    placeholder="Select staff"
+                    placeholder="Select detailer"
                     onSelect={(option) => setForm((prev) => ({ ...prev, assigned: option }))}
                     disabled={assignedStaffLocked}
                   />

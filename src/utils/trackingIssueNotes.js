@@ -5,7 +5,9 @@ export function normalizeComparable(value) {
 export function isAdminUser(user = {}) {
   const userType = normalizeComparable(user.userType);
   const role = normalizeComparable(user.role);
-  return userType === "admin" || ["admin", "owner", "co-owner"].includes(role);
+  if (userType === "admin") return true;
+  if (userType === "staff" || userType === "customer") return false;
+  return ["admin", "owner", "co-owner"].includes(role);
 }
 
 export function isScheduledStatus(status) {

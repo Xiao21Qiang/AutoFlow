@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../services/api";
+import { isValidStaffRole, normalizeStaffRole } from "../utils/staffRoles";
 
 const AdminDataContext = createContext(null);
 
@@ -28,9 +29,14 @@ function normalizeUserType(userType, role) {
     return normalizedUserType;
   }
 
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = normalizeStaffRole(role);
   if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
+  if (
+    ["mechanic", "inspector", "coordinator", "staff", "detailer", "technician", "employee", "manager", "senior staff", "junior staff"].includes(normalizedRole) ||
+    (isValidStaffRole(normalizedRole) && normalizedRole !== "admin")
+  ) {
+    return "staff";
+  }
   return "customer";
 }
 
@@ -261,7 +267,7 @@ export function AdminDataProvider({ children, session }) {
       email: session?.email || "admin@allprotec.com",
       phone: session?.phone || "",
       userType: session?.userType || normalizeUserType(session?.userType, session?.role || "Admin"),
-      role: session?.role || "Owner",
+      role: session?.role || "Admin",
       status: "active",
       cars: Array.isArray(session?.cars) ? session.cars : [],
     }),

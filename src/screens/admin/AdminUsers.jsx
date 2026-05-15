@@ -4,14 +4,20 @@ import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
+import {
+  STAFF_ROLE_OPTIONS,
+  getStaffRoleLabel,
+  isValidStaffRole,
+  normalizeStaffRole,
+} from "../../utils/staffRoles";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
 const USER_TYPE_OPTIONS = ["Admin", "Staff"];
 const ROLE_OPTIONS_BY_USER_TYPE = {
-  Admin: ["Owner", "Co-Owner"],
-  Staff: ["Mechanic", "Inspector", "Coordinator"],
+  Admin: STAFF_ROLE_OPTIONS,
+  Staff: STAFF_ROLE_OPTIONS,
   Customer: ["New", "Returning"],
 };
 
@@ -23,9 +29,14 @@ function normalizeUserType(user) {
     return normalizedUserType;
   }
 
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
+  const normalizedRole = normalizeStaffRole(user?.role);
   if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
+  if (
+    ["mechanic", "inspector", "coordinator", "staff", "detailer", "technician", "employee", "manager", "senior staff", "junior staff"].includes(normalizedRole) ||
+    (isValidStaffRole(normalizedRole) && normalizedRole !== "admin")
+  ) {
+    return "staff";
+  }
   return "customer";
 }
 
@@ -35,9 +46,9 @@ function toDisplayUserType(user) {
 }
 
 function toDisplayRole(userType, role) {
-  const normalizedRole = String(role || "").trim().toLowerCase();
-  if (normalizedRole === "co-owner" || normalizedRole === "co owner") return "Co-Owner";
+  const normalizedRole = normalizeStaffRole(role);
   if (!normalizedRole) return ROLE_OPTIONS_BY_USER_TYPE[userType]?.[0] || "";
+  if (userType === "Admin" || userType === "Staff") return getStaffRoleLabel(role);
   return normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1);
 }
 
@@ -65,7 +76,7 @@ const createEmployeeForm = () => ({
   email: "",
   phone: "",
   password: "",
-  role: EMPLOYEE_ROLE_OPTIONS[0] || "Mechanic",
+  role: EMPLOYEE_ROLE_OPTIONS[0] || "Junior Detailer",
 });
 
 export default function AdminUsers() {
@@ -73,7 +84,7 @@ export default function AdminUsers() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filters, setFilters] = useState({ userType: "", status: "" });
+  const [filters, setFilters] = useState({ userType: "", role: "", status: "" });
   const [modal, setModal] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
@@ -97,8 +108,9 @@ export default function AdminUsers() {
       const matchesQuery =
         !q || `${user.name} ${userType} ${role} ${user.email} ${user.status}`.toLowerCase().includes(q);
       const matchesUserType = !filters.userType || userType === filters.userType;
+      const matchesRole = !filters.role || role === filters.role;
       const matchesStatus = !filters.status || user.status === filters.status.toLowerCase();
-      return matchesQuery && matchesUserType && matchesStatus;
+      return matchesQuery && matchesUserType && matchesRole && matchesStatus;
     });
   }, [manageableUsers, query, filters]);
 
@@ -106,7 +118,10 @@ export default function AdminUsers() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const currentRoleOptions = ROLE_OPTIONS_BY_USER_TYPE[editForm.userType] || [];
+  const currentRoleOptions = useMemo(() => {
+    const base = ROLE_OPTIONS_BY_USER_TYPE[editForm.userType] || [];
+    return editForm.role && !base.includes(editForm.role) ? [editForm.role, ...base] : base;
+  }, [editForm.role, editForm.userType]);
   const isCustomerUser = editForm.userType === "Customer";
 
   const closeModal = () => {
@@ -129,7 +144,7 @@ export default function AdminUsers() {
       <div className="usersCreateCard">
         <div>
           <div className="usersCreateTitle">Employee Accounts</div>
-          <p className="usersCreateText">Create new staff accounts here for mechanics, inspectors, or coordinators.</p>
+          <p className="usersCreateText">Create new staff accounts here for managers, associates, clerks, detailers, and marketing staff.</p>
         </div>
         <button className="usersCreateBtn" type="button" onClick={() => { setEmployeeForm(createEmployeeForm()); setModal("employee"); }}>Add Employee Account</button>
       </div>
@@ -165,7 +180,14 @@ export default function AdminUsers() {
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
-              <form className="usersEditForm" onSubmit={(e) => { e.preventDefault(); setSecurityConfirm({ mode: "password", title: "Update User Role", message: "Enter the admin special password before changing this account.", onConfirm: async ({ secret }) => { try { await updateUser(selectedUser.id, { ...selectedUser, ...editForm, specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account updated."); closeModal(); } catch (error) { showToast("error", error.message || "Could not update user account."); throw error; } } }); }}>
+              <form className="usersEditForm" onSubmit={(e) => {
+                e.preventDefault();
+                if ((editForm.userType === "Admin" || editForm.userType === "Staff") && !isValidStaffRole(editForm.role)) {
+                  showToast("error", "Select a valid staff role before saving.");
+                  return;
+                }
+                setSecurityConfirm({ mode: "password", title: "Update User Role", message: "Enter the admin special password before changing this account.", onConfirm: async ({ secret }) => { try { await updateUser(selectedUser.id, { ...selectedUser, ...editForm, specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account updated."); closeModal(); } catch (error) { showToast("error", error.message || "Could not update user account."); throw error; } } });
+              }}>
                 <div className="usersModalTitle">Edit User</div>
                 <div className="usersFieldGroup">
                   <label className="usersField"><span>Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
@@ -194,7 +216,7 @@ export default function AdminUsers() {
                       <input value="—" readOnly placeholder="Customer account" />
                     ) : (
                       <select value={editForm.role} onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))} required>
-                        {currentRoleOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        {currentRoleOptions.map((option) => <option key={option} value={option} disabled={!isValidStaffRole(option)}>{option}</option>)}
                       </select>
                     )}
                   </label>
@@ -214,6 +236,10 @@ export default function AdminUsers() {
             {modal === "employee" && (
               <form className="usersEditForm" onSubmit={(e) => {
                 e.preventDefault();
+                if (!isValidStaffRole(employeeForm.role)) {
+                  showToast("error", "Select a valid staff role before creating this employee.");
+                  return;
+                }
                 setSecurityConfirm({
                   mode: "currentPassword",
                   title: "Create Employee Account",
@@ -271,13 +297,14 @@ export default function AdminUsers() {
         title="Filter Users"
         fields={[
           { key: "userType", label: "User Type", type: "select", options: USER_TYPE_OPTIONS },
+          { key: "role", label: "Role", type: "select", options: STAFF_ROLE_OPTIONS },
           { key: "status", label: "Status", type: "select", options: ["Active", "Inactive"] },
         ]}
         values={filters}
         onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
         onClose={() => setIsFilterOpen(false)}
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
-        onReset={() => { setFilters({ userType: "", status: "" }); setPage(1); }}
+        onReset={() => { setFilters({ userType: "", role: "", status: "" }); setPage(1); }}
       />
       <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />

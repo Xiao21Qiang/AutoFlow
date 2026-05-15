@@ -1,6 +1,20 @@
+import { STAFF_ROLE_OPTIONS, normalizeStaffRole } from "./staffRoles";
+
 const AUTH_LOGIN_AT_KEY = "authLoginAt";
 const AUTH_LAST_ACTIVITY_KEY = "authLastActivity";
 const AUTH_MESSAGE_KEY = "authMessage";
+const STAFF_JOB_ROLE_KEYS = new Set([
+  ...STAFF_ROLE_OPTIONS.map(normalizeStaffRole).filter((role) => role !== "admin"),
+  "mechanic",
+  "inspector",
+  "coordinator",
+  "detailer",
+  "technician",
+  "employee",
+  "manager",
+  "senior staff",
+  "junior staff",
+]);
 
 const ADMIN_STAFF_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const CLIENT_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
@@ -23,9 +37,9 @@ export function getUserType(user) {
   if (["admin", "staff"].includes(normalizedUserType)) return normalizedUserType;
   if (["customer", "client"].includes(normalizedUserType)) return "customer";
 
-  const normalizedRole = String(user?.role || "").trim().toLowerCase();
+  const normalizedRole = normalizeStaffRole(user?.role);
   if (["owner", "co-owner", "admin"].includes(normalizedRole)) return "admin";
-  if (["mechanic", "inspector", "coordinator", "staff"].includes(normalizedRole)) return "staff";
+  if (["staff", ...STAFF_JOB_ROLE_KEYS].includes(normalizedRole)) return "staff";
   return "customer";
 }
 

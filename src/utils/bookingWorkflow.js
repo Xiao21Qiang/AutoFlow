@@ -1,19 +1,20 @@
 import { isDownPaymentSatisfied } from "./paymentStages";
+import { isDetailerRole, normalizeStaffRole } from "./staffRoles";
 
-const DETAILER_ROLES = new Set(["junior detailer", "senior detailer"]);
 export const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 export const SHOP_OPEN_TIME = "08:00";
 export const SHOP_CLOSE_TIME = "17:00";
 
 export function normalizeRole(value) {
-  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return normalizeStaffRole(value);
 }
 
 export function getPreferredDetailerOptions(users = []) {
   const seen = new Set();
 
   return (Array.isArray(users) ? users : [])
-    .filter((user) => DETAILER_ROLES.has(normalizeRole(user?.role)))
+    .filter((user) => String(user?.userType || "").trim().toLowerCase() === "staff")
+    .filter((user) => isDetailerRole(user?.role))
     .map((user) => {
       const name = String(
         user?.name || `${String(user?.first || "").trim()} ${String(user?.last || "").trim()}`.trim() || user?.email || ""
