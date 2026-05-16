@@ -430,6 +430,7 @@ function isPastDateKey(value) {
 const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SHOP_OPEN_MINUTES = 8 * 60;
 const SHOP_CLOSE_MINUTES = 17 * 60;
+const SHOP_DAY_MINUTES = SHOP_CLOSE_MINUTES - SHOP_OPEN_MINUTES;
 
 function timeToMinutes(value) {
   const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -2362,7 +2363,12 @@ async function validateShopHours({ time = "", service = "" }) {
 
   const selectedService = await Service.findOne({ name: String(service || "").trim() }).lean();
   const serviceMinutes = Number(selectedService?.mins || 0);
-  if (Number.isFinite(serviceMinutes) && serviceMinutes > 0 && startMinutes + serviceMinutes > SHOP_CLOSE_MINUTES) {
+  if (
+    Number.isFinite(serviceMinutes) &&
+    serviceMinutes > 0 &&
+    serviceMinutes <= SHOP_DAY_MINUTES &&
+    startMinutes + serviceMinutes > SHOP_CLOSE_MINUTES
+  ) {
     throwValidationError("Booking time must allow the service to finish before shop closing at 17:00.");
   }
 }

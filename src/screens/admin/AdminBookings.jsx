@@ -18,9 +18,9 @@ import {
   getLinkedPaymentForBooking,
   getPreferredDetailerDisplay,
   getSchedulingValidationMessage,
+  getShopTimeValidationMessage,
   isBookingDownPaymentSatisfied,
   isScheduledStatus,
-  isValidShopTime,
 } from "../../utils/bookingWorkflow";
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
@@ -450,8 +450,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   return;
                 }
 
-                if (requiresTime && !isValidShopTime(form.time)) {
-                  setFormError("A valid time is required before scheduling.");
+                const shopTimeError = requiresTime ? getShopTimeValidationMessage(form.time, selectedServiceDuration) : "";
+                if (shopTimeError) {
+                  setFormError(shopTimeError);
                   return;
                 }
 

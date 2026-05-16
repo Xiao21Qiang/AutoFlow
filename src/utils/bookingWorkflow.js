@@ -4,6 +4,7 @@ import { isDetailerRole, normalizeStaffRole } from "./staffRoles";
 export const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 export const SHOP_OPEN_TIME = "08:00";
 export const SHOP_CLOSE_TIME = "17:00";
+export const SHOP_DAY_MINUTES = 540;
 
 export function normalizeRole(value) {
   return normalizeStaffRole(value);
@@ -152,6 +153,22 @@ export function isValidShopTime(value) {
   const open = timeToMinutes(SHOP_OPEN_TIME);
   const close = timeToMinutes(SHOP_CLOSE_TIME);
   return minutes !== null && minutes >= open && minutes <= close;
+}
+
+export function getShopTimeValidationMessage(value, serviceDurationMinutes = 0) {
+  const minutes = timeToMinutes(value);
+  const open = timeToMinutes(SHOP_OPEN_TIME);
+  const close = timeToMinutes(SHOP_CLOSE_TIME);
+  if (minutes === null || minutes < open || minutes > close) {
+    return "Booking time must be within shop hours of 08:00 to 17:00.";
+  }
+
+  const duration = Number(serviceDurationMinutes || 0);
+  if (Number.isFinite(duration) && duration > 0 && duration <= SHOP_DAY_MINUTES && minutes + duration > close) {
+    return "Booking time must allow the service to finish before shop closing at 17:00.";
+  }
+
+  return "";
 }
 
 function formatTimeLabel(value) {
