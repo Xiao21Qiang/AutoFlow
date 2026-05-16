@@ -4956,6 +4956,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     }
 
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const isPaymentReviewer = actorType === "admin" || actorType === "staff";
     const actorEmail = String(req.authUser?.email || "").trim().toLowerCase();
     const actorId = String(req.authUser?.id || "").trim();
     const customerEmail = String(existingPayment.customerEmail || "").trim().toLowerCase();
@@ -5106,13 +5107,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const isMarkingPaid = isPaidStatus(nextStatus) && !isPaidStatus(existingPayment.status);
     const isMarkingDownPaymentPaid = nextDownPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.downPaymentStatus, "") !== "Paid";
     const isMarkingFinalPaymentPaid = nextFinalPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.finalPaymentStatus, "") !== "Paid";
-    if ((actorType === "admin" || actorType === "staff") && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
+    if (isPaymentReviewer && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
       await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin" });
 
       const methodForVerification = normalizePaymentMethodLabel(
         isMarkingDownPaymentPaid
-          ? (req.body.downPaymentMethod || existingPayment.downPaymentMethod || existingPayment.method)
-          : (req.body.finalPaymentMethod || req.body.method || existingPayment.finalPaymentMethod || existingPayment.method)
+          ? (existingPayment.downPaymentMethod || existingPayment.method)
+          : (existingPayment.finalPaymentMethod || existingPayment.method)
       );
       const requiresAccountName = actorType === "staff" || String(methodForVerification || "").trim().toLowerCase() === "cash";
       if (requiresAccountName) {
@@ -5155,6 +5156,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const customerSubmittedDownPaymentIsCash = String(customerSubmittedDownPaymentMethod || "").trim().toLowerCase() === "cash";
     const customerSubmittedFinalPaymentMethod = normalizePaymentMethodLabel(req.body.finalPaymentMethod || existingPayment.finalPaymentMethod || "");
     const customerSubmittedFinalPaymentIsCash = String(customerSubmittedFinalPaymentMethod || "").trim().toLowerCase() === "cash";
+    const preservedReviewerDownPaymentMethod = normalizePaymentMethodLabel(existingPayment.downPaymentMethod || existingPayment.method || "");
+    const preservedReviewerFinalPaymentMethod = normalizePaymentMethodLabel(existingPayment.finalPaymentMethod || existingPayment.method || "");
     const reviewFields =
       actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
         ? {
@@ -5231,6 +5234,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           auditUser: req.authUser?.email || req.body.auditUser || "",
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
+          downPaymentMethod: preservedReviewerDownPaymentMethod,
+          downPaymentReference: existingPayment.downPaymentReference || "",
+          finalPaymentMethod: preservedReviewerFinalPaymentMethod,
+          finalPaymentReference: existingPayment.finalPaymentReference || existingPayment.reference || "",
         };
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
     let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
@@ -5260,10 +5267,21 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         totalAmount: nextTotalAmount,
         amountPaid: nextAmountPaid,
         downPaymentStatus: isCustomerDownPaymentSubmission ? "For Verification" : nextDownPaymentStatus,
-        downPaymentMethod: normalizePaymentMethodLabel(nextPayload.downPaymentMethod || existingPayment.downPaymentMethod || ""),
+        downPaymentMethod: isPaymentReviewer
+          ? preservedReviewerDownPaymentMethod
+          : normalizePaymentMethodLabel(nextPayload.downPaymentMethod || existingPayment.downPaymentMethod || ""),
+        downPaymentReference: isPaymentReviewer
+          ? existingPayment.downPaymentReference || ""
+          : nextPayload.downPaymentReference || existingPayment.downPaymentReference || nextPayload.reference,
         finalPaymentStatus: isCustomerFinalPaymentSubmission ? "For Verification" : nextFinalPaymentStatus,
-        finalPaymentMethod: normalizePaymentMethodLabel(nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod),
-        finalPaymentReference: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentReference : (nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference),
+        finalPaymentMethod: isPaymentReviewer
+          ? preservedReviewerFinalPaymentMethod
+          : normalizePaymentMethodLabel(nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod),
+        finalPaymentReference: isCustomerFinalPaymentSubmission
+          ? nextPayload.finalPaymentReference
+          : isPaymentReviewer
+            ? existingPayment.finalPaymentReference || existingPayment.reference || ""
+            : (nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference),
         finalPaymentProofUrl: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofUrl : (nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl),
         finalPaymentProofName: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofName : (nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName),
       }),

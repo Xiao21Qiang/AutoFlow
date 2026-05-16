@@ -5,7 +5,6 @@ import ToastMessage from "../common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import {
-  PAYMENT_METHOD_OPTIONS,
   PAYMENT_STATUS_OPTIONS,
   getAllowedDownPaymentStatuses,
   getAmountPaid,
@@ -122,6 +121,11 @@ function formatCurrency(value) {
 
 function getDisplayMethod(payment) {
   return payment.finalPaymentMethod || payment.downPaymentMethod || payment.method || "-";
+}
+
+function formatSubmittedValue(value) {
+  const text = String(value || "").trim();
+  return text || "Not provided";
 }
 
 export default function PaymentTrackingView({ role = "admin" }) {
@@ -284,12 +288,8 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     ...selectedPayment,
                     status: nextStatus,
                     downPaymentStatus: form.downPaymentStatus,
-                    downPaymentMethod: form.downPaymentMethod,
-                    downPaymentReference: form.downPaymentReference,
                     downPaymentNotes: form.downPaymentNotes,
                     finalPaymentStatus: form.finalPaymentStatus,
-                    finalPaymentMethod: form.finalPaymentMethod,
-                    finalPaymentReference: form.finalPaymentReference,
                     finalPaymentNotes: form.finalPaymentNotes,
                     ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
                     ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
@@ -298,7 +298,9 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   setSelectedPayment(null);
                 };
                 if (isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) {
-                  const methodForCredential = isMarkingDownPaymentPaid ? form.downPaymentMethod : form.finalPaymentMethod;
+                  const methodForCredential = isMarkingDownPaymentPaid
+                    ? selectedPayment.downPaymentMethod || selectedPayment.method
+                    : selectedPayment.finalPaymentMethod || selectedPayment.method;
                   setSecurityConfirm({
                     mode: role === "staff" || String(methodForCredential || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
                     title: isMarkingDownPaymentPaid ? "Verify Down Payment" : "Verify Full Payment",
@@ -350,14 +352,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                   <label className={classes.field}>
                     <span>Method</span>
-                    <select value={form.downPaymentMethod} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentMethod: event.target.value }))} disabled={finalPaymentLocked || form.downPaymentStatus === "Not Required"}>
-                      <option value="">Select payment method</option>
-                      {PAYMENT_METHOD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    <input value={formatSubmittedValue(form.downPaymentMethod)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
                     <span>Reference Number</span>
-                    <input value={form.downPaymentReference} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentReference: event.target.value }))} disabled={finalPaymentLocked || form.downPaymentStatus === "Not Required"} />
+                    <input value={formatSubmittedValue(form.downPaymentReference)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
                     <span>Notes</span>
@@ -384,14 +383,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                   <label className={classes.field}>
                     <span>Method</span>
-                    <select value={form.finalPaymentMethod} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentMethod: event.target.value }))} disabled={!finalPaymentEnabled || finalPaymentLocked}>
-                      <option value="">Select payment method</option>
-                      {PAYMENT_METHOD_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    <input value={formatSubmittedValue(form.finalPaymentMethod)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
                     <span>Reference Number</span>
-                    <input value={form.finalPaymentReference} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentReference: event.target.value }))} disabled={!finalPaymentEnabled || finalPaymentLocked} />
+                    <input value={formatSubmittedValue(form.finalPaymentReference)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
                     <span>Notes</span>
