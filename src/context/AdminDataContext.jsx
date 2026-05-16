@@ -479,7 +479,6 @@ export function AdminDataProvider({ children, session }) {
         method: "PUT",
         body: JSON.stringify({
           ...payload,
-          downPaymentStatus: "For Verification",
           status: "For Verification",
           proofSubmittedAt: new Date().toISOString(),
           auditUser,

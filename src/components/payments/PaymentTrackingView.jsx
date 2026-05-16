@@ -398,7 +398,12 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <textarea rows="3" value={form.finalPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentNotes: event.target.value }))} disabled={!finalPaymentEnabled || finalPaymentLocked} />
                   </label>
                 </div>
-                {renderProof(selectedPayment.finalPaymentProofUrl || selectedPayment.proofImage, selectedPayment.finalPaymentProofName || selectedPayment.proofFileName, "Full payment")}
+                {renderProof(
+                  selectedPayment.finalPaymentProofUrl,
+                  selectedPayment.finalPaymentProofName,
+                  "Full payment",
+                  { noProofRequired: String(selectedPayment.finalPaymentMethod || "").trim().toLowerCase() === "cash" }
+                )}
               </div>
 
               <div className={classes.modalActions}>

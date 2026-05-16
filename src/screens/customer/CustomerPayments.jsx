@@ -31,6 +31,37 @@ function isCashPaymentMethod(value) {
   return String(value || "").trim().toLowerCase() === "cash";
 }
 
+function getCustomerProofAction(payment = {}) {
+  const legacyStatus = normalizeStageStatus(payment.status, "Pending");
+  const downPaymentStatus = normalizeStageStatus(
+    payment.downPaymentStatus,
+    payment.downPaymentRequired === false ? "Not Required" : "Pending"
+  );
+  const finalPaymentStatus = normalizeStageStatus(payment.finalPaymentStatus, legacyStatus);
+
+  if (finalPaymentStatus === "Paid" || legacyStatus === "Paid") {
+    return { label: "Verified", disabled: true, mode: "" };
+  }
+  if (finalPaymentStatus === "For Verification") {
+    return { label: "Pending Review", disabled: true, mode: "" };
+  }
+  if (payment.downPaymentRequired === true && ["Pending", "Rejected"].includes(downPaymentStatus)) {
+    return { label: "Upload", disabled: false, mode: "downPayment" };
+  }
+  if (payment.downPaymentRequired === true && downPaymentStatus === "For Verification") {
+    return { label: "Pending Review", disabled: true, mode: "" };
+  }
+  if (
+    payment.downPaymentRequired === false ||
+    downPaymentStatus === "Not Required" ||
+    downPaymentStatus === "Paid"
+  ) {
+    return { label: "Pay Balance", disabled: false, mode: "finalPayment" };
+  }
+
+  return { label: "Upload", disabled: false, mode: "downPayment" };
+}
+
 function getInvoiceBreakdown(payment) {
   const total = Number(payment?.amount || 0);
   const originalTotal = Number(payment?.originalAmount || total);
@@ -113,6 +144,7 @@ export default function CustomerPayments() {
   const [filters, setFilters] = useState({ status: "", method: "" });
   const [modal, setModal] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [proofMode, setProofMode] = useState("downPayment");
   const [proofForm, setProofForm] = useState({
     reference: "",
     notes: "",
@@ -131,10 +163,10 @@ export default function CustomerPayments() {
         String(row.customer || "").toLowerCase().includes(q) ||
         String(row.service || "").toLowerCase().includes(q) ||
         getPaymentStageLabel(row).toLowerCase().includes(q) ||
-        String(row.downPaymentMethod || row.method || "").toLowerCase().includes(q) ||
+        String(row.finalPaymentMethod || row.downPaymentMethod || row.method || "").toLowerCase().includes(q) ||
         formatDate(row.date).toLowerCase().includes(q);
       const matchesStatus = !filters.status || getPaymentStageLabel(row) === filters.status || row.status === filters.status;
-      const matchesMethod = !filters.method || row.downPaymentMethod === filters.method || row.method === filters.method;
+      const matchesMethod = !filters.method || row.finalPaymentMethod === filters.method || row.downPaymentMethod === filters.method || row.method === filters.method;
       return matchesQuery && matchesStatus && matchesMethod;
     });
   }, [data, query, filters]);
@@ -150,8 +182,28 @@ export default function CustomerPayments() {
   const closeModal = () => {
     setModal(null);
     setSelectedPayment(null);
+    setProofMode("downPayment");
     setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
+  };
+
+  const openProofModal = (payment, mode) => {
+    const isFinalPaymentMode = mode === "finalPayment";
+    setSelectedPayment(payment);
+    setProofMode(mode);
+    setProofForm({
+      reference: isFinalPaymentMode ? payment.finalPaymentReference || "" : payment.downPaymentReference || "",
+      notes: isFinalPaymentMode ? payment.finalPaymentNotes || "" : payment.downPaymentNotes || "",
+      method: isFinalPaymentMode ? payment.finalPaymentMethod || "" : payment.downPaymentMethod || "",
+      proofImage: isFinalPaymentMode
+        ? payment.finalPaymentProofUrl || ""
+        : payment.downPaymentProofUrl || payment.proofImage || "",
+      proofFileName: isFinalPaymentMode
+        ? payment.finalPaymentProofName || ""
+        : payment.downPaymentProofName || payment.proofFileName || "",
+    });
+    setProofError("");
+    setModal("proof");
   };
 
   return (
@@ -195,8 +247,7 @@ export default function CustomerPayments() {
           pageRows.map((row) => {
             const stageLabel = getPaymentStageLabel(row);
             const stageClass = getPaymentStageClass(row);
-            const downPaymentStatus = normalizeStageStatus(row.downPaymentStatus, row.downPaymentRequired === false ? "Not Required" : "Pending");
-            const proofDisabled = downPaymentStatus === "For Verification" || downPaymentStatus === "Paid" || downPaymentStatus === "Not Required";
+            const proofAction = getCustomerProofAction(row);
             return (
               <div className="clPayRow" key={row.id}>
                 <div>{row.id}</div>
@@ -207,7 +258,7 @@ export default function CustomerPayments() {
                 <div>
                   <span className={`clPayBadge ${stageClass}`}>{stageLabel}</span>
                 </div>
-                <div>{row.downPaymentMethod || row.method || "-"}</div>
+                <div>{row.finalPaymentMethod || row.downPaymentMethod || row.method || "-"}</div>
                 <div>
                   <button
                     className="clPayViewBtn"
@@ -225,20 +276,11 @@ export default function CustomerPayments() {
                     className="clPayProofBtn"
                     type="button"
                     onClick={() => {
-                      setSelectedPayment(row);
-                      setProofForm({
-                        reference: row.downPaymentReference || "",
-                        notes: row.downPaymentNotes || "",
-                        method: row.downPaymentMethod || "",
-                        proofImage: row.downPaymentProofUrl || row.proofImage || "",
-                        proofFileName: row.downPaymentProofName || row.proofFileName || "",
-                      });
-                      setProofError("");
-                      setModal("proof");
+                      openProofModal(row, proofAction.mode || "downPayment");
                     }}
-                    disabled={proofDisabled}
+                    disabled={proofAction.disabled}
                   >
-                    {downPaymentStatus === "For Verification" ? "Reviewing" : downPaymentStatus === "Paid" ? "Verified" : downPaymentStatus === "Not Required" ? "N/A" : row.downPaymentProofUrl || row.proofImage ? "Resubmit" : "Upload"}
+                    {proofAction.label}
                   </button>
                 </div>
               </div>
@@ -383,8 +425,9 @@ export default function CustomerPayments() {
                   setProofError("");
                   const reference = String(proofForm.reference || "").trim();
                   const isCashMethod = isCashPaymentMethod(proofForm.method);
+                  const isFinalPaymentMode = proofMode === "finalPayment";
                   if (!proofForm.method) {
-                    setProofError("Please select a down payment method.");
+                    setProofError(`Please select a ${isFinalPaymentMode ? "final payment" : "down payment"} method.`);
                     return;
                   }
                   if (!reference) {
@@ -396,34 +439,55 @@ export default function CustomerPayments() {
                     return;
                   }
                   if (!isCashMethod && !proofForm.proofImage) {
-                    setProofError("Please upload a down payment proof image.");
+                    setProofError(`Please upload a ${isFinalPaymentMode ? "final payment" : "down payment"} proof image.`);
                     return;
                   }
+                  const proofPayload = isFinalPaymentMode
+                    ? {
+                        finalPaymentStatus: "For Verification",
+                        finalPaymentMethod: proofForm.method,
+                        finalPaymentReference: reference,
+                        finalPaymentNotes: proofForm.notes,
+                        finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
+                        finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
+                      }
+                    : {
+                        downPaymentStatus: "For Verification",
+                        downPaymentMethod: proofForm.method,
+                        downPaymentReference: reference,
+                        downPaymentNotes: proofForm.notes,
+                        downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
+                        downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
+                      };
                   try {
-                    await submitPaymentProof(selectedPayment, {
-                      downPaymentStatus: "For Verification",
-                      downPaymentMethod: proofForm.method,
-                      downPaymentReference: reference,
-                      downPaymentNotes: proofForm.notes,
-                      downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
-                      downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                    });
+                    await submitPaymentProof(selectedPayment, proofPayload);
                     closeModal();
                   } catch (error) {
                     setProofError(error.message || "Failed to submit payment proof.");
                   }
                 }}
               >
-                <div className="clPayModalTitle">Submit Down Payment Proof</div>
+                <div className="clPayModalTitle">{proofMode === "finalPayment" ? "Submit Remaining Balance Proof" : "Submit Down Payment Proof"}</div>
                 <div className="clPayStageSummary clPayStageSummaryCompact">
                   <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
-                  <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                  {proofMode === "finalPayment" ? (
+                    <div><span>Amount Paid</span><strong>{formatCurrency(getAmountPaid(selectedPayment))}</strong></div>
+                  ) : (
+                    <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                  )}
                   <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
-                  <div><span>Current DP Status</span><strong>{normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}</strong></div>
+                  <div>
+                    <span>{proofMode === "finalPayment" ? "Full Payment Status" : "Current DP Status"}</span>
+                    <strong>
+                      {proofMode === "finalPayment"
+                        ? normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")
+                        : normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}
+                    </strong>
+                  </div>
                 </div>
 
                 <label className="clPayField">
-                  <span>Down Payment Method</span>
+                  <span>{proofMode === "finalPayment" ? "Final Payment Method" : "Down Payment Method"}</span>
                   <select
                     value={proofForm.method}
                     onChange={(e) => {
@@ -433,7 +497,7 @@ export default function CustomerPayments() {
                         method,
                         ...(isCashPaymentMethod(method) ? { proofImage: "", proofFileName: "" } : {}),
                       }));
-                      if (isCashPaymentMethod(method) && proofError === "Please upload a down payment proof image.") {
+                      if (isCashPaymentMethod(method) && proofError.includes("proof image")) {
                         setProofError("");
                       }
                     }}
@@ -509,7 +573,7 @@ export default function CustomerPayments() {
                     Cancel
                   </button>
                   <button className="clPayPrimaryBtn" type="submit">
-                    Submit
+                    {proofMode === "finalPayment" ? "Submit Balance Proof" : "Submit"}
                   </button>
                 </div>
               </form>
@@ -523,7 +587,7 @@ export default function CustomerPayments() {
         title="Filter Payments"
         fields={[
           { key: "status", label: "Status", type: "select", options: [...new Set(data.map((row) => getPaymentStageLabel(row)).filter(Boolean))] },
-          { key: "method", label: "Method", type: "select", options: [...new Set(data.map((row) => row.downPaymentMethod || row.method).filter(Boolean))] },
+          { key: "method", label: "Method", type: "select", options: [...new Set(data.flatMap((row) => [row.finalPaymentMethod, row.downPaymentMethod, row.method]).filter(Boolean))] },
         ]}
         values={filters}
         onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}

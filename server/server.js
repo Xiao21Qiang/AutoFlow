@@ -4974,6 +4974,16 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const nextStatus = String(req.body.status || "");
     const nextDownPaymentStatus = normalizePaymentStageStatus(req.body.downPaymentStatus, existingPayment.downPaymentStatus || "Pending");
     const nextFinalPaymentStatus = normalizePaymentStageStatus(req.body.finalPaymentStatus, existingPayment.finalPaymentStatus || existingPayment.status || "Pending");
+    const hasBodyField = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+    const isCustomerFinalPaymentSubmission = actorType === "customer" && [
+      "finalPaymentStatus",
+      "finalPaymentMethod",
+      "finalPaymentReference",
+      "finalPaymentProofUrl",
+      "finalPaymentProofName",
+      "finalPaymentNotes",
+    ].some(hasBodyField);
+    const isCustomerDownPaymentSubmission = actorType === "customer" && !isCustomerFinalPaymentSubmission;
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
       res.status(403).json({ message: "You can only update your own payment records." });
       return;
@@ -4984,17 +4994,25 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     }
     if (
       actorType === "customer" &&
-      ["finalPaymentStatus", "amountPaid", "remainingBalance", "downPaymentVerifiedAt", "downPaymentVerifiedBy", "finalPaymentVerifiedAt", "finalPaymentVerifiedBy"]
+      ["amountPaid", "remainingBalance", "downPaymentVerifiedAt", "downPaymentVerifiedBy", "finalPaymentVerifiedAt", "finalPaymentVerifiedBy"]
         .some((field) => Object.prototype.hasOwnProperty.call(req.body, field))
     ) {
       res.status(403).json({ message: "Customers cannot update payment verification fields." });
+      return;
+    }
+    if (actorType === "customer" && isCustomerFinalPaymentSubmission && Object.prototype.hasOwnProperty.call(req.body, "downPaymentStatus")) {
+      res.status(400).json({ message: "Submit one payment stage at a time." });
       return;
     }
     if (actorType === "customer" && Object.prototype.hasOwnProperty.call(req.body, "downPaymentStatus") && nextDownPaymentStatus !== "For Verification") {
       res.status(403).json({ message: "Customers can only submit down payment proof for verification." });
       return;
     }
-    if (actorType === "customer") {
+    if (actorType === "customer" && Object.prototype.hasOwnProperty.call(req.body, "finalPaymentStatus") && nextFinalPaymentStatus !== "For Verification") {
+      res.status(403).json({ message: "Customers can only submit final payment proof for verification." });
+      return;
+    }
+    if (isCustomerDownPaymentSubmission) {
       const currentDownPaymentStatus = normalizePaymentStageStatus(
         existingPayment.downPaymentStatus,
         existingPayment.downPaymentRequired === false ? "Not Required" : "Pending"
@@ -5027,6 +5045,48 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       }
       if (downPaymentProofRequired && !String(req.body.downPaymentProofUrl || req.body.proofImage || "").trim()) {
         res.status(400).json({ message: "Down payment proof image is required." });
+        return;
+      }
+    }
+    if (isCustomerFinalPaymentSubmission) {
+      const currentDownPaymentStatus = normalizePaymentStageStatus(
+        existingPayment.downPaymentStatus,
+        existingPayment.downPaymentRequired === false ? "Not Required" : "Pending"
+      );
+      const downPaymentSatisfied =
+        existingPayment.downPaymentRequired === false ||
+        currentDownPaymentStatus === "Not Required" ||
+        currentDownPaymentStatus === "Paid";
+      if (!downPaymentSatisfied) {
+        res.status(400).json({ message: "Down payment must be verified before submitting remaining balance proof." });
+        return;
+      }
+
+      const currentFinalPaymentStatus = normalizePaymentStageStatus(existingPayment.finalPaymentStatus, existingPayment.status || "Pending");
+      if (currentFinalPaymentStatus === "For Verification") {
+        res.status(400).json({ message: "Your final payment proof is already waiting for review." });
+        return;
+      }
+      if (currentFinalPaymentStatus === "Paid" || isPaidStatus(existingPayment.status)) {
+        res.status(400).json({ message: "Full payment has already been verified as paid." });
+        return;
+      }
+      if (!String(req.body.finalPaymentMethod || "").trim()) {
+        res.status(400).json({ message: "Final payment method is required." });
+        return;
+      }
+      const submittedFinalPaymentMethod = normalizePaymentMethodLabel(req.body.finalPaymentMethod || "");
+      const finalPaymentProofRequired = String(submittedFinalPaymentMethod || "").trim().toLowerCase() !== "cash";
+      if (!String(req.body.finalPaymentReference || "").trim()) {
+        res.status(400).json({ message: "Reference number is required." });
+        return;
+      }
+      if (String(req.body.finalPaymentReference || "").trim().length > 80) {
+        res.status(400).json({ message: "Reference number must be 80 characters or less." });
+        return;
+      }
+      if (finalPaymentProofRequired && !String(req.body.finalPaymentProofUrl || "").trim()) {
+        res.status(400).json({ message: "Final payment proof image is required." });
         return;
       }
     }
@@ -5093,6 +5153,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         });
     const customerSubmittedDownPaymentMethod = normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || existingPayment.downPaymentMethod || "");
     const customerSubmittedDownPaymentIsCash = String(customerSubmittedDownPaymentMethod || "").trim().toLowerCase() === "cash";
+    const customerSubmittedFinalPaymentMethod = normalizePaymentMethodLabel(req.body.finalPaymentMethod || existingPayment.finalPaymentMethod || "");
+    const customerSubmittedFinalPaymentIsCash = String(customerSubmittedFinalPaymentMethod || "").trim().toLowerCase() === "cash";
     const reviewFields =
       actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
         ? {
@@ -5113,7 +5175,31 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           } : {}),
         }
       : {};
-    const nextPayload = isCustomerSubmittingOwnPayment
+    const nextPayload = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission
+      ? {
+          method: existingPayment.method || "",
+          reference: existingPayment.reference || "",
+          notes: existingPayment.notes || "",
+          proofImage: existingPayment.proofImage || "",
+          proofFileName: existingPayment.proofFileName || "",
+          proofSubmittedAt: existingPayment.proofSubmittedAt || "",
+          status: "For Verification",
+          downPaymentStatus: existingPayment.downPaymentStatus || "Pending",
+          downPaymentMethod: normalizePaymentMethodLabel(existingPayment.downPaymentMethod || ""),
+          downPaymentReference: existingPayment.downPaymentReference || "",
+          downPaymentProofUrl: existingPayment.downPaymentProofUrl || "",
+          downPaymentProofName: existingPayment.downPaymentProofName || "",
+          downPaymentNotes: existingPayment.downPaymentNotes || "",
+          finalPaymentStatus: "For Verification",
+          finalPaymentMethod: customerSubmittedFinalPaymentMethod,
+          finalPaymentReference: String(req.body.finalPaymentReference || "").trim().slice(0, 80),
+          finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofUrl || ""),
+          finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofName || ""),
+          finalPaymentNotes: req.body.finalPaymentNotes || "",
+          auditUser: actorEmail,
+          ...rewardPricing,
+        }
+      : isCustomerSubmittingOwnPayment
       ? {
           method: existingPayment.method || "",
           reference: existingPayment.reference || "",
@@ -5173,13 +5259,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         status: syncedLegacyStatus,
         totalAmount: nextTotalAmount,
         amountPaid: nextAmountPaid,
-        downPaymentStatus: actorType === "customer" ? "For Verification" : nextDownPaymentStatus,
+        downPaymentStatus: isCustomerDownPaymentSubmission ? "For Verification" : nextDownPaymentStatus,
         downPaymentMethod: normalizePaymentMethodLabel(nextPayload.downPaymentMethod || existingPayment.downPaymentMethod || ""),
-        finalPaymentStatus: nextFinalPaymentStatus,
+        finalPaymentStatus: isCustomerFinalPaymentSubmission ? "For Verification" : nextFinalPaymentStatus,
         finalPaymentMethod: normalizePaymentMethodLabel(nextPayload.finalPaymentMethod || nextPayload.method || existingPayment.finalPaymentMethod),
-        finalPaymentReference: nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference,
-        finalPaymentProofUrl: nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl,
-        finalPaymentProofName: nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName,
+        finalPaymentReference: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentReference : (nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference),
+        finalPaymentProofUrl: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofUrl : (nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl),
+        finalPaymentProofName: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofName : (nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName),
       }),
     };
 
