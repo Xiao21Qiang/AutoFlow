@@ -5009,6 +5009,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Down payment method is required." });
         return;
       }
+      const submittedDownPaymentMethod = normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || "");
+      const downPaymentProofRequired = String(submittedDownPaymentMethod || "").trim().toLowerCase() !== "cash";
       if (!String(req.body.downPaymentReference || req.body.reference || "").trim()) {
         res.status(400).json({ message: "Reference number is required." });
         return;
@@ -5017,7 +5019,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Reference number must be 80 characters or less." });
         return;
       }
-      if (!String(req.body.downPaymentProofUrl || req.body.proofImage || "").trim()) {
+      if (downPaymentProofRequired && !String(req.body.downPaymentProofUrl || req.body.proofImage || "").trim()) {
         res.status(400).json({ message: "Down payment proof image is required." });
         return;
       }
@@ -5083,6 +5085,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           baseAmount: baseBeforeReward,
           excludePaymentId: existingPayment.id,
         });
+    const customerSubmittedDownPaymentMethod = normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || existingPayment.downPaymentMethod || "");
+    const customerSubmittedDownPaymentIsCash = String(customerSubmittedDownPaymentMethod || "").trim().toLowerCase() === "cash";
     const reviewFields =
       actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
         ? {
@@ -5108,15 +5112,15 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           method: existingPayment.method || "",
           reference: existingPayment.reference || "",
           notes: existingPayment.notes || "",
-          proofImage: req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.proofImage || "",
-          proofFileName: req.body.downPaymentProofName || req.body.proofFileName || existingPayment.proofFileName || "",
+          proofImage: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.proofImage || ""),
+          proofFileName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.proofFileName || ""),
           proofSubmittedAt: req.body.proofSubmittedAt || new Date().toISOString(),
           status: "For Verification",
           downPaymentStatus: "For Verification",
-          downPaymentMethod: normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || existingPayment.downPaymentMethod || ""),
+          downPaymentMethod: customerSubmittedDownPaymentMethod,
           downPaymentReference: String(req.body.downPaymentReference || req.body.reference || "").trim().slice(0, 80),
-          downPaymentProofUrl: req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || "",
-          downPaymentProofName: req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || "",
+          downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || ""),
+          downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || ""),
           downPaymentNotes: req.body.downPaymentNotes || req.body.notes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
           finalPaymentMethod: existingPayment.finalPaymentMethod || "",

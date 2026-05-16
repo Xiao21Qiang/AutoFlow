@@ -27,6 +27,10 @@ function formatCurrency(value) {
   return `P ${Number(value || 0).toLocaleString()}`;
 }
 
+function isCashPaymentMethod(value) {
+  return String(value || "").trim().toLowerCase() === "cash";
+}
+
 function getInvoiceBreakdown(payment) {
   const total = Number(payment?.amount || 0);
   const originalTotal = Number(payment?.originalAmount || total);
@@ -378,6 +382,7 @@ export default function CustomerPayments() {
                   e.preventDefault();
                   setProofError("");
                   const reference = String(proofForm.reference || "").trim();
+                  const isCashMethod = isCashPaymentMethod(proofForm.method);
                   if (!proofForm.method) {
                     setProofError("Please select a down payment method.");
                     return;
@@ -390,7 +395,7 @@ export default function CustomerPayments() {
                     setProofError("Reference number must be 80 characters or less.");
                     return;
                   }
-                  if (!proofForm.proofImage) {
+                  if (!isCashMethod && !proofForm.proofImage) {
                     setProofError("Please upload a down payment proof image.");
                     return;
                   }
@@ -400,8 +405,8 @@ export default function CustomerPayments() {
                       downPaymentMethod: proofForm.method,
                       downPaymentReference: reference,
                       downPaymentNotes: proofForm.notes,
-                      downPaymentProofUrl: proofForm.proofImage,
-                      downPaymentProofName: proofForm.proofFileName,
+                      downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
+                      downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
                     });
                     closeModal();
                   } catch (error) {
@@ -421,7 +426,17 @@ export default function CustomerPayments() {
                   <span>Down Payment Method</span>
                   <select
                     value={proofForm.method}
-                    onChange={(e) => setProofForm((prev) => ({ ...prev, method: e.target.value }))}
+                    onChange={(e) => {
+                      const method = e.target.value;
+                      setProofForm((prev) => ({
+                        ...prev,
+                        method,
+                        ...(isCashPaymentMethod(method) ? { proofImage: "", proofFileName: "" } : {}),
+                      }));
+                      if (isCashPaymentMethod(method) && proofError === "Please upload a down payment proof image.") {
+                        setProofError("");
+                      }
+                    }}
                     required
                   >
                     <option value="" disabled>
@@ -447,8 +462,10 @@ export default function CustomerPayments() {
                 <label className="clPayField">
                   <span>Photo Proof</span>
                   <input
+                    key={proofForm.method}
                     type="file"
                     accept="image/*"
+                    disabled={isCashPaymentMethod(proofForm.method)}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
@@ -464,6 +481,9 @@ export default function CustomerPayments() {
                       }
                     }}
                   />
+                  {isCashPaymentMethod(proofForm.method) && (
+                    <div className="clPayProofFile">Cash payment - no photo proof required.</div>
+                  )}
                   {proofForm.proofFileName && (
                     <div className="clPayProofFile">Selected: {proofForm.proofFileName}</div>
                   )}

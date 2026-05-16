@@ -209,8 +209,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const finalPaymentEnabled = selectedWithForm ? isDownPaymentSatisfied(selectedWithForm) : false;
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
 
-  const renderProof = (src, fileName, label) => {
-    if (!src && !fileName) return <div className={classes.hint}>No {label.toLowerCase()} proof uploaded yet.</div>;
+  const renderProof = (src, fileName, label, { noProofRequired = false } = {}) => {
+    if (!src && !fileName) {
+      return <div className={classes.hint}>{noProofRequired ? "Cash payment - no proof required." : `No ${label.toLowerCase()} proof uploaded yet.`}</div>;
+    }
     return (
       <>
         {src && <div className={classes.proofWrap}><img className={classes.proof} src={src} alt={`${label} proof`} /></div>}
@@ -362,7 +364,12 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <textarea rows="3" value={form.downPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentNotes: event.target.value }))} disabled={finalPaymentLocked} />
                   </label>
                 </div>
-                {renderProof(selectedPayment.downPaymentProofUrl || selectedPayment.proofImage, selectedPayment.downPaymentProofName || selectedPayment.proofFileName, "Down payment")}
+                {renderProof(
+                  selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
+                  selectedPayment.downPaymentProofName || selectedPayment.proofFileName,
+                  "Down payment",
+                  { noProofRequired: String(selectedPayment.downPaymentMethod || selectedPayment.method || "").trim().toLowerCase() === "cash" }
+                )}
               </div>
 
               <div className={classes.section}>
