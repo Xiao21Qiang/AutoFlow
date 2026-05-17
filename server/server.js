@@ -583,9 +583,36 @@ function createAiUnavailablePayload(feature, overrides = {}) {
   };
 }
 
+const AI_TEXT_KEYS = ["text", "content", "message", "description", "summary", "value", "insight", "detail", "details", "body"];
+const AI_TITLE_KEYS = ["title", "label", "category", "type", "heading", "name"];
+
 function normalizeAiText(value, maxLength = 280) {
-  const normalized = String(value || "")
+  let source = value;
+  if (Array.isArray(source)) {
+    source = source
+      .map((item) => normalizeAiText(item, maxLength))
+      .filter(Boolean)
+      .join(" ");
+  } else if (source && typeof source === "object") {
+    const textValue = AI_TEXT_KEYS.map((key) => source[key]).find((item) => item !== undefined && item !== null && String(item).trim());
+    if (textValue !== undefined && textValue !== null) {
+      return normalizeAiText(textValue, maxLength);
+    } else {
+      source = Object.entries(source)
+        .map(([key, item]) => {
+          const text = normalizeAiText(item, Math.max(80, Math.floor(maxLength / 2)));
+          if (!text) return "";
+          const label = String(key || "").replace(/[_-]+/g, " ").trim();
+          return label ? `${label}: ${text}` : text;
+        })
+        .filter(Boolean)
+        .join("; ");
+    }
+  }
+
+  const normalized = String(source || "")
     .replace(/\s+/g, " ")
+    .replace(/\[object Object\]/g, "")
     .trim();
 
   if (!normalized) return "";
@@ -691,10 +718,14 @@ function buildAnalyticsAiInput(body = {}) {
     maxItems: 5,
     maxValueLength: 80,
   });
+  const bottomServices = normalizeAiObjectList(body.bottomServices || body.underperformingServices, ["name", "count"], {
+    maxItems: 5,
+    maxValueLength: 80,
+  });
   const paymentSummary = normalizeAiObjectList(
     body.paymentSummary || body.paymentMethods || body.paymentSummaryEntries,
     ["method", "name", "count", "amount"],
-    { maxItems: 6, maxValueLength: 80 }
+    { maxItems: 8, maxValueLength: 80 }
   );
   const trends = normalizeAiStringList(body.trends || body.observations || body.notes, {
     maxItems: 6,
@@ -718,6 +749,7 @@ function buildAnalyticsAiInput(body = {}) {
     analysisType,
     totals,
     topServices,
+    bottomServices,
     paymentSummary,
     trends,
     derivedSignals,
@@ -726,6 +758,7 @@ function buildAnalyticsAiInput(body = {}) {
   const hasContent =
     Object.keys(totals).length > 0 ||
     topServices.length > 0 ||
+    bottomServices.length > 0 ||
     paymentSummary.length > 0 ||
     trends.length > 0 ||
     derivedSignals.length > 0;
@@ -866,7 +899,7 @@ function buildFinancialAiInput(body = {}) {
   return hasContent ? payload : null;
 }
 
-async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, maxTokens = 420 }) {
+async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, maxTokens = 420, allowTextFallback = false }) {
   if (!GROQ_API_KEY) {
     return createAiUnavailablePayload(feature);
   }
@@ -901,6 +934,15 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
 
     if (!parsed || typeof parsed !== "object") {
       console.error("[ai] Groq response was not valid JSON", { feature });
+      if (allowTextFallback && normalizeAiText(content, 1200)) {
+        return {
+          available: true,
+          feature,
+          message: "",
+          model: String(payload.model || GROQ_MODEL || "").trim(),
+          rawText: content,
+        };
+      }
       return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
     }
 
@@ -917,35 +959,267 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
   }
 }
 
-function normalizeAnalyticsAiOutput(payload) {
-  const summary = normalizeAiText(payload?.summary, 220);
-  const dedupeAcrossSections = (values, exclusions = []) => {
-    const seen = new Set(
-      exclusions
-        .map((value) => normalizeAiText(value, 180).toLowerCase())
-        .filter(Boolean)
-    );
+function formatAnalyticsPeso(value) {
+  return `Php ${Number(value || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+}
 
-    return normalizeAiStringList(values, { maxItems: 5, maxLength: 140 }).filter((item) => {
-      const normalized = item.toLowerCase();
-      if (!normalized || seen.has(normalized)) return false;
-      seen.add(normalized);
-      return true;
-    });
+function getAiObjectField(record, keys) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return "";
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null && String(record[key]).trim()) {
+      return record[key];
+    }
+  }
+  return "";
+}
+
+function normalizeAnalyticsItemType(value, fallback = "observation") {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (normalized.includes("summary")) return "summary";
+  if (normalized.includes("cause")) return "possible_cause";
+  if (normalized.includes("recommend") || normalized.includes("action")) return "recommendation";
+  if (normalized.includes("warn") || normalized.includes("risk") || normalized.includes("watch")) return "watchpoint";
+  if (normalized.includes("predict")) return "prediction";
+  if (normalized.includes("confidence")) return "confidence";
+  return normalized || fallback;
+}
+
+function titleFromItemType(type) {
+  const normalized = normalizeAnalyticsItemType(type, "observation");
+  if (normalized === "possible_cause") return "Possible Cause";
+  if (normalized === "recommendation") return "Recommendation";
+  if (normalized === "watchpoint") return "Watchpoint";
+  if (normalized === "summary") return "Summary";
+  if (normalized === "prediction") return "Prediction";
+  if (normalized === "confidence") return "Confidence";
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || "Observation";
+}
+
+function flattenAnalyticsItemObject(record = {}, maxLength = 900) {
+  const textValue = getAiObjectField(record, AI_TEXT_KEYS);
+  if (textValue) return normalizeAiText(textValue, maxLength);
+
+  return Object.entries(record)
+    .map(([key, value]) => {
+      if (AI_TITLE_KEYS.includes(key)) return "";
+      const text = normalizeAiText(value, 240);
+      if (!text) return "";
+      const label = String(key || "").replace(/[_-]+/g, " ").trim();
+      return label ? `${label}: ${text}` : text;
+    })
+    .filter(Boolean)
+    .join("; ")
+    .slice(0, maxLength);
+}
+
+function normalizeAnalyticsAiItem(item, fallbackTitle = "Observation", fallbackType = "observation") {
+  if (item === undefined || item === null) return null;
+
+  const source = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+  const type = normalizeAnalyticsItemType(source.type || source.category || source.label || fallbackType, fallbackType);
+  const rawTitle = getAiObjectField(source, AI_TITLE_KEYS);
+  const title = normalizeAiText(rawTitle, 80) || fallbackTitle || titleFromItemType(type);
+  const text = source && Object.keys(source).length
+    ? flattenAnalyticsItemObject(source, 1000)
+    : normalizeAiText(item, 1000);
+
+  if (!text) return null;
+  return {
+    type,
+    title: title || titleFromItemType(type),
+    text,
+  };
+}
+
+function normalizeAnalyticsAiItems(payload = {}, analysisType = "descriptive") {
+  const items = [];
+  const pushItem = (item, fallbackTitle, fallbackType) => {
+    const normalized = normalizeAnalyticsAiItem(item, fallbackTitle, fallbackType);
+    if (normalized) items.push(normalized);
+  };
+  const pushList = (values, fallbackTitle, fallbackType) => {
+    const list = Array.isArray(values) ? values : values ? [values] : [];
+    list.forEach((item) => pushItem(item, fallbackTitle, fallbackType));
   };
 
-  const keyObservations = dedupeAcrossSections(payload?.keyObservations, [summary]);
-  const possibleCauses = dedupeAcrossSections(payload?.possibleCauses, [summary, ...keyObservations]).slice(0, 4);
-  const recommendations = dedupeAcrossSections(payload?.recommendations, [summary, ...keyObservations, ...possibleCauses]).slice(0, 4);
-  const warnings = dedupeAcrossSections(payload?.warnings, [summary, ...keyObservations, ...possibleCauses, ...recommendations]).slice(0, 3);
+  pushList(payload.items, "Observation", "observation");
+  pushItem(payload.rawText, "Summary", "summary");
+  pushItem(payload.summary, "Summary", "summary");
+  pushList(payload.keyObservations || payload.observations || payload.insights, "Observation", "observation");
+  pushList(payload.possibleCauses || payload.causes || payload.drivers, "Possible Cause", "possible_cause");
+  pushList(payload.recommendations || payload.actions || payload.nextSteps, "Recommendation", "recommendation");
+  pushList(payload.warnings || payload.watchpoints || payload.risks, analysisType === "predictive" ? "Predictive Watchpoint" : "Watchpoint", "watchpoint");
+
+  const seen = new Set();
+  return items
+    .filter((item) => {
+      const key = `${item.type}:${item.title}:${item.text}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8);
+}
+
+function buildAnalyticsFallbackItems(input = {}, analysisType = "descriptive") {
+  const totals = input.totals || {};
+  const topServices = Array.isArray(input.topServices) ? input.topServices : [];
+  const bottomServices = Array.isArray(input.bottomServices) ? input.bottomServices : [];
+  const paymentSummary = Array.isArray(input.paymentSummary) ? input.paymentSummary : [];
+  const selectedRange = normalizeAiText(totals.selectedRange, 80) || "the selected period";
+  const totalSales = Number(totals.totalSales || 0);
+  const selectedRangeSales = Number(totals.selectedRangeSales || 0);
+  const paidRevenueEvents = Number(totals.paidRevenueEvents || 0);
+  const totalBookings = Number(totals.totalBookings || 0);
+  const completedBookings = Number(totals.completedBookings || 0);
+  const inProgressBookings = Number(totals.inProgressBookings || 0);
+  const avgRating = Number(totals.avgRating || 0);
+  const totalReviews = Number(totals.totalReviews || 0);
+  const leader = topServices[0];
+  const lowerService = bottomServices[0] || topServices[topServices.length - 1];
+  const strongestPeriod = paymentSummary
+    .slice()
+    .sort((left, right) => Number(right.amount || 0) - Number(left.amount || 0))[0];
+  const confidenceText = totalBookings + paidRevenueEvents + totalReviews >= 20
+    ? "Prediction confidence is moderate because there are multiple booking, revenue, and review signals available."
+    : "Prediction confidence is limited because the available analytics dataset is still small.";
+
+  if (analysisType === "predictive") {
+    return [
+      {
+        type: "summary",
+        title: "Summary",
+        text: `Based on current data, future demand may continue to follow the services and periods already showing traction. Verified revenue is ${formatAnalyticsPeso(totalSales)}, with ${formatAnalyticsPeso(selectedRangeSales)} in ${selectedRange}, so the near-term sales outlook should be treated as directional rather than guaranteed. ${confidenceText}`,
+      },
+      {
+        type: "prediction",
+        title: "Likely Service Demand",
+        text: leader
+          ? `${leader.name} may remain a near-term demand driver because it currently leads the booking mix with ${leader.count} booking(s). If this pattern continues, the shop could benefit from keeping this service visible in recommendations and making sure staff are prepared for its workflow requirements.`
+          : "Service demand is difficult to forecast because no booking leaders are available yet. Once bookings accumulate, the strongest services should become clearer and planning confidence should improve.",
+      },
+      {
+        type: "prediction",
+        title: "Possible Sales Direction",
+        text: strongestPeriod
+          ? `${strongestPeriod.name || strongestPeriod.method || "The strongest period"} currently contributes ${formatAnalyticsPeso(strongestPeriod.amount)} in verified sales from ${Number(strongestPeriod.count || 0)} paid record(s). If that revenue rhythm continues, future sales may be strongest around the same operating cadence, but the projection should stay cautious until more periods are observed.`
+          : "There is not enough verified period revenue to identify a reliable sales direction yet. Future sales may fluctuate until more paid stages are verified.",
+      },
+      {
+        type: "prediction",
+        title: "Expected Booking Pattern",
+        text: `Current bookings total ${totalBookings}, with ${completedBookings} completed and ${inProgressBookings} in progress. If new requests keep arriving at the same mix, staff workload may concentrate around services that already appear in the booking leaders, so scheduling buffers and detailer availability should be watched closely.`,
+      },
+      {
+        type: "watchpoint",
+        title: "Review And Engagement Risk",
+        text: totalReviews
+          ? `The current average rating is ${avgRating} from ${totalReviews} review(s). If review volume stays low, one poor rating could noticeably affect the dashboard average, so follow-up requests after completed jobs may help keep engagement and reputation signals steadier.`
+          : "There are no review ratings available yet, so customer sentiment cannot be predicted with confidence. The business may want to collect reviews consistently before relying on rating trends for decisions.",
+      },
+      {
+        type: "recommendation",
+        title: "Staff And Materials Planning",
+        text: leader
+          ? `If ${leader.name} keeps attracting bookings, the shop may need to prepare enough detailer capacity, consumables, and bay time for that service. This is especially important for premium or protection-oriented packages where delays can reduce customer satisfaction.`
+          : "Staff and inventory planning should remain flexible until service demand becomes clearer. Track the next wave of bookings before committing heavily to a specific service mix.",
+      },
+      {
+        type: "watchpoint",
+        title: "Revenue Opportunity",
+        text: lowerService
+          ? `${lowerService.name} has lower visible demand with ${lowerService.count} booking(s), which may represent either a weaker offer or a service that needs clearer positioning. If the service has good margins, the business could test targeted recommendations before assuming demand will stay low.`
+          : "Underperforming services are not visible yet. As more services appear in the data, low-volume offers should be reviewed for pricing, promotion, or bundling opportunities.",
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "summary",
+      title: "Summary",
+      text: `The analytics currently show ${formatAnalyticsPeso(totalSales)} in verified paid revenue, counted only from paid payment stages and compatible legacy paid records. The selected range, ${selectedRange}, contributes ${formatAnalyticsPeso(selectedRangeSales)} from ${paidRevenueEvents} verified revenue event(s), which helps separate confirmed cash flow from pending or rejected payments.`,
+    },
+    {
+      type: "observation",
+      title: "Verified Sales Performance",
+      text: `Sales reporting is based on verified paid revenue only, so pending and for-verification payments are excluded from the totals. This gives the admin a cleaner view of money that has actually been approved, which is more useful for operational decisions than raw booking value alone.`,
+    },
+    {
+      type: "observation",
+      title: "Booking Volume",
+      text: `There are ${totalBookings} booking(s) in the current dataset, including ${completedBookings} completed and ${inProgressBookings} in progress. This mix shows how much demand has already moved through the shop and how much operational work may still need attention.`,
+    },
+    {
+      type: "observation",
+      title: "Top-Performing Service",
+      text: leader
+        ? `${leader.name} is currently the strongest visible service with ${leader.count} booking(s). That matters because repeated demand for a service can guide what the team highlights in consultations, promos, and scheduling priorities.`
+        : "No top service is available yet because bookings are empty or services are not recorded. Once bookings are added, this section can identify which services are actually pulling demand.",
+    },
+    {
+      type: "possible_cause",
+      title: "Lower-Volume Services",
+      text: lowerService
+        ? `${lowerService.name} appears lower in the visible service mix with ${lowerService.count} booking(s). This may mean the service has weaker demand, lower awareness, or a more selective customer fit, so it is worth comparing its pricing and presentation against stronger packages.`
+        : "There is not enough service spread to identify underperforming services yet. More booking history will make lower-demand offers easier to spot.",
+    },
+    {
+      type: "observation",
+      title: "Ratings And Engagement",
+      text: totalReviews
+        ? `Customer ratings average ${avgRating} out of 5 across ${totalReviews} review(s). This gives a useful but still volume-sensitive signal: strong ratings can support premium positioning, while a small review count means each new review can move the average materially.`
+        : "No review ratings are available yet. That limits visibility into customer satisfaction and makes post-service review collection more important for future analytics.",
+    },
+    {
+      type: "recommendation",
+      title: "Operational Focus",
+      text: strongestPeriod
+        ? `${strongestPeriod.name || strongestPeriod.method || "The strongest sales period"} is the strongest period snapshot with ${formatAnalyticsPeso(strongestPeriod.amount)} in verified sales. Admin decisions should connect this revenue pattern with booking workload so staffing, service recommendations, and follow-ups are aligned with confirmed demand.`
+        : "No period stands out for verified revenue yet. Admin should continue monitoring weekly, monthly, quarterly, and annual summaries as more paid stages are verified.",
+    },
+  ];
+}
+
+function normalizeAnalyticsAiOutput(payload, sanitizedInput = {}) {
+  const analysisType = normalizeAnalyticsItemType(payload?.analysisType || sanitizedInput.analysisType || "descriptive", "descriptive") === "predictive"
+    ? "predictive"
+    : "descriptive";
+  const fallbackItems = buildAnalyticsFallbackItems(sanitizedInput, analysisType);
+  const normalizedItems = normalizeAnalyticsAiItems(payload, analysisType);
+  const seen = new Set(normalizedItems.map((item) => `${item.type}:${item.title}:${item.text}`.toLowerCase()));
+  const items = [
+    ...normalizedItems,
+    ...fallbackItems.filter((item) => {
+      const key = `${item.type}:${item.title}:${item.text}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }),
+  ].slice(0, 8);
+  const summaryItem = items.find((item) => item.type === "summary") || items[0] || null;
+  const groupedItems = (type) => items.filter((item) => item.type === type).map((item) => item.text);
 
   return {
-    summary,
-    keyObservations,
-    possibleCauses,
-    recommendations,
-    warnings,
-    insights: keyObservations,
+    analysisType,
+    generatedAt: new Date().toISOString(),
+    items,
+    summary: summaryItem?.text || "",
+    keyObservations: items
+      .filter((item) => ["observation", "prediction", "confidence"].includes(item.type))
+      .map((item) => item.text)
+      .slice(0, 5),
+    possibleCauses: groupedItems("possible_cause").slice(0, 4),
+    recommendations: groupedItems("recommendation").slice(0, 4),
+    warnings: groupedItems("watchpoint").slice(0, 4),
+    insights: items.map((item) => item.text).slice(0, 6),
   };
 }
 
@@ -1027,38 +1301,43 @@ async function handleAnalyticsAiInterpret(req, res, next) {
     const promptLines = isPredictive
       ? [
           "You are an executive forecasting advisor for an auto detailing and car care business.",
-          "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
+          "Return only JSON with this shape: { analysisType: \"predictive\", items: [{ type, title, text }] }.",
+          "Return 6 to 8 items. Each item text should be 2 to 4 sentences when the data supports it.",
+          "Allowed item types are summary, prediction, observation, recommendation, watchpoint, and confidence.",
           "Focus on likely future trends using the supplied sales, booking, service, and review data.",
           "Use cautious language such as likely, may, possible, expected, or based on current trends.",
           "Do not present predictions as certain. If the data is sparse, clearly state that prediction confidence is limited.",
-          "Key observations should identify forecast signals, possible demand shifts, service demand, sales direction, booking patterns, review risks, or planning needs.",
-          "Recommendations must be practical for staffing, scheduling, service mix, inventory, follow-up, or sales planning only when supported by the data.",
-          "Warnings should highlight future risks or watchpoints only when warranted.",
-          "Avoid generic statements and avoid repeating the same point across sections.",
+          "Cover likely service demand, possible sales direction, expected booking patterns, review or engagement risks, staff workload, inventory or material planning, revenue opportunities, and confidence level when the data supports it.",
+          "Use exact values from the user payload when possible, but do not invent future numbers unless they are simple directional references from visible data.",
+          "Avoid generic statements, avoid repeating the same point across items, and never put nested objects in the text field.",
         ]
       : [
           "You are an executive operations advisor for an auto detailing and car care business.",
-          "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
+          "Return only JSON with this shape: { analysisType: \"descriptive\", items: [{ type, title, text }] }.",
+          "Return 6 to 8 items. Each item text should be 2 to 4 sentences when the data supports it.",
+          "Allowed item types are summary, observation, possible_cause, recommendation, and watchpoint.",
           "Summarize what already happened using the supplied current analytics data.",
-          "Discuss total sales performance, booking volume, top services, ratings or review trends, and observed customer or payment behavior when present.",
-          "Use concise management-level language for a dashboard.",
-          "Summary must be 1 to 2 sentences focused on business direction, demand, revenue mix, or customer behavior.",
-          "Key observations should be specific trends or performance signals, not filler.",
-          "Possible causes should explain likely operational or demand drivers only when supported by the data.",
-          "Recommendations must be practical for a car care shop, such as staffing, upsell focus, service mix, scheduling, follow-up, or payment channel actions.",
-          "Warnings should highlight clear risks or watchpoints only when warranted.",
-          "Avoid generic statements, avoid repeating the same point across sections, and do not mention missing data unless it changes the decision.",
+          "Discuss verified paid revenue only, selected period revenue, booking volume, top-performing services, lower-volume services if supplied, ratings and review count, customer engagement signals, and operational observations connected to the data.",
+          "Use exact values from the user payload when possible and explain why the numbers matter to the business.",
+          "Recommendations must be practical for a car care shop, such as staffing, upsell focus, service mix, scheduling, follow-up, or payment behavior actions.",
+          "Avoid generic statements, avoid repeating the same point across items, and never put nested objects in the text field.",
         ];
 
     const aiPayload = await requestGroqStructuredJson({
       feature: isPredictive ? "analytics-predictive" : "analytics-descriptive",
       systemPrompt: promptLines.join(" "),
       userPayload: sanitizedInput,
-      maxTokens: isPredictive ? 480 : 420,
+      maxTokens: isPredictive ? 900 : 850,
+      allowTextFallback: true,
     });
 
     if (!aiPayload.available) {
-      res.json(aiPayload);
+      res.json({
+        ...aiPayload,
+        analysisType: sanitizedInput.analysisType,
+        generatedAt: new Date().toISOString(),
+        items: buildAnalyticsFallbackItems(sanitizedInput, sanitizedInput.analysisType),
+      });
       return;
     }
 
@@ -1067,7 +1346,7 @@ async function handleAnalyticsAiInterpret(req, res, next) {
       feature: aiPayload.feature,
       message: "",
       model: aiPayload.model,
-      ...normalizeAnalyticsAiOutput(aiPayload),
+      ...normalizeAnalyticsAiOutput(aiPayload, sanitizedInput),
     });
   } catch (error) {
     next(error);

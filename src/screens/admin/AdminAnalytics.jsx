@@ -31,6 +31,9 @@ const QUARTER_OPTIONS = [
   { value: 4, label: "Q4" },
 ];
 
+const AI_TEXT_KEYS = ["text", "content", "message", "description", "summary", "value", "insight", "detail", "details", "body"];
+const AI_TITLE_KEYS = ["title", "label", "category", "type", "heading", "name"];
+
 const pad2 = (value) => String(value).padStart(2, "0");
 const toDateKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 
@@ -330,6 +333,9 @@ function createAiState() {
   return {
     status: "idle",
     message: "",
+    analysisType: "",
+    generatedAt: "",
+    items: [],
     summary: "",
     keyObservations: [],
     possibleCauses: [],
@@ -339,14 +345,122 @@ function createAiState() {
   };
 }
 
+function getObjectField(record, keys) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return "";
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null && String(record[key]).trim()) {
+      return record[key];
+    }
+  }
+  return "";
+}
+
+function getAiItemText(item) {
+  if (item === undefined || item === null) return "";
+  if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+    return String(item).replace(/\s+/g, " ").replace(/\[object Object\]/g, "").trim();
+  }
+  if (Array.isArray(item)) {
+    return item.map(getAiItemText).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  }
+  if (typeof item === "object") {
+    const directText = getObjectField(item, AI_TEXT_KEYS);
+    if (directText) return getAiItemText(directText);
+    return Object.entries(item)
+      .map(([key, value]) => {
+        if (AI_TITLE_KEYS.includes(key)) return "";
+        const text = getAiItemText(value);
+        if (!text) return "";
+        const label = String(key || "").replace(/[_-]+/g, " ").trim();
+        return label ? `${label}: ${text}` : text;
+      })
+      .filter(Boolean)
+      .join("; ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return "";
+}
+
+function titleFromAiType(type, fallbackTitle = "Observation") {
+  const normalized = String(type || "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (!normalized) return fallbackTitle;
+  if (normalized.includes("summary")) return "Summary";
+  if (normalized.includes("cause")) return "Possible Cause";
+  if (normalized.includes("recommend") || normalized.includes("action")) return "Recommendation";
+  if (normalized.includes("warn") || normalized.includes("risk") || normalized.includes("watch")) return "Watchpoint";
+  if (normalized.includes("predict")) return "Prediction";
+  if (normalized.includes("confidence")) return "Confidence";
+  return normalized.split(" ").filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ") || fallbackTitle;
+}
+
+function getAiItemTitle(item, fallbackTitle = "Observation") {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return fallbackTitle;
+  const rawTitle = getObjectField(item, AI_TITLE_KEYS);
+  const titleText = getAiItemText(rawTitle);
+  return titleText || titleFromAiType(item.type || item.category || item.label, fallbackTitle);
+}
+
+function normalizeAiAnalysisItem(item, fallbackTitle = "Observation", fallbackType = "observation") {
+  const text = getAiItemText(item);
+  if (!text) return null;
+  const type = item && typeof item === "object" && !Array.isArray(item)
+    ? String(item.type || item.category || item.label || fallbackType).trim().toLowerCase().replace(/[\s-]+/g, "_")
+    : fallbackType;
+  return {
+    type: type || fallbackType,
+    title: getAiItemTitle(item, fallbackTitle),
+    text,
+  };
+}
+
+function normalizeAiAnalysisResponse(response = {}, analysisType = "descriptive") {
+  const items = [];
+  const pushItem = (item, fallbackTitle, fallbackType) => {
+    const normalized = normalizeAiAnalysisItem(item, fallbackTitle, fallbackType);
+    if (normalized) items.push(normalized);
+  };
+  const pushList = (values, fallbackTitle, fallbackType) => {
+    const list = Array.isArray(values) ? values : values ? [values] : [];
+    list.forEach((item) => pushItem(item, fallbackTitle, fallbackType));
+  };
+
+  pushList(response.items, "Observation", "observation");
+  pushItem(response.summary, "Summary", "summary");
+  pushList(response.keyObservations || response.observations || response.insights, "Observation", analysisType === "predictive" ? "prediction" : "observation");
+  pushList(response.possibleCauses || response.causes || response.drivers, "Possible Cause", "possible_cause");
+  pushList(response.recommendations || response.actions || response.nextSteps, "Recommendation", "recommendation");
+  pushList(response.warnings || response.watchpoints || response.risks, analysisType === "predictive" ? "Predictive Watchpoint" : "Watchpoint", "watchpoint");
+
+  const seen = new Set();
+  const normalizedItems = items.filter((item) => {
+    const key = `${item.type}:${item.title}:${item.text}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const summaryItem = normalizedItems.find((item) => item.type === "summary") || normalizedItems[0] || null;
+
+  return {
+    analysisType: response.analysisType || analysisType,
+    generatedAt: response.generatedAt || "",
+    model: getAiItemText(response.model),
+    summary: summaryItem?.text || "",
+    items: normalizedItems.length
+      ? normalizedItems
+      : [{ type: "summary", title: "Summary", text: "No summary available yet." }],
+    keyObservations: normalizedItems.filter((item) => ["observation", "prediction", "confidence"].includes(item.type)).map((item) => item.text),
+    possibleCauses: normalizedItems.filter((item) => item.type === "possible_cause").map((item) => item.text),
+    recommendations: normalizedItems.filter((item) => item.type === "recommendation").map((item) => item.text),
+    warnings: normalizedItems.filter((item) => item.type === "watchpoint").map((item) => item.text),
+  };
+}
+
 function getAiLines(aiState) {
-  const lines = [];
-  if (aiState.summary) lines.push({ label: "Summary", text: aiState.summary });
-  aiState.keyObservations.forEach((item) => lines.push({ label: "Observation", text: item }));
-  aiState.possibleCauses.forEach((item) => lines.push({ label: "Possible cause", text: item }));
-  aiState.recommendations.forEach((item) => lines.push({ label: "Recommendation", text: item }));
-  aiState.warnings.forEach((item) => lines.push({ label: "Watchpoint", text: item }));
-  return lines;
+  return normalizeAiAnalysisResponse(aiState, aiState.analysisType || "descriptive")
+    .items
+    .filter((item) => item.text && item.text !== "No summary available yet.")
+    .map((item) => ({ label: item.title, text: item.text, type: item.type }));
 }
 
 function AnalyticsAiCard({ title, type, buttonLabel, state, onGenerate }) {
@@ -477,7 +591,7 @@ export default function AdminAnalytics() {
     [avgRating]
   );
 
-  const topServices = useMemo(() => {
+  const serviceDemand = useMemo(() => {
     const map = new Map();
     bookings.forEach((booking) => {
       const key = String(booking.service || "Unknown Service").trim() || "Unknown Service";
@@ -485,9 +599,17 @@ export default function AdminAnalytics() {
     });
     return Array.from(map.entries())
       .map(([name, count]) => ({ name, count }))
-      .sort((left, right) => right.count - left.count)
-      .slice(0, 5);
+      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
   }, [bookings]);
+  const topServices = useMemo(() => serviceDemand.slice(0, 5), [serviceDemand]);
+  const bottomServices = useMemo(
+    () =>
+      serviceDemand
+        .slice()
+        .sort((left, right) => left.count - right.count || left.name.localeCompare(right.name))
+        .slice(0, 5),
+    [serviceDemand]
+  );
 
   const analyticsAiPayload = useMemo(
     () => ({
@@ -503,6 +625,7 @@ export default function AdminAnalytics() {
         paidRevenueEvents: verifiedRevenueEvents.length,
       },
       topServices,
+      bottomServices,
       paymentSummary: periodSummary.map((item) => ({
         name: item.key,
         count: item.transactions,
@@ -515,7 +638,7 @@ export default function AdminAnalytics() {
         periodSummary[3] ? `Annual verified sales currently total ${peso(periodSummary[3].sales)}.` : "",
       ].filter(Boolean),
     }),
-    [avgRating, bookingSummary, currentRange.label, periodSummary, selectedRangeSales, topServices, totalRatings, totalSales, verifiedRevenueEvents.length]
+    [avgRating, bookingSummary, bottomServices, currentRange.label, periodSummary, selectedRangeSales, topServices, totalRatings, totalSales, verifiedRevenueEvents.length]
   );
 
   const generateAnalytics = async (analysisType) => {
@@ -525,23 +648,22 @@ export default function AdminAnalytics() {
     try {
       const response = await generateAnalyticsInterpretation({ ...analyticsAiPayload, analysisType });
       if (!response?.available) {
+        const normalized = normalizeAiAnalysisResponse(response || {}, analysisType);
         setState({
           ...createAiState(),
           status: "unavailable",
           message: response?.message || "AI unavailable right now.",
+          ...normalized,
         });
         return;
       }
 
+      const normalized = normalizeAiAnalysisResponse(response, analysisType);
       setState({
+        ...normalized,
         status: "success",
         message: "",
-        summary: response.summary || "",
-        keyObservations: Array.isArray(response.keyObservations) ? response.keyObservations : [],
-        possibleCauses: Array.isArray(response.possibleCauses) ? response.possibleCauses : [],
-        recommendations: Array.isArray(response.recommendations) ? response.recommendations : [],
-        warnings: Array.isArray(response.warnings) ? response.warnings : [],
-        model: response.model || "",
+        model: normalized.model || getAiItemText(response.model),
       });
     } catch (error) {
       setState({
