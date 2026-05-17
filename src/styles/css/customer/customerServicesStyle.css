@@ -176,7 +176,9 @@
 }
 
 .clSvcModalCard {
-  width: min(100%, 400px);
+  width: min(900px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
   background: #fff;
   border-radius: 16px;
   border: 1px solid #e5e7eb;
@@ -321,6 +323,9 @@
 }
 
 .clSvcModalActions {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -348,4 +353,16 @@
 .clSvcPrimaryBtn {
   background: var(--accent);
   color: #fff;
+}
+
+@media (max-width: 640px) {
+  .clSvcModalOverlay {
+    padding: 14px;
+  }
+
+  .clSvcModalCard {
+    width: 95vw;
+    max-height: 90vh;
+    padding: 16px 14px 12px;
+  }
 }

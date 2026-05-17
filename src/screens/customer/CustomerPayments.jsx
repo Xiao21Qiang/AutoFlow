@@ -147,7 +147,6 @@ export default function CustomerPayments() {
   const [proofMode, setProofMode] = useState("downPayment");
   const [proofForm, setProofForm] = useState({
     reference: "",
-    notes: "",
     method: "",
     proofImage: "",
     proofFileName: "",
@@ -183,7 +182,7 @@ export default function CustomerPayments() {
     setModal(null);
     setSelectedPayment(null);
     setProofMode("downPayment");
-    setProofForm({ reference: "", notes: "", method: "", proofImage: "", proofFileName: "" });
+    setProofForm({ reference: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
   };
 
@@ -193,7 +192,6 @@ export default function CustomerPayments() {
     setProofMode(mode);
     setProofForm({
       reference: isFinalPaymentMode ? payment.finalPaymentReference || "" : payment.downPaymentReference || "",
-      notes: isFinalPaymentMode ? payment.finalPaymentNotes || "" : payment.downPaymentNotes || "",
       method: isFinalPaymentMode ? payment.finalPaymentMethod || "" : payment.downPaymentMethod || "",
       proofImage: isFinalPaymentMode
         ? payment.finalPaymentProofUrl || ""
@@ -447,7 +445,6 @@ export default function CustomerPayments() {
                         finalPaymentStatus: "For Verification",
                         finalPaymentMethod: proofForm.method,
                         finalPaymentReference: reference,
-                        finalPaymentNotes: proofForm.notes,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
                       }
@@ -455,7 +452,6 @@ export default function CustomerPayments() {
                         downPaymentStatus: "For Verification",
                         downPaymentMethod: proofForm.method,
                         downPaymentReference: reference,
-                        downPaymentNotes: proofForm.notes,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
                       };
@@ -557,16 +553,6 @@ export default function CustomerPayments() {
                 </label>
 
                 {proofError ? <div className="clPayFieldError">{proofError}</div> : null}
-
-                <label className="clPayField">
-                  <span>Notes</span>
-                  <textarea
-                    rows="4"
-                    value={proofForm.notes}
-                    onChange={(e) => setProofForm((prev) => ({ ...prev, notes: e.target.value }))}
-                    placeholder="Optional note for admin/staff review."
-                  />
-                </label>
 
                 <div className="clPayModalActions">
                   <button className="clPayTextBtn" type="button" onClick={closeModal}>

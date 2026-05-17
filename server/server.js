@@ -5198,7 +5198,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentReference: String(req.body.finalPaymentReference || "").trim().slice(0, 80),
           finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofUrl || ""),
           finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofName || ""),
-          finalPaymentNotes: req.body.finalPaymentNotes || "",
+          finalPaymentNotes: existingPayment.finalPaymentNotes || "",
           auditUser: actorEmail,
           ...rewardPricing,
         }
@@ -5216,7 +5216,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentReference: String(req.body.downPaymentReference || req.body.reference || "").trim().slice(0, 80),
           downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || ""),
           downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || ""),
-          downPaymentNotes: req.body.downPaymentNotes || req.body.notes || "",
+          downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
           finalPaymentMethod: existingPayment.finalPaymentMethod || "",
           finalPaymentReference: existingPayment.finalPaymentReference || "",
