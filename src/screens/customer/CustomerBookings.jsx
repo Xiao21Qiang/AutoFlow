@@ -23,6 +23,18 @@ function formatDate(dateStr) {
   });
 }
 
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return String(dateStr || "");
+  return d.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function createEmptyForm(defaultService = "Graphene Coating") {
   return {
     date: "",
@@ -50,6 +62,10 @@ function getTodayKey() {
 function formatBookingTime(value) {
   const time = String(value || "").trim();
   return time || "Pending Assignment";
+}
+
+function requiresDownPayment(service) {
+  return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") !== "car wash";
 }
 
 function ModalSelect({ value, options, placeholder, onSelect }) {
@@ -109,6 +125,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
         return bookingName === customerName;
       }),
     [bookings, customerEmail, customerName]
+  );
+  const paymentByBookingId = useMemo(
+    () => new Map(payments.map((payment) => [payment.bookingId, payment])),
+    [payments]
   );
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -366,6 +386,12 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
               >
                 <div className="clBookModalTitle">New Booking</div>
 
+                <div className={`clBookDownPaymentNotice${requiresDownPayment(selectedService || form.service) ? "" : " exempt"}`}>
+                  {requiresDownPayment(selectedService || form.service)
+                    ? "Down payment is required to secure your slot. The down payment is non-refundable and must be paid within 24 hours after booking. Bookings without submitted down-payment proof within 24 hours will be automatically cancelled."
+                    : "This service does not require a down payment."}
+                </div>
+
                 <label className="clBookField">
                   <span>Preferred Date</span>
                   <input
@@ -541,6 +567,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <div><strong>Preferred Detailer:</strong> {getPreferredDetailerDisplay(selectedBooking)}</div>
                   <div><strong>Assigned To:</strong> {selectedBooking.assigned || "-"}</div>
                   <div><strong>Status:</strong> {selectedBooking.status}</div>
+                  {paymentByBookingId.get(selectedBooking.id)?.downPaymentDueAt && paymentByBookingId.get(selectedBooking.id)?.downPaymentRequired === true ? (
+                    <div><strong>Down payment due:</strong> {formatDateTime(paymentByBookingId.get(selectedBooking.id).downPaymentDueAt)}</div>
+                  ) : null}
                 </div>
                 <div className="clBookModalActions">
                   <button className="clBookPrimaryBtn" type="button" onClick={closeModal}>

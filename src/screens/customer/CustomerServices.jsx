@@ -33,6 +33,10 @@ function getServiceType(service) {
   return "Basic Service";
 }
 
+function requiresDownPayment(service) {
+  return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") !== "car wash";
+}
+
 export default function CustomerServices() {
   const { services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
@@ -263,6 +267,12 @@ export default function CustomerServices() {
                     {Number(selectedPromo.maxUsagePerUser || 0) > 0 ? ` with a max of ${Number(selectedPromo.maxUsagePerUser || 0)} use(s) per user` : ""}
                   </div>
                 ) : null}
+              </div>
+
+              <div className={`clSvcDownPaymentNotice${requiresDownPayment(selectedService) ? "" : " exempt"}`}>
+                {requiresDownPayment(selectedService)
+                  ? "Down payment is required to secure your slot. The down payment is non-refundable and must be paid within 24 hours after booking. Bookings without submitted down-payment proof within 24 hours will be automatically cancelled."
+                  : "This service does not require a down payment."}
               </div>
 
               {activePromos.length > 0 && (

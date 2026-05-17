@@ -44,6 +44,7 @@ function normalizeUserType(userType, role) {
 }
 
 function buildNotificationMessage(log) {
+  if (log?.meta?.message) return String(log.meta.message);
   const actor = log.userId || "System";
   const target = log.targetId ? ` (${log.targetId})` : "";
   return `${actor} ${String(log.action || "").toLowerCase()}${target}`;
@@ -69,6 +70,10 @@ const PAYMENT_NOTIFICATION_TITLES = new Set([
   "Updated payment method",
   "Updated payment",
   "Payment details requested",
+  "Down payment reminder",
+  "1 hour left to submit down payment",
+  "Down payment proof submitted",
+  "Service is booked",
 ]);
 
 const STOCK_NOTIFICATION_TITLES = new Set([
@@ -81,6 +86,7 @@ const STOCK_NOTIFICATION_TITLES = new Set([
 const BOOKING_NOTIFICATION_TITLES = new Set([
   "Created booking",
   "Updated booking status",
+  "Booking cancelled",
 ]);
 
 const TRACKING_NOTIFICATION_TITLES = new Set([

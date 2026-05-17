@@ -322,6 +322,26 @@
   color: #64748b;
 }
 
+.clSvcDownPaymentNotice {
+  margin: -2px 0 14px;
+  padding: 11px 12px;
+  border: 1px solid #e7cf83;
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+  background: #fff9e8;
+  color: #4b3a12;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.clSvcDownPaymentNotice.exempt {
+  border-color: #d8e1ec;
+  border-left-color: #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+}
+
 .clSvcModalActions {
   position: sticky;
   bottom: 0;

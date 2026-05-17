@@ -23,6 +23,27 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return String(dateStr || "");
+  return d.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatApproxTimeLeft(dateStr) {
+  const due = new Date(dateStr);
+  if (Number.isNaN(due.getTime())) return "";
+  const hours = Math.ceil((due.getTime() - Date.now()) / (60 * 60 * 1000));
+  if (hours <= 0) return "expired";
+  if (hours === 1) return "approximately 1 hour";
+  return `approximately ${hours} hours`;
+}
+
 function formatCurrency(value) {
   return `P ${Number(value || 0).toLocaleString()}`;
 }
@@ -32,6 +53,9 @@ function isCashPaymentMethod(value) {
 }
 
 function getCustomerProofAction(payment = {}) {
+  if (payment.autoCancelledForNoDownPaymentProof) {
+    return { label: "Cancelled", disabled: true, mode: "" };
+  }
   const legacyStatus = normalizeStageStatus(payment.status, "Pending");
   const downPaymentStatus = normalizeStageStatus(
     payment.downPaymentStatus,
@@ -396,6 +420,12 @@ export default function CustomerPayments() {
                   </div>
 
                   <div className="clPayDetailList clPayDetailListCompact">
+                    {selectedPayment.downPaymentDueAt && selectedPayment.downPaymentRequired === true && (
+                      <div>
+                        <strong>Down payment due:</strong> {formatDateTime(selectedPayment.downPaymentDueAt)}
+                        {formatApproxTimeLeft(selectedPayment.downPaymentDueAt) ? ` (${formatApproxTimeLeft(selectedPayment.downPaymentDueAt)} left)` : ""}
+                      </div>
+                    )}
                     {(selectedPayment.downPaymentReference || selectedPayment.reference) && <div><strong>Reference:</strong> {selectedPayment.downPaymentReference || selectedPayment.reference}</div>}
                     {selectedPayment.rewardId && <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"} ({selectedPayment.rewardValue || selectedPayment.rewardType || "-"})</div>}
                     {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}

@@ -431,6 +431,10 @@ const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 const SHOP_OPEN_MINUTES = 8 * 60;
 const SHOP_CLOSE_MINUTES = 17 * 60;
 const SHOP_DAY_MINUTES = SHOP_CLOSE_MINUTES - SHOP_OPEN_MINUTES;
+const DOWN_PAYMENT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const DOWN_PAYMENT_ONE_HOUR_MS = 60 * 60 * 1000;
+const DOWN_PAYMENT_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
+const DOWN_PAYMENT_AUTO_CANCEL_REASON = "Automatically cancelled because no down-payment proof was submitted within 24 hours.";
 
 function timeToMinutes(value) {
   const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -2120,6 +2124,128 @@ async function recordAudit(userId, action, targetId, meta) {
   });
 }
 
+function addDownPaymentDeadline(createdAt = new Date()) {
+  const base = createdAt instanceof Date && !Number.isNaN(createdAt.getTime()) ? createdAt : new Date();
+  return new Date(base.getTime() + DOWN_PAYMENT_DEADLINE_MS);
+}
+
+function hasDownPaymentSubmission(payment = {}) {
+  const status = normalizePaymentStageStatus(payment.downPaymentStatus, "Pending");
+  return Boolean(
+    status === "For Verification" ||
+    status === "Paid" ||
+    payment.downPaymentProofSubmittedAt ||
+    String(payment.downPaymentProofUrl || payment.proofImage || "").trim() ||
+    String(payment.downPaymentProofName || payment.proofFileName || "").trim()
+  );
+}
+
+function isPendingDownPaymentDeadlineStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized === "pending" || normalized === "pending confirmation" || normalized === "";
+}
+
+function shouldWarnOrCancelForDownPaymentDeadline(payment = {}, booking = {}) {
+  if (!payment || payment.downPaymentRequired !== true) return false;
+  if (!payment.downPaymentDueAt) return false;
+  if (!booking || !isPendingDownPaymentDeadlineStatus(booking.status)) return false;
+  const status = normalizePaymentStageStatus(payment.downPaymentStatus, "Pending");
+  if (status === "Paid" || status === "For Verification" || status === "Not Required") return false;
+  return !hasDownPaymentSubmission(payment);
+}
+
+async function recordCustomerNotification(title, bookingOrPayment = {}, message, extraMeta = {}) {
+  await recordAudit("system", title, bookingOrPayment.bookingId || bookingOrPayment.id || "", {
+    customer: bookingOrPayment.customer || "",
+    customerEmail: bookingOrPayment.customerEmail || "",
+    message,
+    ...extraMeta,
+  });
+}
+
+async function runDownPaymentDeadlineWorkflow() {
+  const now = new Date();
+  const oneHourFromNow = new Date(now.getTime() + DOWN_PAYMENT_ONE_HOUR_MS);
+
+  const reminderCandidates = await Payment.find({
+    downPaymentRequired: true,
+    downPaymentDueAt: { $ne: null, $gt: now, $lte: oneHourFromNow },
+    downPaymentReminderSentAt: null,
+    autoCancelledForNoDownPaymentProof: { $ne: true },
+  }).limit(100);
+
+  for (const payment of reminderCandidates) {
+    const normalizedPayment = normalizePaymentStageFields(payment);
+    const booking = await Booking.findOne({ id: normalizedPayment.bookingId }).lean();
+    if (!shouldWarnOrCancelForDownPaymentDeadline(normalizedPayment, booking)) continue;
+
+    payment.downPaymentReminderSentAt = now;
+    await payment.save();
+    await recordCustomerNotification(
+      "1 hour left to submit down payment",
+      normalizedPayment,
+      "You only have 1 hour left to submit your down-payment proof before your booking slot expires.",
+      { type: "down-payment-deadline-reminder", bookingId: normalizedPayment.bookingId }
+    );
+  }
+
+  const expiredCandidates = await Payment.find({
+    downPaymentRequired: true,
+    downPaymentDueAt: { $ne: null, $lte: now },
+    autoCancelledForNoDownPaymentProof: { $ne: true },
+  }).limit(100);
+
+  for (const payment of expiredCandidates) {
+    const normalizedPayment = normalizePaymentStageFields(payment);
+    const booking = await Booking.findOne({ id: normalizedPayment.bookingId });
+    const bookingObject = booking?.toObject ? booking.toObject() : booking;
+    if (!shouldWarnOrCancelForDownPaymentDeadline(normalizedPayment, bookingObject)) continue;
+
+    booking.status = "Cancelled";
+    booking.cancellationReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
+    booking.cancelReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
+    booking.autoCancelledForNoDownPaymentProof = true;
+    await booking.save();
+
+    payment.downPaymentStatus = "Rejected";
+    payment.downPaymentExpiredAt = now;
+    payment.autoCancelledForNoDownPaymentProof = true;
+    payment.cancellationReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
+    payment.status = "Rejected";
+    await payment.save();
+
+    await recordCustomerNotification(
+      "Booking cancelled",
+      normalizedPayment,
+      "Your booking was cancelled because no down-payment proof was submitted within 24 hours.",
+      {
+        type: "down-payment-auto-cancelled",
+        bookingId: normalizedPayment.bookingId,
+        reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+      }
+    );
+    await recordAudit("system", "Auto-cancelled booking", booking.id, {
+      customer: booking.customer,
+      customerEmail: booking.customerEmail || "",
+      status: "Cancelled",
+      reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+      autoCancelledForNoDownPaymentProof: true,
+    });
+  }
+}
+
+function startDownPaymentDeadlineMonitor() {
+  const runSafely = () => {
+    runDownPaymentDeadlineWorkflow().catch((error) => {
+      console.error("[down-payment-deadline] workflow failed", {
+        message: error.message || "Unknown error",
+      });
+    });
+  };
+  runSafely();
+  return setInterval(runSafely, DOWN_PAYMENT_REMINDER_INTERVAL_MS);
+}
+
 function getServiceAuditAction(previousService, nextService) {
   if (
     previousService &&
@@ -2484,9 +2610,17 @@ function normalizePaymentStageFields(payment = {}) {
     downPaymentReference: source.downPaymentReference || "",
     downPaymentProofUrl: source.downPaymentProofUrl || "",
     downPaymentProofName: source.downPaymentProofName || "",
+    downPaymentProofSubmittedAt: source.downPaymentProofSubmittedAt || null,
     downPaymentVerifiedAt: source.downPaymentVerifiedAt || null,
     downPaymentVerifiedBy: source.downPaymentVerifiedBy || "",
     downPaymentNotes: source.downPaymentNotes || "",
+    downPaymentDueAt: source.downPaymentDueAt || null,
+    downPaymentReminderSentAt: source.downPaymentReminderSentAt || null,
+    downPaymentFinalReminderSentAt: source.downPaymentFinalReminderSentAt || null,
+    downPaymentExpiredAt: source.downPaymentExpiredAt || null,
+    downPaymentVerifiedNotificationSentAt: source.downPaymentVerifiedNotificationSentAt || null,
+    autoCancelledForNoDownPaymentProof: Boolean(source.autoCancelledForNoDownPaymentProof),
+    cancellationReason: source.cancellationReason || "",
     totalAmount,
     amountPaid,
     remainingBalance,
@@ -2511,9 +2645,17 @@ function getPaymentStageFields(payment = {}) {
     downPaymentReference: normalized.downPaymentReference,
     downPaymentProofUrl: normalized.downPaymentProofUrl,
     downPaymentProofName: normalized.downPaymentProofName,
+    downPaymentProofSubmittedAt: normalized.downPaymentProofSubmittedAt,
     downPaymentVerifiedAt: normalized.downPaymentVerifiedAt,
     downPaymentVerifiedBy: normalized.downPaymentVerifiedBy,
     downPaymentNotes: normalized.downPaymentNotes,
+    downPaymentDueAt: normalized.downPaymentDueAt,
+    downPaymentReminderSentAt: normalized.downPaymentReminderSentAt,
+    downPaymentFinalReminderSentAt: normalized.downPaymentFinalReminderSentAt,
+    downPaymentExpiredAt: normalized.downPaymentExpiredAt,
+    downPaymentVerifiedNotificationSentAt: normalized.downPaymentVerifiedNotificationSentAt,
+    autoCancelledForNoDownPaymentProof: normalized.autoCancelledForNoDownPaymentProof,
+    cancellationReason: normalized.cancellationReason,
     totalAmount: normalized.totalAmount,
     amountPaid: normalized.amountPaid,
     remainingBalance: normalized.remainingBalance,
@@ -4671,6 +4813,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     const downPaymentAmount = downPaymentRequired
       ? Math.min(paymentTotalAmount, getRequiredDownPaymentAmount(securitySetting, booking.service))
       : 0;
+    const downPaymentDueAt = downPaymentRequired ? addDownPaymentDeadline(booking.createdAt || new Date()) : null;
     const paymentStageDefaults = getPaymentStageFields({
       service: booking.service,
       amount: Number(booking.amount || 0),
@@ -4681,10 +4824,11 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       downPaymentRequired,
       downPaymentAmount,
       downPaymentStatus: downPaymentRequired ? "Pending" : "Not Required",
+      downPaymentDueAt,
       finalPaymentStatus: "Pending",
     });
 
-    await Payment.create({
+    const payment = await Payment.create({
       id: createId("PAY"),
       bookingId: booking.id,
       date: booking.date,
@@ -4710,7 +4854,22 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       status: "Pending",
       method: "",
       ...paymentStageDefaults,
+      downPaymentDueAt,
     });
+
+    if (downPaymentRequired) {
+      await recordCustomerNotification(
+        "Down payment reminder",
+        payment,
+        "Please submit your down-payment proof within 24 hours to secure your booking slot. The down payment is non-refundable.",
+        {
+          type: "down-payment-initial-reminder",
+          bookingId: booking.id,
+          downPaymentDueAt,
+          downPaymentAmount,
+        }
+      );
+    }
 
     if (booking.promoId) {
       await incrementPromoUsage(booking.promoId);
@@ -5369,6 +5528,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         existingPayment.downPaymentStatus,
         existingPayment.downPaymentRequired === false ? "Not Required" : "Pending"
       );
+      if (existingPayment.autoCancelledForNoDownPaymentProof) {
+        res.status(400).json({ message: "This booking was cancelled because the down-payment deadline expired." });
+        return;
+      }
       if (existingPayment.downPaymentRequired === false || currentDownPaymentStatus === "Not Required") {
         res.status(400).json({ message: "Down payment proof is not required for this payment." });
         return;
@@ -5567,6 +5730,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentReference: String(req.body.downPaymentReference || req.body.reference || "").trim().slice(0, 80),
           downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || ""),
           downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || ""),
+          downPaymentProofSubmittedAt: existingPayment.downPaymentProofSubmittedAt || new Date(),
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
           finalPaymentMethod: existingPayment.finalPaymentMethod || "",
@@ -5637,6 +5801,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         finalPaymentProofName: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofName : (nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName),
       }),
     };
+    if (isMarkingDownPaymentPaid && !existingPayment.downPaymentVerifiedNotificationSentAt) {
+      stagedNextPayload.downPaymentVerifiedNotificationSentAt = new Date();
+    }
 
     const payment = await Payment.findOneAndUpdate(
       { id: req.params.id },
@@ -5694,6 +5861,22 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "This reward has already been used." });
         return;
       }
+    }
+    if (isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission) {
+      await recordCustomerNotification(
+        "Down payment proof submitted",
+        payment,
+        "Your down-payment proof has been submitted and is now waiting for admin verification.",
+        { type: "down-payment-proof-submitted", bookingId: payment.bookingId || "" }
+      );
+    }
+    if (isMarkingDownPaymentPaid && !existingPayment.downPaymentVerifiedNotificationSentAt) {
+      await recordCustomerNotification(
+        "Service is booked",
+        payment,
+        "Your down payment has been verified. Your booking is now secured and ready for scheduling.",
+        { type: "down-payment-verified", bookingId: payment.bookingId || "" }
+      );
     }
     res.json(normalizePaymentStageFields(payment));
   } catch (error) {
@@ -6300,6 +6483,7 @@ async function start() {
   await migratePaymentMethods();
   await migrateExpenseCategories();
   await backfillAutomaticExpenses();
+  startDownPaymentDeadlineMonitor();
   app.listen(PORT, () => {
     console.log(`AutoFlow server listening on port ${PORT}`);
   });
