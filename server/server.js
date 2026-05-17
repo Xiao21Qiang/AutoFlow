@@ -680,6 +680,8 @@ function extractJsonObject(text) {
 }
 
 function buildAnalyticsAiInput(body = {}) {
+  const requestedAnalysisType = String(body.analysisType || body.type || "descriptive").trim().toLowerCase();
+  const analysisType = requestedAnalysisType === "predictive" ? "predictive" : "descriptive";
   const totals = normalizeAiRecord(body.totals || body.summary || body.metrics, {
     maxEntries: 12,
     maxKeyLength: 40,
@@ -713,6 +715,7 @@ function buildAnalyticsAiInput(body = {}) {
   const derivedSignals = [strongestService, paymentLeader].filter(Boolean);
 
   const payload = {
+    analysisType,
     totals,
     topServices,
     paymentSummary,
@@ -1020,21 +1023,38 @@ async function handleAnalyticsAiInterpret(req, res, next) {
       return;
     }
 
+    const isPredictive = sanitizedInput.analysisType === "predictive";
+    const promptLines = isPredictive
+      ? [
+          "You are an executive forecasting advisor for an auto detailing and car care business.",
+          "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
+          "Focus on likely future trends using the supplied sales, booking, service, and review data.",
+          "Use cautious language such as likely, may, possible, expected, or based on current trends.",
+          "Do not present predictions as certain. If the data is sparse, clearly state that prediction confidence is limited.",
+          "Key observations should identify forecast signals, possible demand shifts, service demand, sales direction, booking patterns, review risks, or planning needs.",
+          "Recommendations must be practical for staffing, scheduling, service mix, inventory, follow-up, or sales planning only when supported by the data.",
+          "Warnings should highlight future risks or watchpoints only when warranted.",
+          "Avoid generic statements and avoid repeating the same point across sections.",
+        ]
+      : [
+          "You are an executive operations advisor for an auto detailing and car care business.",
+          "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
+          "Summarize what already happened using the supplied current analytics data.",
+          "Discuss total sales performance, booking volume, top services, ratings or review trends, and observed customer or payment behavior when present.",
+          "Use concise management-level language for a dashboard.",
+          "Summary must be 1 to 2 sentences focused on business direction, demand, revenue mix, or customer behavior.",
+          "Key observations should be specific trends or performance signals, not filler.",
+          "Possible causes should explain likely operational or demand drivers only when supported by the data.",
+          "Recommendations must be practical for a car care shop, such as staffing, upsell focus, service mix, scheduling, follow-up, or payment channel actions.",
+          "Warnings should highlight clear risks or watchpoints only when warranted.",
+          "Avoid generic statements, avoid repeating the same point across sections, and do not mention missing data unless it changes the decision.",
+        ];
+
     const aiPayload = await requestGroqStructuredJson({
-      feature: "analytics-interpret",
-      systemPrompt: [
-        "You are an executive operations advisor for an auto detailing and car care business.",
-        "Return only JSON with keys: summary, keyObservations, possibleCauses, recommendations, warnings.",
-        "Use concise management-level language for a dashboard.",
-        "Summary must be 1 to 2 sentences focused on business direction, demand, revenue mix, or customer behavior.",
-        "Key observations should be specific trends or performance signals, not filler.",
-        "Possible causes should explain likely operational or demand drivers only when supported by the data.",
-        "Recommendations must be practical for a car care shop, such as staffing, upsell focus, service mix, scheduling, follow-up, or payment channel actions.",
-        "Warnings should highlight clear risks or watchpoints only when warranted.",
-        "Avoid generic statements, avoid repeating the same point across sections, and do not mention missing data unless it changes the decision.",
-      ].join(" "),
+      feature: isPredictive ? "analytics-predictive" : "analytics-descriptive",
+      systemPrompt: promptLines.join(" "),
       userPayload: sanitizedInput,
-      maxTokens: 420,
+      maxTokens: isPredictive ? 480 : 420,
     });
 
     if (!aiPayload.available) {
@@ -2237,6 +2257,29 @@ function isPaymentFullyPaid(payment = {}) {
   return isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status);
 }
 
+function getVerifiedRevenueForPayment(payment = {}) {
+  const totalAmount = getPaymentTotalAmount(payment);
+  const downPaymentAmount = Math.min(totalAmount, Math.max(0, roundMoney(payment.downPaymentAmount || 0)));
+  const downPaymentPaid = isPaidStatus(payment.downPaymentStatus);
+  const finalPaymentPaid = isPaidStatus(payment.finalPaymentStatus);
+  const legacyPaid = isPaidStatus(payment.status);
+
+  let revenue = 0;
+  if (downPaymentPaid && downPaymentAmount > 0) {
+    revenue += downPaymentAmount;
+  }
+  if (finalPaymentPaid) {
+    revenue += downPaymentPaid ? Math.max(0, totalAmount - downPaymentAmount) : totalAmount;
+  }
+  if (legacyPaid && !finalPaymentPaid) {
+    revenue = Math.max(revenue, totalAmount || Number(payment.amount || 0) || 0);
+  }
+  if (!revenue && legacyPaid) {
+    revenue = totalAmount || Number(payment.amount || 0) || 0;
+  }
+  return roundMoney(revenue);
+}
+
 async function getLinkedPaymentForBooking(booking = {}) {
   const bookingId = String(booking?.id || "").trim();
   const mongoId = String(booking?._id || "").trim();
@@ -3348,7 +3391,7 @@ async function loadBootstrapData() {
   const completedCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "completed").length;
   const cancelledCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "cancelled").length;
   const normalizedPayments = payments.map((payment) => normalizePaymentStageFields(payment));
-  const paidRevenue = normalizedPayments.filter((payment) => String(payment.status || "").toLowerCase() === "paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const paidRevenue = normalizedPayments.reduce((sum, payment) => sum + getVerifiedRevenueForPayment(payment), 0);
 
   const alerts = [];
   if (lowStockCount > 0) {

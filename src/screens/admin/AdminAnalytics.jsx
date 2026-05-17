@@ -3,10 +3,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,24 +12,322 @@ import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 
-const PAYMENT_CHART_COLORS = ["#b98a27", "#1d4ed8", "#0f8a3a", "#c2410c"];
-const RATING_CHART_COLORS = ["#991b1b", "#c2410c", "#d4a63f", "#65a30d", "#0f766e"];
+const RANGE_TYPES = [
+  { key: "weekly", label: "Weekly" },
+  { key: "monthly", label: "Monthly" },
+  { key: "quarterly", label: "Quarterly" },
+  { key: "annual", label: "Annual" },
+];
 
-function normalizePaymentMethod(method) {
-  const normalized = String(method || "").trim().toLowerCase();
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
+  value: index,
+  label: new Date(2026, index, 1).toLocaleString("en-US", { month: "long" }),
+}));
 
-  if (!normalized) return null;
-  if (normalized === "cash") return "Cash";
-  if (normalized === "gcash" || normalized === "e-wallet" || normalized === "ewallet") return "E-Wallet";
-  if (normalized === "bank transfer") return "Bank Transfer";
-  if (normalized === "online transfer") return "Online Transfer";
+const QUARTER_OPTIONS = [
+  { value: 1, label: "Q1" },
+  { value: 2, label: "Q2" },
+  { value: 3, label: "Q3" },
+  { value: 4, label: "Q4" },
+];
 
-  return null;
+const pad2 = (value) => String(value).padStart(2, "0");
+const toDateKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+function peso(value) {
+  return `Php ${Number(value || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
 }
 
-export default function AdminAnalytics() {
-  const { payments, bookings, reviews, generateAnalyticsInterpretation } = useAdminData();
-  const [aiState, setAiState] = useState({
+function parseDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function parseDateKey(value) {
+  const raw = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return parseDate(raw);
+}
+
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfWeek(date) {
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return startOfDay(addDays(date, mondayOffset));
+}
+
+function endOfWeek(date) {
+  return endOfDay(addDays(startOfWeek(date), 6));
+}
+
+function startOfMonth(year, monthIndex) {
+  return startOfDay(new Date(year, monthIndex, 1));
+}
+
+function endOfMonth(year, monthIndex) {
+  return endOfDay(new Date(year, monthIndex + 1, 0));
+}
+
+function startOfQuarter(year, quarter) {
+  return startOfMonth(year, (quarter - 1) * 3);
+}
+
+function endOfQuarter(year, quarter) {
+  return endOfMonth(year, (quarter - 1) * 3 + 2);
+}
+
+function getPaymentTotal(payment = {}) {
+  const candidates = [payment.totalAmount, payment.finalAmount, payment.amount, payment.originalAmount];
+  for (const value of candidates) {
+    const amount = Number(value);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return 0;
+}
+
+function isPaidStatus(status) {
+  return String(status || "").trim().toLowerCase() === "paid";
+}
+
+function hasMeaningfulStagedPayment(payment = {}) {
+  return Boolean(
+    payment.downPaymentRequired === true ||
+    Number(payment.downPaymentAmount || 0) > 0 ||
+    String(payment.downPaymentStatus || "").trim() ||
+    String(payment.finalPaymentStatus || "").trim() ||
+    Number(payment.totalAmount || 0) > 0 ||
+    Number(payment.amountPaid || 0) > 0
+  );
+}
+
+function getStageDate(payment = {}, fields = []) {
+  for (const field of fields) {
+    const date = parseDate(payment[field]);
+    if (date) return date;
+  }
+  return (
+    parseDateKey(payment.date) ||
+    parseDate(payment.reviewedAt) ||
+    parseDate(payment.updatedAt) ||
+    parseDate(payment.createdAt) ||
+    null
+  );
+}
+
+function getVerifiedRevenueEventsForPayment(payment = {}) {
+  const total = getPaymentTotal(payment);
+  const downPaymentAmount = Math.min(total, Math.max(0, Number(payment.downPaymentAmount || 0) || 0));
+  const downPaymentPaid = isPaidStatus(payment.downPaymentStatus);
+  const finalPaymentPaid = isPaidStatus(payment.finalPaymentStatus);
+  const legacyPaid = isPaidStatus(payment.status);
+  const staged = hasMeaningfulStagedPayment(payment);
+  const events = [];
+
+  if (downPaymentPaid && downPaymentAmount > 0) {
+    events.push({
+      id: payment.id || payment.bookingId || `down-${events.length}`,
+      stage: "Down Payment",
+      amount: downPaymentAmount,
+      date: getStageDate(payment, ["downPaymentVerifiedAt"]),
+      customer: payment.customer || payment.customerEmail || "Customer",
+    });
+  }
+
+  if (finalPaymentPaid) {
+    const finalAmount = downPaymentPaid ? Math.max(0, total - downPaymentAmount) : total;
+    if (finalAmount > 0) {
+      events.push({
+        id: payment.id || payment.bookingId || `final-${events.length}`,
+        stage: downPaymentPaid ? "Remaining Balance" : "Full Payment",
+        amount: finalAmount,
+        date: getStageDate(payment, ["finalPaymentVerifiedAt", "reviewedAt"]),
+        customer: payment.customer || payment.customerEmail || "Customer",
+      });
+    }
+  }
+
+  if (legacyPaid && !finalPaymentPaid) {
+    const legacyAmount = Math.max(0, (total || Number(payment.amount || 0) || 0) - (downPaymentPaid ? downPaymentAmount : 0));
+    if (legacyAmount > 0) {
+      events.push({
+        id: payment.id || payment.bookingId || `legacy-${events.length}`,
+        stage: "Legacy Paid Payment",
+        amount: legacyAmount,
+        date: getStageDate(payment, ["reviewedAt"]),
+        customer: payment.customer || payment.customerEmail || "Customer",
+      });
+    }
+  }
+
+  if (!events.length && legacyPaid && !staged) {
+    const legacyAmount = total || Number(payment.amount || 0) || 0;
+    if (legacyAmount > 0) {
+      events.push({
+        id: payment.id || payment.bookingId || `legacy-${events.length}`,
+        stage: "Legacy Paid Payment",
+        amount: legacyAmount,
+        date: getStageDate(payment, ["reviewedAt"]),
+        customer: payment.customer || payment.customerEmail || "Customer",
+      });
+    }
+  }
+
+  return events.filter((event) => event.amount > 0 && event.date);
+}
+
+function getVerifiedRevenueForPayment(payment = {}) {
+  return getVerifiedRevenueEventsForPayment(payment).reduce((sum, event) => sum + event.amount, 0);
+}
+
+function getPaymentRevenueDate(payment = {}) {
+  const events = getVerifiedRevenueEventsForPayment(payment);
+  return events[0]?.date || getStageDate(payment, ["finalPaymentVerifiedAt", "downPaymentVerifiedAt", "reviewedAt"]);
+}
+
+function isDateInRange(date, start, end) {
+  return date && date.getTime() >= start.getTime() && date.getTime() <= end.getTime();
+}
+
+function getRangeConfig(type, controls) {
+  const now = new Date();
+  const selectedYear = Number(controls.year || now.getFullYear());
+  if (type === "monthly") {
+    const start = startOfMonth(selectedYear, Number(controls.month || 0));
+    return {
+      start,
+      end: endOfMonth(selectedYear, Number(controls.month || 0)),
+      label: start.toLocaleString("en-US", { month: "long", year: "numeric" }),
+    };
+  }
+  if (type === "quarterly") {
+    const quarter = Number(controls.quarter || 1);
+    return {
+      start: startOfQuarter(selectedYear, quarter),
+      end: endOfQuarter(selectedYear, quarter),
+      label: `Q${quarter} ${selectedYear}`,
+    };
+  }
+  if (type === "annual") {
+    return {
+      start: startOfDay(new Date(selectedYear, 0, 1)),
+      end: endOfDay(new Date(selectedYear, 11, 31)),
+      label: String(selectedYear),
+    };
+  }
+
+  const selectedWeekDate = parseDateKey(controls.weekDate) || now;
+  const start = startOfWeek(selectedWeekDate);
+  const end = endOfWeek(selectedWeekDate);
+  return {
+    start,
+    end,
+    label: `${toDateKey(start)} to ${toDateKey(end)}`,
+  };
+}
+
+function buildSalesSeries(events, type, range) {
+  if (type === "weekly") {
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = addDays(range.start, index);
+      const key = toDateKey(date);
+      const sales = events
+        .filter((event) => toDateKey(event.date) === key)
+        .reduce((sum, event) => sum + event.amount, 0);
+      return {
+        label: date.toLocaleString("en-US", { weekday: "short" }),
+        sales,
+      };
+    });
+  }
+
+  if (type === "monthly") {
+    const days = range.end.getDate();
+    return Array.from({ length: days }, (_, index) => {
+      const date = new Date(range.start.getFullYear(), range.start.getMonth(), index + 1);
+      const key = toDateKey(date);
+      const sales = events
+        .filter((event) => toDateKey(event.date) === key)
+        .reduce((sum, event) => sum + event.amount, 0);
+      return {
+        label: String(index + 1),
+        sales,
+      };
+    });
+  }
+
+  const monthCount = type === "quarterly" ? 3 : 12;
+  const startMonth = type === "quarterly" ? range.start.getMonth() : 0;
+  return Array.from({ length: monthCount }, (_, index) => {
+    const monthIndex = startMonth + index;
+    const start = startOfMonth(range.start.getFullYear(), monthIndex);
+    const end = endOfMonth(range.start.getFullYear(), monthIndex);
+    const sales = events
+      .filter((event) => isDateInRange(event.date, start, end))
+      .reduce((sum, event) => sum + event.amount, 0);
+    return {
+      label: start.toLocaleString("en-US", { month: "short" }),
+      sales,
+    };
+  });
+}
+
+function buildPeriodSummary(events, payments, now = new Date()) {
+  const quarter = Math.floor(now.getMonth() / 3) + 1;
+  const periods = [
+    { key: "Weekly", ...getRangeConfig("weekly", { weekDate: toDateKey(now) }) },
+    { key: "Monthly", ...getRangeConfig("monthly", { month: now.getMonth(), year: now.getFullYear() }) },
+    { key: "Quarterly", ...getRangeConfig("quarterly", { quarter, year: now.getFullYear() }) },
+    { key: "Annual", ...getRangeConfig("annual", { year: now.getFullYear() }) },
+  ];
+
+  return periods.map((period) => {
+    const periodEvents = events.filter((event) => isDateInRange(event.date, period.start, period.end));
+    const paymentIds = new Set(periodEvents.map((event) => event.id).filter(Boolean));
+    const customers = new Set(periodEvents.map((event) => String(event.customer || "").trim().toLowerCase()).filter(Boolean));
+    return {
+      ...period,
+      sales: periodEvents.reduce((sum, event) => sum + event.amount, 0),
+      transactions: payments.filter((payment) => paymentIds.has(payment.id || payment.bookingId)).length || paymentIds.size,
+      customers: customers.size,
+    };
+  });
+}
+
+function buildRatingDistribution(reviews = []) {
+  const counts = [5, 4, 3, 2, 1].map((rating) => ({ rating, count: 0 }));
+  reviews.forEach((review) => {
+    const rating = Math.round(Number(review.rating || 0));
+    if (rating >= 1 && rating <= 5) {
+      counts.find((item) => item.rating === rating).count += 1;
+    }
+  });
+  return counts;
+}
+
+function createAiState() {
+  return {
     status: "idle",
     message: "",
     summary: "",
@@ -42,173 +336,204 @@ export default function AdminAnalytics() {
     recommendations: [],
     warnings: [],
     model: "",
+  };
+}
+
+function getAiLines(aiState) {
+  const lines = [];
+  if (aiState.summary) lines.push({ label: "Summary", text: aiState.summary });
+  aiState.keyObservations.forEach((item) => lines.push({ label: "Observation", text: item }));
+  aiState.possibleCauses.forEach((item) => lines.push({ label: "Possible cause", text: item }));
+  aiState.recommendations.forEach((item) => lines.push({ label: "Recommendation", text: item }));
+  aiState.warnings.forEach((item) => lines.push({ label: "Watchpoint", text: item }));
+  return lines;
+}
+
+function AnalyticsAiCard({ title, type, buttonLabel, state, onGenerate }) {
+  const lines = useMemo(() => getAiLines(state), [state]);
+  const isPredictive = type === "predictive";
+
+  return (
+    <section className="anaCard anaAiCard">
+      <div className="anaCardHead">
+        <div>
+          <h3>{title}</h3>
+          <p>{isPredictive ? "Forward-looking guidance with cautious confidence." : "A concise readout of what the current data shows."}</p>
+        </div>
+        <button
+          className="anaGoldBtn"
+          type="button"
+          onClick={onGenerate}
+          disabled={state.status === "loading"}
+        >
+          {state.status === "loading" ? "Generating..." : buttonLabel}
+        </button>
+      </div>
+      <div className={`anaAiStatus anaAiStatus-${state.status}`}>
+        {state.status === "idle" && (isPredictive ? "Generate a forecast from current sales, booking, service, and review signals." : "Generate a descriptive summary from current analytics data.")}
+        {state.status === "loading" && (isPredictive ? "Estimating likely trends from available records..." : "Summarizing current performance and customer behavior...")}
+        {state.status === "success" && `AI analysis ready${state.model ? ` - ${state.model}` : ""}`}
+        {state.status === "unavailable" && (state.message || "AI unavailable right now.")}
+        {state.status === "error" && (state.message || "Unable to generate analysis right now.")}
+      </div>
+      <div className="anaAiList">
+        {lines.length ? (
+          lines.map((line, index) => (
+            <div key={`${line.label}-${index}-${line.text}`} className="anaAiItem">
+              <span>{line.label}</span>
+              <p>{line.text}</p>
+            </div>
+          ))
+        ) : (
+          <div className="anaEmptyBlock">
+            {state.status === "loading" ? "Preparing analysis..." : "No AI analysis generated yet."}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export default function AdminAnalytics() {
+  const { payments = [], bookings = [], reviews = [], generateAnalyticsInterpretation } = useAdminData();
+  const today = useMemo(() => new Date(), []);
+  const availableYears = useMemo(() => {
+    const years = new Set([today.getFullYear()]);
+    payments.forEach((payment) => {
+      getVerifiedRevenueEventsForPayment(payment).forEach((event) => years.add(event.date.getFullYear()));
+      const date = getPaymentRevenueDate(payment);
+      if (date) years.add(date.getFullYear());
+    });
+    bookings.forEach((booking) => {
+      const date = parseDateKey(booking.date) || parseDate(booking.createdAt);
+      if (date) years.add(date.getFullYear());
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [bookings, payments, today]);
+
+  const [rangeType, setRangeType] = useState("weekly");
+  const [rangeControls, setRangeControls] = useState({
+    weekDate: toDateKey(today),
+    month: today.getMonth(),
+    quarter: Math.floor(today.getMonth() / 3) + 1,
+    year: today.getFullYear(),
   });
-  const paidPayments = useMemo(
-    () => payments.filter((payment) => String(payment.status || "").toLowerCase() === "paid"),
+  const [descriptiveAiState, setDescriptiveAiState] = useState(createAiState);
+  const [predictiveAiState, setPredictiveAiState] = useState(createAiState);
+
+  const verifiedRevenueEvents = useMemo(
+    () => payments.flatMap((payment) => getVerifiedRevenueEventsForPayment(payment)),
     [payments]
   );
-
   const totalSales = useMemo(
-    () => paidPayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0),
-    [paidPayments]
+    () => payments.reduce((sum, payment) => sum + getVerifiedRevenueForPayment(payment), 0),
+    [payments]
+  );
+  const currentRange = useMemo(() => getRangeConfig(rangeType, rangeControls), [rangeType, rangeControls]);
+  const selectedRangeEvents = useMemo(
+    () => verifiedRevenueEvents.filter((event) => isDateInRange(event.date, currentRange.start, currentRange.end)),
+    [currentRange, verifiedRevenueEvents]
+  );
+  const selectedRangeSales = useMemo(
+    () => selectedRangeEvents.reduce((sum, event) => sum + event.amount, 0),
+    [selectedRangeEvents]
+  );
+  const salesSeries = useMemo(
+    () => buildSalesSeries(selectedRangeEvents, rangeType, currentRange),
+    [currentRange, rangeType, selectedRangeEvents]
+  );
+  const periodSummary = useMemo(
+    () => buildPeriodSummary(verifiedRevenueEvents, payments, today),
+    [payments, today, verifiedRevenueEvents]
   );
 
-  const paymentSummaryByMethod = useMemo(() => {
-    const map = {
-      Cash: { count: 0, amount: 0 },
-      "E-Wallet": { count: 0, amount: 0 },
-      "Bank Transfer": { count: 0, amount: 0 },
-      "Online Transfer": { count: 0, amount: 0 },
-    };
-
-    for (const payment of paidPayments) {
-      const key = normalizePaymentMethod(payment.method);
-      if (!key || !map[key]) continue;
-      map[key].count += 1;
-      map[key].amount += Number(payment.amount) || 0;
-    }
-    return map;
-  }, [paidPayments]);
-
-  const paymentSummaryEntries = useMemo(
-    () => Object.entries(paymentSummaryByMethod),
-    [paymentSummaryByMethod]
-  );
-
-  const totalBookings = bookings.length;
-
-  const avgRating = useMemo(() => {
-    if (!reviews.length) return 0;
-    const clean = reviews
-      .map((review) => Number(review.rating))
-      .filter((value) => !Number.isNaN(value))
-      .map((value) => Math.max(1, Math.min(5, value)));
-    if (!clean.length) return 0;
-    const sum = clean.reduce((a, b) => a + b, 0);
-    return Math.round((sum / clean.length) * 10) / 10;
-  }, [reviews]);
-
-  const topServices = useMemo(() => {
-    const map = new Map();
-    for (const booking of bookings) {
-      const key = String(booking.service || "Unknown");
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    return Array.from(map.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+  const bookingSummary = useMemo(() => {
+    const counts = bookings.reduce(
+      (accumulator, booking) => {
+        const status = String(booking.status || "").trim().toLowerCase();
+        if (status === "completed") accumulator.completed += 1;
+        else if (status === "cancelled" || status === "canceled") accumulator.cancelled += 1;
+        else if (status === "in progress") accumulator.inProgress += 1;
+        else accumulator.scheduled += 1;
+        return accumulator;
+      },
+      { completed: 0, cancelled: 0, inProgress: 0, scheduled: 0 }
+    );
+    return { total: bookings.length, ...counts };
   }, [bookings]);
 
+  const ratingDistribution = useMemo(() => buildRatingDistribution(reviews), [reviews]);
+  const totalRatings = useMemo(
+    () => ratingDistribution.reduce((sum, item) => sum + item.count, 0),
+    [ratingDistribution]
+  );
+  const avgRating = useMemo(() => {
+    if (!totalRatings) return 0;
+    const weighted = ratingDistribution.reduce((sum, item) => sum + item.rating * item.count, 0);
+    return Math.round((weighted / totalRatings) * 10) / 10;
+  }, [ratingDistribution, totalRatings]);
   const ratingStars = useMemo(
     () => Array.from({ length: 5 }, (_, index) => index < Math.round(avgRating)),
     [avgRating]
   );
 
-  const salesByPaymentMethodChartData = useMemo(
-    () =>
-      paymentSummaryEntries
-        .map(([method, value]) => ({
-          method,
-          sales: value.amount,
-          customers: value.count,
-        }))
-        .filter((item) => item.sales > 0 || item.customers > 0),
-    [paymentSummaryEntries]
-  );
-
-  const topServicesChartData = useMemo(
-    () =>
-      topServices.map((service) => ({
-        name: service.name,
-        bookings: service.count,
-      })),
-    [topServices]
-  );
-
-  const ratingsSummaryChartData = useMemo(() => {
-    const counts = [1, 2, 3, 4, 5].map((rating) => ({
-      rating: `${rating} Star${rating > 1 ? "s" : ""}`,
-      value: 0,
-    }));
-
-    reviews.forEach((review) => {
-      const rating = Math.max(1, Math.min(5, Number(review.rating) || 0));
-      if (!rating) return;
-      counts[rating - 1].value += 1;
+  const topServices = useMemo(() => {
+    const map = new Map();
+    bookings.forEach((booking) => {
+      const key = String(booking.service || "Unknown Service").trim() || "Unknown Service";
+      map.set(key, (map.get(key) || 0) + 1);
     });
-
-    return counts.filter((item) => item.value > 0);
-  }, [reviews]);
-
-  const totalRatings = ratingsSummaryChartData.reduce((sum, item) => sum + item.value, 0);
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 5);
+  }, [bookings]);
 
   const analyticsAiPayload = useMemo(
     () => ({
       totals: {
         totalSales,
-        totalBookings,
+        selectedRangeSales,
+        selectedRange: currentRange.label,
+        totalBookings: bookingSummary.total,
+        completedBookings: bookingSummary.completed,
+        inProgressBookings: bookingSummary.inProgress,
         avgRating,
-        paidPayments: paidPayments.length,
-        totalReviews: reviews.length,
+        totalReviews: totalRatings,
+        paidRevenueEvents: verifiedRevenueEvents.length,
       },
-      topServices: topServices.map((service) => ({
-        name: service.name,
-        count: service.count,
-      })),
-      paymentSummary: paymentSummaryEntries.map(([method, value]) => ({
-        method,
-        count: value.count,
-        amount: value.amount,
+      topServices,
+      paymentSummary: periodSummary.map((item) => ({
+        name: item.key,
+        count: item.transactions,
+        amount: item.sales,
       })),
       trends: [
-        paidPayments.length ? `${paidPayments.length} paid payment record(s) are included in sales totals.` : "",
-        topServices[0] ? `${topServices[0].name} is currently the most-booked service.` : "",
-        avgRating > 0 ? `Average customer rating is ${avgRating} out of 5.` : "No review ratings are available yet.",
+        `${currentRange.label} verified sales total ${peso(selectedRangeSales)}.`,
+        topServices[0] ? `${topServices[0].name} leads bookings with ${topServices[0].count} booking(s).` : "",
+        totalRatings ? `Average rating is ${avgRating} from ${totalRatings} review(s).` : "No review ratings are available yet.",
+        periodSummary[3] ? `Annual verified sales currently total ${peso(periodSummary[3].sales)}.` : "",
       ].filter(Boolean),
     }),
-    [avgRating, paidPayments.length, paymentSummaryEntries, reviews.length, topServices, totalBookings, totalSales]
+    [avgRating, bookingSummary, currentRange.label, periodSummary, selectedRangeSales, topServices, totalRatings, totalSales, verifiedRevenueEvents.length]
   );
 
-  const aiInterpretationLines = useMemo(() => {
-    const lines = [];
-    if (aiState.summary) lines.push(aiState.summary);
-    aiState.keyObservations.forEach((item) => lines.push(`Observation: ${item}`));
-    aiState.possibleCauses.forEach((item) => lines.push(`Possible cause: ${item}`));
-    aiState.recommendations.forEach((item) => lines.push(`Recommendation: ${item}`));
-    aiState.warnings.forEach((item) => lines.push(`Warning: ${item}`));
-    return lines;
-  }, [aiState]);
-
-  const handleGenerateAnalysis = async () => {
-    setAiState({
-      status: "loading",
-      message: "",
-      summary: "",
-      keyObservations: [],
-      possibleCauses: [],
-      recommendations: [],
-      warnings: [],
-      model: "",
-    });
+  const generateAnalytics = async (analysisType) => {
+    const setState = analysisType === "predictive" ? setPredictiveAiState : setDescriptiveAiState;
+    setState({ ...createAiState(), status: "loading" });
 
     try {
-      const response = await generateAnalyticsInterpretation(analyticsAiPayload);
+      const response = await generateAnalyticsInterpretation({ ...analyticsAiPayload, analysisType });
       if (!response?.available) {
-        setAiState({
+        setState({
+          ...createAiState(),
           status: "unavailable",
           message: response?.message || "AI unavailable right now.",
-          summary: "",
-          keyObservations: [],
-          possibleCauses: [],
-          recommendations: [],
-          warnings: [],
-          model: "",
         });
         return;
       }
 
-      setAiState({
+      setState({
         status: "success",
         message: "",
         summary: response.summary || "",
@@ -219,41 +544,55 @@ export default function AdminAnalytics() {
         model: response.model || "",
       });
     } catch (error) {
-      setAiState({
+      setState({
+        ...createAiState(),
         status: "error",
         message: error.message || "Unable to generate analysis right now.",
-        summary: "",
-        keyObservations: [],
-        possibleCauses: [],
-        recommendations: [],
-        warnings: [],
-        model: "",
       });
     }
   };
 
+  const descriptiveLines = useMemo(() => getAiLines(descriptiveAiState), [descriptiveAiState]);
+  const predictiveLines = useMemo(() => getAiLines(predictiveAiState), [predictiveAiState]);
+
   const exportPdf = () =>
     exportTabularPdf({
       title: "Admin Analytics Report",
-      subtitle: "Tabular export of analytics metrics and paid payment summaries.",
+      subtitle: "Verified staged-payment revenue, booking demand, ratings, and AI analytics.",
       sections: [
         {
-          title: "Overview",
+          title: "Sales Overview",
           columns: ["Metric", "Value"],
           rows: [
-            ["Total Sales", `Php ${totalSales.toLocaleString()}`],
-            ["Total Bookings", totalBookings],
-            ["Average Ratings", avgRating],
+            ["All-Time Verified Sales", peso(totalSales)],
+            [`Selected Range (${currentRange.label})`, peso(selectedRangeSales)],
+            ["Verified Revenue Events", verifiedRevenueEvents.length],
           ],
         },
         {
-          title: "Payment Methods",
-          columns: ["Method", "Paid Customers", "Paid Amount"],
-          rows: paymentSummaryEntries.map(([method, value]) => [
-            method,
-            value.count,
-            `Php ${value.amount.toLocaleString()}`,
-          ]),
+          title: "Sales Summary by Period",
+          columns: ["Period", "Verified Sales", "Paid Records", "Customers"],
+          rows: periodSummary.map((item) => [item.key, peso(item.sales), item.transactions, item.customers]),
+        },
+        {
+          title: "Bookings",
+          columns: ["Metric", "Value"],
+          rows: [
+            ["Total Bookings", bookingSummary.total],
+            ["Completed", bookingSummary.completed],
+            ["In Progress", bookingSummary.inProgress],
+            ["Scheduled/Pending", bookingSummary.scheduled],
+            ["Cancelled", bookingSummary.cancelled],
+          ],
+        },
+        {
+          title: "Ratings",
+          columns: ["Metric", "Value"],
+          rows: [
+            ["Average Rating", avgRating || "No ratings"],
+            ["Total Reviews", totalRatings],
+            ...ratingDistribution.map((item) => [`${item.rating} Star`, item.count]),
+          ],
         },
         {
           title: "Top Services",
@@ -261,13 +600,21 @@ export default function AdminAnalytics() {
           rows: topServices.map((service, index) => [index + 1, service.name, service.count]),
         },
         {
-          title: "Interpretation",
+          title: "AI Generated Descriptive Analytics",
           columns: ["Insight"],
-          rows: aiInterpretationLines.map((line) => [line]),
-          emptyMessage: "No AI analysis generated yet.",
+          rows: descriptiveLines.map((line) => [`${line.label}: ${line.text}`]),
+          emptyMessage: "No descriptive AI analysis generated yet.",
+        },
+        {
+          title: "AI Generated Predictive Analytics",
+          columns: ["Insight"],
+          rows: predictiveLines.map((line) => [`${line.label}: ${line.text}`]),
+          emptyMessage: "No predictive AI analysis generated yet.",
         },
       ],
     });
+
+  const maxRatingCount = Math.max(...ratingDistribution.map((item) => item.count), 1);
 
   return (
     <div className="anaWrap">
@@ -277,215 +624,257 @@ export default function AdminAnalytics() {
         </button>
       </div>
 
-      <div className="anaBoard">
-        <div className="anaGrid">
-          <div className="anaLeft">
-            <div className="anaSalesTop">
-              <div className="anaSalesLabel">Total Sales</div>
-              <div className="anaSalesValue">Php {totalSales.toLocaleString()}</div>
-              <div className="anaSalesHint">Based on approved paid payments only</div>
+      <div className="anaDashboardGrid">
+        <section className="anaCard anaSalesCard">
+          <div className="anaCardHead">
+            <div>
+              <h3>Total Sales Visual Analytics</h3>
+              <p>Verified paid revenue only, including staged down payments and remaining balances.</p>
             </div>
-
-            <div className="anaSectionTitle">Customers' mode of payment summary</div>
-
-            <div className="anaPayGrid">
-              {paymentSummaryEntries.map(([key, value]) => (
-                <div key={key} className="anaPayItem">
-                  <div className="anaPayName">{key}</div>
-                  <div className="anaPayNum">{value.count}</div>
-                  <div className="anaPaySub">Customers</div>
-                  <div className="anaPaySub">Php {value.amount.toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="anaTopServices">
-              <div className="anaTopTitle">Top Services</div>
-              {topServices.map((service, index) => (
-                <div key={service.name} className="anaServiceRow">
-                  <div className="anaBadge">{index + 1}</div>
-                  <div className="anaSvcName">{service.name}</div>
-                  <div className="anaSvcNum">{service.count} bookings</div>
-                </div>
+            <div className="anaRangeTabs" aria-label="Sales range">
+              {RANGE_TYPES.map((item) => (
+                <button
+                  key={item.key}
+                  className={rangeType === item.key ? "active" : ""}
+                  type="button"
+                  onClick={() => setRangeType(item.key)}
+                >
+                  {item.label}
+                </button>
               ))}
             </div>
           </div>
 
-          <div className="anaRight">
-            <div className="anaSmallCard anaBlue">
-              <div className="anaSmallTitle">Total Bookings</div>
-              <div className="anaSmallValue">{totalBookings}</div>
-            </div>
+          <div className="anaRangeControls">
+            {rangeType === "weekly" && (
+              <label>
+                <span>Week of</span>
+                <input
+                  type="date"
+                  value={rangeControls.weekDate}
+                  onChange={(event) => setRangeControls((prev) => ({ ...prev, weekDate: event.target.value }))}
+                />
+              </label>
+            )}
+            {rangeType === "monthly" && (
+              <>
+                <label>
+                  <span>Month</span>
+                  <select
+                    value={rangeControls.month}
+                    onChange={(event) => setRangeControls((prev) => ({ ...prev, month: Number(event.target.value) }))}
+                  >
+                    {MONTH_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Year</span>
+                  <select
+                    value={rangeControls.year}
+                    onChange={(event) => setRangeControls((prev) => ({ ...prev, year: Number(event.target.value) }))}
+                  >
+                    {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
+            {rangeType === "quarterly" && (
+              <>
+                <label>
+                  <span>Quarter</span>
+                  <select
+                    value={rangeControls.quarter}
+                    onChange={(event) => setRangeControls((prev) => ({ ...prev, quarter: Number(event.target.value) }))}
+                  >
+                    {QUARTER_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Year</span>
+                  <select
+                    value={rangeControls.year}
+                    onChange={(event) => setRangeControls((prev) => ({ ...prev, year: Number(event.target.value) }))}
+                  >
+                    {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                  </select>
+                </label>
+              </>
+            )}
+            {rangeType === "annual" && (
+              <label>
+                <span>Year</span>
+                <select
+                  value={rangeControls.year}
+                  onChange={(event) => setRangeControls((prev) => ({ ...prev, year: Number(event.target.value) }))}
+                >
+                  {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
 
-            <div className="anaSmallCard anaYellow">
-              <div className="anaSmallTitle">Average Ratings</div>
-              <div className="anaRatingStars" aria-label={`Average rating ${avgRating} out of 5`}>
-                {ratingStars.map((filled, index) => (
-                  <span key={index} className={`anaRatingStar${filled ? " filled" : ""}`}>★</span>
+          <div className="anaSalesSummary">
+            <div>
+              <span>{currentRange.label}</span>
+              <strong>{peso(selectedRangeSales)}</strong>
+            </div>
+            <div>
+              <span>All-time verified sales</span>
+              <strong>{peso(totalSales)}</strong>
+            </div>
+            <div>
+              <span>Verified paid stages</span>
+              <strong>{selectedRangeEvents.length}</strong>
+            </div>
+          </div>
+
+          {salesSeries.some((item) => item.sales > 0) ? (
+            <div className="anaChartBox">
+              <ResponsiveContainer width="100%" height={310}>
+                <BarChart data={salesSeries} margin={{ top: 12, right: 12, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e6dfd2" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" tickFormatter={(value) => `Php ${Number(value || 0).toLocaleString("en-PH")}`} />
+                  <Tooltip
+                    formatter={(value) => [peso(value), "Verified Sales"]}
+                    cursor={{ fill: "rgba(198, 162, 74, 0.12)" }}
+                    contentStyle={{ borderRadius: 12, border: "1px solid #ddd7ca", boxShadow: "0 12px 28px rgba(15, 23, 42, 0.10)" }}
+                  />
+                  <Bar dataKey="sales" name="Verified Sales" fill="#16803c" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="anaEmptyBlock">No verified sales data for this selected range.</div>
+          )}
+        </section>
+
+        <section className="anaCard">
+          <div className="anaCardHead">
+            <div>
+              <h3>Bookings Summary</h3>
+              <p>Current appointment volume by workflow state.</p>
+            </div>
+          </div>
+          <div className="anaBookingHero">
+            <span>Total Bookings</span>
+            <strong>{bookingSummary.total}</strong>
+          </div>
+          <div className="anaMiniGrid">
+            <div><span>Completed</span><strong>{bookingSummary.completed}</strong></div>
+            <div><span>In Progress</span><strong>{bookingSummary.inProgress}</strong></div>
+            <div><span>Scheduled/Pending</span><strong>{bookingSummary.scheduled}</strong></div>
+            <div><span>Cancelled</span><strong>{bookingSummary.cancelled}</strong></div>
+          </div>
+        </section>
+
+        <section className="anaCard">
+          <div className="anaCardHead">
+            <div>
+              <h3>Ratings Summary</h3>
+              <p>Average score and distribution of customer reviews.</p>
+            </div>
+          </div>
+          <div className="anaRatingTop">
+            <div>
+              <strong>{avgRating ? `${avgRating} / 5` : "No ratings"}</strong>
+              <span>{totalRatings} review{totalRatings === 1 ? "" : "s"}</span>
+            </div>
+            <div className="anaRatingStars" aria-label={`Average rating ${avgRating} out of 5`}>
+              {ratingStars.map((filled, index) => (
+                <span key={index} className={filled ? "filled" : ""}>★</span>
+              ))}
+            </div>
+          </div>
+          <div className="anaRatingBars">
+            {ratingDistribution.map((item) => (
+              <div key={item.rating} className="anaRatingBarRow">
+                <span>{item.rating}★</span>
+                <div className="anaRatingTrack">
+                  <div style={{ width: `${(item.count / maxRatingCount) * 100}%` }} />
+                </div>
+                <strong>{item.count}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="anaCard anaWideCard">
+          <div className="anaCardHead">
+            <div>
+              <h3>Sales Summary by Period</h3>
+              <p>Current week, month, quarter, and year verified sales snapshots.</p>
+            </div>
+          </div>
+          <div className="anaPeriodGrid">
+            {periodSummary.map((item) => (
+              <div key={item.key} className="anaPeriodCard">
+                <span>{item.key}</span>
+                <strong>{peso(item.sales)}</strong>
+                <p>{item.transactions} paid record{item.transactions === 1 ? "" : "s"} - {item.customers} customer{item.customers === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="anaCard anaWideCard">
+          <div className="anaCardHead">
+            <div>
+              <h3>Top Services</h3>
+              <p>Most-booked services across current booking records.</p>
+            </div>
+          </div>
+          {topServices.length ? (
+            <div className="anaServicesGrid">
+              <div className="anaServiceList">
+                {topServices.map((service, index) => (
+                  <div key={service.name} className="anaServiceRow">
+                    <div className="anaBadge">{index + 1}</div>
+                    <div className="anaSvcName">{service.name}</div>
+                    <div className="anaSvcNum">{service.count} booking{service.count === 1 ? "" : "s"}</div>
+                  </div>
                 ))}
               </div>
-              <div className="anaSmallMeta">{avgRating > 0 ? `${avgRating} / 5` : "No ratings yet"}</div>
-              <div className="anaSmallHint">Based on Reviews</div>
-            </div>
-
-            <div className="anaInterpretationCard">
-              <div className="anaInterpretationHead">
-                <div className="anaInterpretationTitle">Interpretation</div>
-                <div className="anaInterpretationMeta">
-                  <button
-                    className="anaInterpretationBtn"
-                    type="button"
-                    onClick={handleGenerateAnalysis}
-                    disabled={aiState.status === "loading"}
-                  >
-                    {aiState.status === "loading" ? "Generating..." : "Generate AI Analysis"}
-                  </button>
-                </div>
-              </div>
-              <div className="anaInterpretationStatusRow">
-                <div className={`anaInterpretationStatus anaInterpretationStatus-${aiState.status}`}>
-                  {aiState.status === "idle" && "Generate a concise AI summary from the current analytics data."}
-                  {aiState.status === "loading" && "Analyzing current analytics totals and service trends..."}
-                  {aiState.status === "success" && `AI analysis ready${aiState.model ? ` • ${aiState.model}` : ""}`}
-                  {aiState.status === "unavailable" && (aiState.message || "AI unavailable right now.")}
-                  {aiState.status === "error" && (aiState.message || "Unable to generate analysis right now.")}
-                </div>
-              </div>
-              <div className="anaInterpretationList">
-                {aiInterpretationLines.length === 0 ? (
-                  <div className="anaInterpretationEmpty">
-                    {aiState.status === "loading"
-                      ? "Preparing a concise operational summary..."
-                      : "No AI analysis generated yet."}
-                  </div>
-                ) : (
-                  aiInterpretationLines.map((line) => (
-                    <div key={line} className="anaInterpretationItem">{line}</div>
-                  ))
-                )}
+              <div className="anaChartBox">
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={topServices} layout="vertical" margin={{ top: 6, right: 12, left: 18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e6dfd2" horizontal={false} />
+                    <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} fontSize={11} stroke="#475569" width={128} />
+                    <Tooltip
+                      formatter={(value) => [`${value}`, "Bookings"]}
+                      cursor={{ fill: "rgba(198, 162, 74, 0.12)" }}
+                      contentStyle={{ borderRadius: 12, border: "1px solid #ddd7ca", boxShadow: "0 12px 28px rgba(15, 23, 42, 0.10)" }}
+                    />
+                    <Bar dataKey="count" name="Bookings" fill="#c6a24a" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
-          </div>
-        </div>
+          ) : (
+            <div className="anaEmptyBlock">No booking data is available yet.</div>
+          )}
+        </section>
 
-        <div className="anaChartsSection">
-          <div className="anaChartsHead">
-            <div>
-              <div className="anaChartsTitle">Visual Analytics</div>
-              <div className="anaChartsSub">Live chart views based on current payments, bookings, and review records.</div>
-            </div>
-          </div>
+        <AnalyticsAiCard
+          title="AI Generated Descriptive Analytics"
+          type="descriptive"
+          buttonLabel="Generate Descriptive Analysis"
+          state={descriptiveAiState}
+          onGenerate={() => generateAnalytics("descriptive")}
+        />
 
-          <div className="anaChartsGrid">
-            <div className="anaChartCard">
-              <div className="anaChartCardHead">
-                <div className="anaChartTitle">Sales by Payment Method</div>
-                <div className="anaChartSub">Paid amounts from approved payment records</div>
-              </div>
-              {salesByPaymentMethodChartData.length ? (
-                <div className="anaChartBox">
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={salesByPaymentMethodChartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                      <XAxis dataKey="method" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" />
-                      <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" tickFormatter={(value) => `₱${Number(value || 0).toLocaleString()}`} />
-                      <Tooltip
-                        formatter={(value, name) => [
-                          name === "sales" ? `Php ${Number(value || 0).toLocaleString()}` : value,
-                          name === "sales" ? "Sales" : "Customers",
-                        ]}
-                        contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
-                      />
-                      <Legend />
-                      <Bar dataKey="sales" name="Sales" radius={[10, 10, 0, 0]}>
-                        {salesByPaymentMethodChartData.map((entry, index) => (
-                          <Cell key={entry.method} fill={PAYMENT_CHART_COLORS[index % PAYMENT_CHART_COLORS.length]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="anaChartEmpty">No paid payment data is available yet.</div>
-              )}
-            </div>
-
-            <div className="anaChartCard">
-              <div className="anaChartCardHead">
-                <div className="anaChartTitle">Top Services by Bookings</div>
-                <div className="anaChartSub">Most-booked services from current tracking records</div>
-              </div>
-              {topServicesChartData.length ? (
-                <div className="anaChartBox">
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={topServicesChartData} layout="vertical" margin={{ top: 10, right: 12, left: 24, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                      <XAxis type="number" tickLine={false} axisLine={false} fontSize={11} stroke="#64748b" allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} fontSize={11} stroke="#475569" width={120} />
-                      <Tooltip
-                        formatter={(value) => [`${value}`, "Bookings"]}
-                        contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
-                      />
-                      <Bar dataKey="bookings" name="Bookings" fill="#b98a27" radius={[0, 10, 10, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="anaChartEmpty">No booking data is available yet.</div>
-              )}
-            </div>
-
-            <div className="anaChartCard anaChartCardWide">
-              <div className="anaChartCardHead">
-                <div className="anaChartTitle">Ratings Summary</div>
-                <div className="anaChartSub">Distribution of customer review scores</div>
-              </div>
-              {ratingsSummaryChartData.length ? (
-                <div className="anaChartSplit">
-                  <div className="anaChartBox anaChartBoxCompact">
-                    <ResponsiveContainer width="100%" height={280}>
-                      <PieChart>
-                        <Pie
-                          data={ratingsSummaryChartData}
-                          dataKey="value"
-                          nameKey="rating"
-                          innerRadius={70}
-                          outerRadius={104}
-                          paddingAngle={2}
-                        >
-                          {ratingsSummaryChartData.map((entry, index) => (
-                            <Cell key={entry.rating} fill={RATING_CHART_COLORS[index % RATING_CHART_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          formatter={(value) => [`${value}`, "Reviews"]}
-                          contentStyle={{ borderRadius: 12, border: "1px solid #dbe4ee", boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)" }}
-                        />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="anaChartCenterTag">
-                      <strong>{totalRatings}</strong>
-                      <span>Total Reviews</span>
-                    </div>
-                  </div>
-
-                  <div className="anaRatingsBreakdown">
-                    {ratingsSummaryChartData.map((item, index) => (
-                      <div key={item.rating} className="anaRatingsRow">
-                        <span className="anaRatingsDot" style={{ background: RATING_CHART_COLORS[index % RATING_CHART_COLORS.length] }} />
-                        <div className="anaRatingsLabel">{item.rating}</div>
-                        <div className="anaRatingsValue">{item.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="anaChartEmpty">No review ratings are available yet.</div>
-              )}
-            </div>
-          </div>
-        </div>
+        <AnalyticsAiCard
+          title="AI Generated Predictive Analytics"
+          type="predictive"
+          buttonLabel="Generate Predictive Analysis"
+          state={predictiveAiState}
+          onGenerate={() => generateAnalytics("predictive")}
+        />
       </div>
     </div>
   );

@@ -2,448 +2,203 @@
 
 .anaWrap {
   width: 100%;
-  padding: 10px 14px 14px;
-  background: var(--bg);
-  flex: 1;
   min-height: 100%;
+  flex: 1;
+  padding: 10px 14px 18px;
+  background: var(--bg);
 }
 
-/* TOP ROW */
 .anaTopRow {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
 }
 
-.anaExportBtn {
-  height: 38px;
+.anaExportBtn,
+.anaGoldBtn {
+  min-height: 38px;
   padding: 0 16px;
+  border: 0;
   border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.anaExportBtn {
   background: var(--action-dark);
   color: #fff;
-  border: none;
-  font-size: 12px;
-  font-weight: 950;
-  cursor: pointer;
 }
 
-.anaExportBtn:hover { background: var(--action-dark-hover); }
-
-/* OUTER BOARD */
-.anaBoard {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 16px;
+.anaExportBtn:hover {
+  background: var(--action-dark-hover);
 }
 
-/* MAIN GRID */
-.anaGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  align-items: stretch;
+.anaGoldBtn {
+  background: #18212f;
+  color: #fff;
+  box-shadow: 0 10px 18px rgba(24, 33, 47, 0.14);
 }
 
-/* LEFT */
-.anaLeft {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
+.anaGoldBtn:hover:not(:disabled) {
+  background: #243041;
+  transform: translateY(-1px);
 }
 
-.anaSalesTop {
-  text-align: center;
-  padding-bottom: 10px;
-}
-
-.anaSalesLabel {
-  font-weight: 950;
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.anaSalesValue {
-  margin-top: 6px;
-  font-weight: 950;
-  font-size: 28px;
-  color: #0f8a3a;
-}
-
-.anaSalesHint {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 800;
-  color: #22c55e;
-}
-
-.anaSectionTitle {
-  font-size: 11px;
-  font-weight: 900;
-  color: #6b7280;
-  text-align: center;
-  margin-bottom: 10px;
-}
-
-/* PAYMENT GRID */
-.anaPayGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.anaPayItem {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  min-height: 110px;
-  padding: 14px 10px;
-  text-align: center;
-  background: #fff;
-}
-
-.anaPayName {
-  font-size: 11px;
-  font-weight: 900;
-  color: #111827;
-}
-
-.anaPayNum {
-  margin-top: 6px;
-  font-size: 22px;
-  font-weight: 950;
-  color: #111827;
-}
-
-.anaPaySub {
-  margin-top: 2px;
-  font-size: 11px;
-  font-weight: 800;
-  color: #6b7280;
-}
-
-/* TOP SERVICES */
-.anaTopServices {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-  flex: 1;
-  margin-top: 2px;
-}
-
-.anaTopTitle {
-  font-size: 13px;
-  font-weight: 950;
-  color: #111827;
-  margin-bottom: 6px;
-}
-
-.anaServiceRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid #eef2f7;
-}
-
-.anaServiceRow:last-child { border-bottom: none; }
-
-.anaBadge {
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--gold-dark);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 950;
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.anaSvcName {
-  flex: 1;
-  font-weight: 900;
-  color: #111827;
-  font-size: 13px;
-}
-
-.anaSvcNum {
-  font-weight: 900;
-  color: #111827;
-  opacity: 0.8;
-  font-size: 12px;
-}
-
-/* RIGHT COLUMN */
-.anaRight {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.anaSmallCard {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 16px;
-}
-
-.anaBlue {
-  background: #f7f1e1;
-  border-color: #e3d5ae;
-}
-
-.anaYellow {
-  background: #fbf7eb;
-  border-color: #e8dcc0;
-}
-
-.anaSmallTitle {
-  font-weight: 950;
-  color: #1f2937;
-  font-size: 13px;
-}
-
-.anaSmallValue {
-  margin-top: 8px;
-  font-weight: 950;
-  font-size: 28px;
-  color: #1f2937;
-}
-
-.anaRatingStars {
-  margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.anaRatingStar {
-  font-size: 22px;
-  line-height: 1;
-  color: #d1d5db;
-}
-
-.anaRatingStar.filled {
-  color: #d4a63f;
-}
-
-.anaSmallMeta {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 900;
-  color: #1f2937;
-}
-
-.anaSmallHint {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 900;
-  color: #6b7280;
-}
-
-.anaInterpretationCard {
-  min-height: 290px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: #fff;
-  padding: 18px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
-}
-
-.anaInterpretationHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.anaInterpretationTitle {
-  font-size: 14px;
-  font-weight: 950;
-  color: #111827;
-}
-
-.anaInterpretationMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.anaInterpretationStatus {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #e8f1ff;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 900;
-}
-
-.anaInterpretationBtn {
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid #c7d2fe;
-  background: #eef2ff;
-  color: #1d4ed8;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.anaInterpretationBtn:hover:not(:disabled) {
-  background: #dbeafe;
-  border-color: #93c5fd;
-}
-
-.anaInterpretationBtn:disabled {
+.anaGoldBtn:disabled {
   opacity: 0.7;
   cursor: wait;
 }
 
-.anaInterpretationStatusRow {
-  margin-top: 12px;
-}
-
-.anaInterpretationStatus {
-  width: 100%;
-  justify-content: flex-start;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 10px 12px;
-  min-height: 0;
-  line-height: 1.45;
-}
-
-.anaInterpretationStatus-idle {
-  background: #f8fafc;
-  color: #475569;
-  border-color: #e2e8f0;
-}
-
-.anaInterpretationStatus-loading {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
-}
-
-.anaInterpretationStatus-success {
-  background: #ecfdf5;
-  color: #047857;
-  border-color: #a7f3d0;
-}
-
-.anaInterpretationStatus-unavailable {
-  background: #fff7ed;
-  color: #c2410c;
-  border-color: #fed7aa;
-}
-
-.anaInterpretationStatus-error {
-  background: #fef2f2;
-  color: #b91c1c;
-  border-color: #fecaca;
-}
-
-.anaInterpretationList {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1;
-}
-
-.anaInterpretationItem {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fafafa;
-  padding: 12px 14px;
-  font-size: 12px;
-  line-height: 1.55;
-  font-weight: 700;
-  color: #475569;
-}
-
-.anaInterpretationEmpty {
-  border: 1px dashed #d6dbe4;
-  border-radius: 14px;
-  background: #fcfcfd;
-  padding: 16px 18px;
-  font-size: 12px;
-  line-height: 1.6;
-  font-weight: 700;
-  color: #6b7280;
-}
-
-.anaChartsSection {
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
-}
-
-.anaChartsHead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.anaChartsTitle {
-  font-size: 15px;
-  font-weight: 950;
-  color: #111827;
-}
-
-.anaChartsSub {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 800;
-  color: #64748b;
-}
-
-.anaChartsGrid {
+.anaDashboardGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
   gap: 14px;
+  align-items: stretch;
 }
 
-.anaChartCard {
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
-  padding: 16px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+.anaCard {
   min-width: 0;
+  border: 1px solid #ddd7ca;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #fdfbf6 100%);
+  padding: 18px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
 }
 
-.anaChartCardWide {
+.anaSalesCard,
+.anaWideCard {
   grid-column: 1 / -1;
 }
 
-.anaChartCardHead {
-  margin-bottom: 12px;
+.anaCardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
-.anaChartTitle {
-  font-size: 13px;
+.anaCardHead h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
   font-weight: 950;
-  color: #0f172a;
+  line-height: 1.25;
 }
 
-.anaChartSub {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 800;
+.anaCardHead p {
+  margin: 4px 0 0;
   color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.anaRangeTabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.anaRangeTabs button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #e2d7bf;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.anaRangeTabs button.active {
+  border-color: #c6a24a;
+  background: #f4ecda;
+  color: #7a5a1c;
+}
+
+.anaRangeControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.anaRangeControls label {
+  display: grid;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.anaRangeControls span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.anaRangeControls input,
+.anaRangeControls select {
+  height: 38px;
+  border: 1px solid #ddd7ca;
+  border-radius: 10px;
+  background: #fff;
+  color: #111827;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 800;
+  outline: none;
+}
+
+.anaRangeControls input:focus,
+.anaRangeControls select:focus {
+  border-color: #c6a24a;
+  box-shadow: 0 0 0 3px rgba(198, 162, 74, 0.13);
+}
+
+.anaSalesSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.anaSalesSummary div,
+.anaMiniGrid div,
+.anaPeriodCard,
+.anaBookingHero {
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.anaSalesSummary div {
+  min-height: 82px;
+  padding: 14px;
+}
+
+.anaSalesSummary span,
+.anaMiniGrid span,
+.anaPeriodCard span,
+.anaBookingHero span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.anaSalesSummary strong {
+  display: block;
+  margin-top: 7px;
+  color: #16803c;
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.15;
 }
 
 .anaChartBox {
@@ -451,98 +206,348 @@
   min-width: 0;
 }
 
-.anaChartBoxCompact {
-  position: relative;
+.anaBookingHero {
+  min-height: 112px;
+  padding: 18px;
+  background: linear-gradient(135deg, #18212f 0%, #293448 100%);
 }
 
-.anaChartSplit {
+.anaBookingHero span {
+  color: #d9e1ec;
+}
+
+.anaBookingHero strong {
+  display: block;
+  margin-top: 8px;
+  color: #fff;
+  font-size: 42px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.anaMiniGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.anaMiniGrid div {
+  padding: 13px;
+}
+
+.anaMiniGrid strong {
+  display: block;
+  margin-top: 5px;
+  color: #111827;
+  font-size: 22px;
+  font-weight: 950;
+}
+
+.anaRatingTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.anaRatingTop strong {
+  display: block;
+  color: #111827;
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.anaRatingTop span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.anaRatingStars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #d1d5db;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.anaRatingStars span {
+  margin: 0;
+  color: #d1d5db;
+}
+
+.anaRatingStars .filled {
+  color: #c6a24a;
+}
+
+.anaRatingBars {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.anaRatingBarRow {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 10px;
+}
+
+.anaRatingBarRow span,
+.anaRatingBarRow strong {
+  color: #111827;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.anaRatingTrack {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ece7dc;
+}
+
+.anaRatingTrack div {
+  min-width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c6a24a 0%, #16803c 100%);
+}
+
+.anaPeriodGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.anaPeriodCard {
+  min-height: 120px;
+  padding: 15px;
+}
+
+.anaPeriodCard strong {
+  display: block;
+  margin-top: 8px;
+  color: #16803c;
+  font-size: 24px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.anaPeriodCard p {
+  margin: 8px 0 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.anaServicesGrid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
   gap: 14px;
   align-items: center;
 }
 
-.anaChartCenterTag {
-  position: absolute;
-  inset: 0;
+.anaServiceList {
+  display: grid;
+  gap: 8px;
+}
+
+.anaServiceRow {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.anaBadge {
+  width: 28px;
+  height: 28px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
-}
-
-.anaChartCenterTag strong {
-  font-size: 24px;
+  border-radius: 999px;
+  background: #f4ecda;
+  color: #7a5a1c;
+  font-size: 12px;
   font-weight: 950;
-  color: #111827;
 }
 
-.anaChartCenterTag span {
-  margin-top: 4px;
+.anaSvcName {
+  min-width: 0;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.anaSvcNum {
+  color: #64748b;
   font-size: 11px;
   font-weight: 900;
-  color: #64748b;
+  white-space: nowrap;
 }
 
-.anaChartEmpty {
-  border: 1px dashed #d6dbe4;
-  border-radius: 14px;
-  background: #fcfcfd;
-  padding: 32px 18px;
+.anaAiCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+
+.anaAiStatus {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 10px 12px;
   font-size: 12px;
-  line-height: 1.6;
-  font-weight: 700;
-  color: #6b7280;
+  font-weight: 850;
+  line-height: 1.45;
+}
+
+.anaAiStatus-idle {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.anaAiStatus-loading {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.anaAiStatus-success {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.anaAiStatus-unavailable {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.anaAiStatus-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.anaAiList {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.anaAiItem {
+  border: 1px solid #e6dfd2;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px 13px;
+}
+
+.anaAiItem span {
+  display: block;
+  color: #9f7a2e;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.anaAiItem p {
+  margin: 5px 0 0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.anaEmptyBlock {
+  border: 1px dashed #d7d0c2;
+  border-radius: 13px;
+  background: #fffefa;
+  padding: 24px 16px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.55;
   text-align: center;
 }
 
-.anaRatingsBreakdown {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+@media (max-width: 1180px) {
+  .anaDashboardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .anaPeriodGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.anaRatingsRow {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px 12px;
+@media (max-width: 860px) {
+  .anaCardHead {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .anaRangeTabs {
+    justify-content: flex-start;
+  }
+
+  .anaSalesSummary,
+  .anaServicesGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .anaServiceRow {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .anaSvcNum {
+    grid-column: 2;
+    white-space: normal;
+  }
 }
 
-.anaRatingsDot {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-}
+@media (max-width: 620px) {
+  .anaWrap {
+    padding: 8px 10px 14px;
+  }
 
-.anaRatingsLabel {
-  font-size: 12px;
-  font-weight: 900;
-  color: #1f2937;
-}
+  .anaCard {
+    padding: 14px;
+    border-radius: 12px;
+  }
 
-.anaRatingsValue {
-  font-size: 12px;
-  font-weight: 950;
-  color: #0f172a;
-}
+  .anaPeriodGrid,
+  .anaMiniGrid {
+    grid-template-columns: 1fr;
+  }
 
-/* RESPONSIVE */
-@media (max-width: 1100px) {
-  .anaGrid { grid-template-columns: 1fr; }
-  .anaChartsGrid { grid-template-columns: 1fr; }
-  .anaChartCardWide { grid-column: auto; }
-  .anaChartSplit { grid-template-columns: 1fr; }
-  .anaPayGrid { grid-template-columns: repeat(2, 1fr); }
-}
+  .anaRangeControls label {
+    min-width: 100%;
+  }
 
-@media (max-width: 760px) {
-  .anaPayGrid { grid-template-columns: 1fr; }
-  .anaBoard { padding: 14px; }
-  .anaChartCard { padding: 14px; }
+  .anaRatingTop {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
