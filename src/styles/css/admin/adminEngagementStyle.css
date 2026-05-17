@@ -372,13 +372,21 @@
 .engRewardCard {
   margin-top: 18px;
   overflow: visible;
+  min-height: auto;
+}
+
+.engRewardCard > .engHead {
+  min-height: 84px;
+  padding-bottom: 16px;
 }
 
 .engRewardFilters {
   display: grid;
   grid-template-columns: 1fr 180px 180px;
-  gap: 10px;
-  margin: 14px 0;
+  gap: 12px;
+  margin: 18px 0 16px;
+  padding: 0 18px;
+  align-items: center;
 }
 
 .engRewardFilters input,
@@ -395,16 +403,16 @@
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   overflow: visible;
-  margin-bottom: 22px;
+  margin: 0 18px 18px;
 }
 
 .engRewardHead,
 .engRewardRow {
   display: grid;
   grid-template-columns: 1.4fr 0.7fr 0.8fr 0.7fr 0.55fr 0.7fr 1.45fr;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 14px 16px;
 }
 
 .engRewardHead {
@@ -420,7 +428,7 @@
   font-size: 12px;
   font-weight: 800;
   color: #111827;
-  min-height: 58px;
+  min-height: 68px;
 }
 
 .engRewardRow strong,
@@ -435,8 +443,13 @@
 .engRewardActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+.engRewardActions .engBtnAuto {
+  min-width: 86px;
+  padding: 0 12px;
 }
 
 .engBtnLight.danger {
@@ -445,25 +458,30 @@
   background: #fff5f5;
 }
 
+.engRewardHistoryCard {
+  margin-top: 24px;
+  min-height: auto;
+  overflow: visible;
+}
+
 .engRewardHistory {
-  clear: both;
-  margin-top: 22px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  padding: 18px;
 }
 
 .engRewardHistoryHead {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 8px;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
 }
 
 .engManualReward {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .engManualReward select {
@@ -473,16 +491,29 @@
   padding: 0 10px;
   font-size: 12px;
   font-weight: 800;
+  min-width: 220px;
 }
 
 .engRewardHistoryRow {
   display: grid;
-  grid-template-columns: 1fr 1fr 90px 100px;
-  gap: 10px;
-  border-bottom: 1px solid #edf0f4;
-  padding: 10px 0;
+  grid-template-columns: 1.2fr 1.2fr 110px 140px;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #edf0f4;
+  border-radius: 12px;
+  padding: 13px 14px;
+  margin-top: 8px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.engRewardHistoryRow code {
+  justify-self: end;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  font-size: 11px;
 }
 
 .engCheckField {
@@ -513,6 +544,7 @@
   .engRewardHistoryHead,
   .engManualReward { flex-direction: column; align-items: stretch; }
   .engRewardActions { justify-content: flex-start; }
+  .engRewardHistoryRow code { justify-self: start; }
 }
 
 @media (max-width: 720px) {

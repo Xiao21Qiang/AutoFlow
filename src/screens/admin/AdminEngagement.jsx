@@ -297,9 +297,15 @@ export default function AdminEngagement() {
           ))}
           {filteredRewards.length === 0 && <div className="engEmpty">No rewards found.</div>}
         </div>
+      </div>
+
+      <div className="engCard engRewardHistoryCard">
         <div className="engRewardHistory">
           <div className="engRewardHistoryHead">
-            <div className="engTitle">Reward History</div>
+            <div>
+              <div className="engTitle">Reward History</div>
+              <div className="engSub">Generated rewards and claim status.</div>
+            </div>
             <div className="engManualReward">
               <select value={manualRewardCustomerEmail} onChange={(event) => setManualRewardCustomerEmail(event.target.value)}>
                 <option value="">Select customer</option>
