@@ -8,8 +8,36 @@ export function isRewardExpired(reward) {
   return expirationDate < new Date().toISOString().slice(0, 10);
 }
 
+export function getRewardStatus(reward) {
+  const status = String(reward?.status || "").trim().toLowerCase();
+  if (
+    status === "used" ||
+    status === "redeemed" ||
+    reward?.used === true ||
+    reward?.isUsed === true ||
+    Boolean(String(reward?.usedAt || reward?.redeemedAt || "").trim()) ||
+    Boolean(String(reward?.linkedPaymentId || "").trim())
+  ) {
+    return "Used";
+  }
+  return "Unused";
+}
+
+function isRewardReserved(reward, payments = []) {
+  const rewardId = String(reward?.id || "").trim();
+  if (!rewardId) return false;
+
+  return (payments || []).some((payment) => {
+    if (String(payment?.rewardId || "").trim() !== rewardId) return false;
+    const statuses = [payment?.status, payment?.finalPaymentStatus, payment?.downPaymentStatus]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean);
+    return !statuses.includes("rejected") && !statuses.includes("cancelled");
+  });
+}
+
 export function isRewardUsable(reward) {
-  return String(reward?.status || "").trim().toLowerCase() === "unused" && !isRewardExpired(reward);
+  return getRewardStatus(reward) === "Unused" && !isRewardExpired(reward);
 }
 
 export function getCustomerRewards(customerRewards, currentUser) {
@@ -22,8 +50,8 @@ export function getCustomerRewards(customerRewards, currentUser) {
   });
 }
 
-export function getUsableCustomerRewards(customerRewards, currentUser) {
-  return getCustomerRewards(customerRewards, currentUser).filter(isRewardUsable);
+export function getUsableCustomerRewards(customerRewards, currentUser, payments = []) {
+  return getCustomerRewards(customerRewards, currentUser).filter((reward) => isRewardUsable(reward) && !isRewardReserved(reward, payments));
 }
 
 export function parseRewardDiscount(value, amount) {

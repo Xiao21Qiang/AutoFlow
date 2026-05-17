@@ -369,7 +369,10 @@
   padding-top: 4px;
 }
 
-.engRewardCard { margin-top: 18px; }
+.engRewardCard {
+  margin-top: 18px;
+  overflow: visible;
+}
 
 .engRewardFilters {
   display: grid;
@@ -391,7 +394,8 @@
 .engRewardTable {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
+  margin-bottom: 22px;
 }
 
 .engRewardHead,
@@ -416,6 +420,7 @@
   font-size: 12px;
   font-weight: 800;
   color: #111827;
+  min-height: 58px;
 }
 
 .engRewardRow strong,
@@ -440,7 +445,12 @@
   background: #fff5f5;
 }
 
-.engRewardHistory { margin-top: 16px; }
+.engRewardHistory {
+  clear: both;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
 
 .engRewardHistoryHead {
   display: flex;

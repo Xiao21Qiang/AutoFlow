@@ -87,7 +87,7 @@ function ModalSelect({ value, options, placeholder, onSelect }) {
 }
 
 export default function CustomerBookings({ initialAction = null, onActionHandled }) {
-  const { bookings, services, promos, rewards, customerRewards, users, currentUser, createBooking, loading } = useAdminData();
+  const { bookings, services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const bookableServices = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false),
     [services]
@@ -137,8 +137,8 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     [rewards]
   );
   const usableRewards = useMemo(
-    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
-    [activeRewardPoolIds, customerRewards, currentUser]
+    () => getUsableCustomerRewards(customerRewards, currentUser, payments).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
+    [activeRewardPoolIds, customerRewards, currentUser, payments]
   );
   const selectedReward = useMemo(
     () => usableRewards.find((reward) => reward.id === form.rewardId) || null,

@@ -2503,6 +2503,35 @@ function isRewardExpired(customerReward) {
   return Boolean(expirationDate && expirationDate < toDateKey());
 }
 
+function getCustomerRewardUsageStatus(customerReward = {}) {
+  const status = String(customerReward.status || "").trim().toLowerCase();
+  if (
+    status === "used" ||
+    status === "redeemed" ||
+    customerReward.used === true ||
+    customerReward.isUsed === true ||
+    Boolean(String(customerReward.usedAt || customerReward.redeemedAt || "").trim()) ||
+    Boolean(String(customerReward.linkedPaymentId || "").trim())
+  ) {
+    return "Used";
+  }
+  return "Unused";
+}
+
+function hydrateCustomerReward(customerReward = {}, payments = []) {
+  const rewardId = String(customerReward.id || "").trim();
+  const paidPayment = rewardId
+    ? (payments || []).find((payment) => String(payment?.rewardId || "").trim() === rewardId && isPaidStatus(payment?.status))
+    : null;
+  return {
+    ...customerReward,
+    status: paidPayment ? "Used" : getCustomerRewardUsageStatus(customerReward),
+    linkedBookingId: customerReward.linkedBookingId || paidPayment?.bookingId || "",
+    linkedPaymentId: customerReward.linkedPaymentId || paidPayment?.id || "",
+    usedAt: customerReward.usedAt || (paidPayment ? paidPayment.updatedAt || paidPayment.createdAt || "" : ""),
+  };
+}
+
 async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "", customerName = "", baseAmount = 0, excludePaymentId = "" }) {
   const normalizedRewardId = String(rewardId || "").trim();
   if (!normalizedRewardId) {
@@ -2527,7 +2556,7 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
     throw error;
   }
 
-  if (String(customerReward.status || "").trim().toLowerCase() !== "unused") {
+  if (getCustomerRewardUsageStatus(customerReward) !== "Unused") {
     const error = new Error("This reward has already been used.");
     error.statusCode = 400;
     throw error;
@@ -3346,7 +3375,7 @@ async function loadBootstrapData() {
     expenses,
     commissions,
     rewards,
-    customerRewards,
+    customerRewards: customerRewards.map((reward) => hydrateCustomerReward(reward, normalizedPayments)),
     settings: getSafeSecuritySettings(securitySetting),
     alerts,
     summary: {
@@ -5320,7 +5349,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     );
     if (isPaidStatus(payment.status) && payment.rewardId) {
       const usedReward = await CustomerReward.findOneAndUpdate(
-        { id: payment.rewardId, status: "Unused" },
+        {
+          id: payment.rewardId,
+          $and: [
+            { $or: [{ status: /^unused$/i }, { status: "" }, { status: { $exists: false } }] },
+            { $or: [{ usedAt: "" }, { usedAt: null }, { usedAt: { $exists: false } }] },
+          ],
+        },
         {
           status: "Used",
           linkedBookingId: payment.bookingId || "",

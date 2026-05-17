@@ -34,7 +34,7 @@ function getServiceType(service) {
 }
 
 export default function CustomerServices() {
-  const { services, promos, rewards, customerRewards, users, currentUser, createBooking, loading } = useAdminData();
+  const { services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -71,8 +71,8 @@ export default function CustomerServices() {
     [rewards]
   );
   const usableRewards = useMemo(
-    () => getUsableCustomerRewards(customerRewards, currentUser).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
-    [activeRewardPoolIds, customerRewards, currentUser]
+    () => getUsableCustomerRewards(customerRewards, currentUser, payments).filter((reward) => activeRewardPoolIds.has(reward.rewardId)),
+    [activeRewardPoolIds, customerRewards, currentUser, payments]
   );
   const selectedReward = useMemo(
     () => usableRewards.find((reward) => reward.id === bookingForm.rewardId) || null,

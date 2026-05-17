@@ -2,6 +2,7 @@ import "../../styles/css/customer/customerEngagementStyle.css";
 
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { getRewardStatus } from "../../utils/rewards";
 
 const stars = (n = 0) => "★★★★★".slice(0, Math.max(0, Math.min(5, n)));
 
@@ -144,13 +145,16 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
             {myRewards.length === 0 ? (
               <div className="clEngEmptyRow">No rewards earned yet.</div>
             ) : (
-              myRewards.map((reward) => (
-                <div key={reward.id} className="clEngTableRow clEngPromoRow">
-                  <div className="clEngPromoTitle">{reward.rewardName}<div className="clEngPromoMeta">{reward.rewardValue || reward.rewardType}</div></div>
-                  <div><span className="clEngPromoBadge">{reward.status}</span></div>
-                  <div><div>{reward.claimCode || "-"}</div><div className="clEngPromoMeta">{reward.expirationDate ? `Expires ${reward.expirationDate}` : "No expiration date"}</div></div>
-                </div>
-              ))
+              myRewards.map((reward) => {
+                const rewardStatus = getRewardStatus(reward);
+                return (
+                  <div key={reward.id} className="clEngTableRow clEngPromoRow">
+                    <div className="clEngPromoTitle">{reward.rewardName}<div className="clEngPromoMeta">{reward.rewardValue || reward.rewardType}</div></div>
+                    <div><span className="clEngPromoBadge">{rewardStatus}</span></div>
+                    <div><div>{reward.claimCode || "-"}</div><div className="clEngPromoMeta">{reward.expirationDate ? `Expires ${reward.expirationDate}` : "No expiration date"}</div></div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

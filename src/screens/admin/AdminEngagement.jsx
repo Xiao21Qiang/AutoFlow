@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import { getRewardStatus } from "../../utils/rewards";
 
 export default function AdminEngagement() {
   const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
@@ -307,7 +308,17 @@ export default function AdminEngagement() {
               <button className="engBtnLight engBtnAuto" type="button" disabled={!manualRewardCustomerEmail} onClick={() => setSecurityConfirm({ mode: "pin", title: "Generate Reward", message: "Enter the special PIN before manually generating a reward.", onConfirm: async () => { const customer = customerOptions.find((user) => user.email === manualRewardCustomerEmail); await generateCustomerReward({ customerEmail: customer?.email || "", customerName: customer?.name || "" }); setSecurityConfirm(null); } })}>Generate</button>
             </div>
           </div>
-          {customerRewards.slice(0, 8).map((reward) => <div className="engRewardHistoryRow" key={reward.id}><span>{reward.customerName}</span><strong>{reward.rewardName}</strong><span>{reward.status}</span><code>{reward.claimCode}</code></div>)}
+          {customerRewards.slice(0, 8).map((reward) => {
+            const rewardStatus = getRewardStatus(reward);
+            return (
+              <div className="engRewardHistoryRow" key={reward.id}>
+                <span>{reward.customerName}</span>
+                <strong>{reward.rewardName}</strong>
+                <span className={`engStatusBadge ${rewardStatus === "Used" ? "expired" : "active"}`}>{rewardStatus}</span>
+                <code>{reward.claimCode}</code>
+              </div>
+            );
+          })}
           {customerRewards.length === 0 && <div className="engEmpty">No generated rewards yet.</div>}
         </div>
       </div>
