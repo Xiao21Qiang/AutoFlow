@@ -12,6 +12,13 @@ import {
   formatConsumableSizeLabel,
   normalizeConsumablesBySize,
 } from "../../utils/serviceConsumables";
+import {
+  SERVICE_ARRIVAL_TIME_OPTIONS,
+  formatTimeLabel,
+  getDefaultArrivalTimesForDuration,
+  normalizeAllowedArrivalTimes,
+} from "../../utils/bookingWorkflow";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"];
 const SERVICE_TYPE_OPTIONS = ["Basic Service", "Package"];
@@ -49,16 +56,18 @@ function buildPriceBySizePayload(priceBySize) {
 }
 
 export default function StaffServices() {
-  const { services, stockMonitoring, createService, updateService } = useAdminData();
+  const { services, stockMonitoring, currentUser, createService, updateService, toggleService } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ category: "", enabled: "" });
-  const [selectedServiceId] = useState(null);
+  const [selectedServiceId, setSelectedServiceId] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", consumablesBySize: {} });
-  const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", consumablesBySize: {} });
+  const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", allowedArrivalTimes: getDefaultArrivalTimesForDuration(0), consumablesBySize: {} });
+  const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", allowedArrivalTimes: getDefaultArrivalTimesForDuration(60), consumablesBySize: {} });
+  const [serviceFormError, setServiceFormError] = useState("");
+  const canManageServices = canPerformAction(currentUser, ACTION_KEYS.servicesManage);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -87,6 +96,22 @@ export default function StaffServices() {
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
+
+  const openEditModal = (service) => {
+    setSelectedServiceId(service.id);
+    setForm({
+      name: service.name,
+      desc: service.desc,
+      serviceType: getServiceType(service),
+      category: service.category,
+      priceBySize: toPriceInputState(service),
+      mins: String(service.mins || ""),
+      allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
+      consumablesBySize: normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
+    });
+    setServiceFormError("");
+    setIsEditOpen(true);
+  };
 
   const toggleConsumable = (key, itemName) => {
     const name = String(itemName || "").trim();
@@ -236,43 +261,148 @@ export default function StaffServices() {
     );
   };
 
+  const updateServiceDuration = (mode, value) => {
+    if (mode === "add") {
+      const mins = (Number(value) || 0) * 60;
+      setAddForm((prev) => ({
+        ...prev,
+        durationHours: value,
+        allowedArrivalTimes: getDefaultArrivalTimesForDuration(mins),
+      }));
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      mins: value,
+      allowedArrivalTimes: getDefaultArrivalTimesForDuration(Number(value) || 0),
+    }));
+  };
+
+  const toggleArrivalTime = (mode, time) => {
+    const setter = mode === "add" ? setAddForm : setForm;
+    setter((prev) => {
+      const current = new Set(prev.allowedArrivalTimes || []);
+      if (current.has(time)) {
+        current.delete(time);
+      } else {
+        current.add(time);
+      }
+      return { ...prev, allowedArrivalTimes: [...current].filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item)) };
+    });
+  };
+
+  const renderArrivalTimePicker = (mode, durationMinutes, selectedTimes) => {
+    const suggestedTimes = getDefaultArrivalTimesForDuration(durationMinutes);
+    const visibleTimes = [...new Set([...suggestedTimes, ...(selectedTimes || [])])].filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item));
+    return (
+      <div className="stSvcArrivalPanel">
+        <div className="stSvcConsumablesHeader">
+          <div>
+            <div className="stSvcConsumablesTitle">Required Time of Arrival</div>
+            <div className="stSvcConsumablesHint">Select the arrival time slots customers/staff can choose for this service. Suggested slots are based on service duration.</div>
+          </div>
+          <div className="stSvcConsumablesCount">{(selectedTimes || []).length} selected</div>
+        </div>
+        <div className="stSvcArrivalGrid">
+          {visibleTimes.map((time) => (
+            <label className={`stSvcArrivalOption${(selectedTimes || []).includes(time) ? " selected" : ""}`} key={time}>
+              <input
+                type="checkbox"
+                checked={(selectedTimes || []).includes(time)}
+                onChange={() => toggleArrivalTime(mode, time)}
+              />
+              <span>{formatTimeLabel(time)}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");
-  const renderServiceSection = (title, items) => (
+  const getSectionDetails = (title) => {
+    const isPackage = title.toLowerCase().includes("package");
+    return {
+      tone: isPackage ? "package" : "basic",
+      label: isPackage ? "Package" : "Basic Service",
+      subtitle: isPackage ? "Bundled premium protection and detailing packages." : "Quick and standard detailing services.",
+    };
+  };
+  const getArrivalTimesLabel = (service) =>
+    normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins)
+      .map((time) => formatTimeLabel(time))
+      .join(", ");
+  const renderConsumablesList = (service) => {
+    const entries = Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables));
+    return entries.length ? (
+      <ul className="stSvcList">
+        {entries.map(([name, quantities]) => (
+          <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
+        ))}
+      </ul>
+    ) : (
+      <div className="stSvcEmptyText">No consumables linked.</div>
+    );
+  };
+  const renderServiceSection = (title, items) => {
+    const section = getSectionDetails(title);
+    return (
     items.length ? (
-      <section className="stSvcSectionBlock" key={title}>
+      <section className={`stSvcSectionBlock ${section.tone}`} key={title}>
         <div className="stSvcSectionHead">
-          <div className="stSvcSectionTitle">{title}</div>
+          <div>
+            <div className="stSvcSectionTitle">{title}</div>
+            <div className="stSvcSectionSubtitle">{section.subtitle}</div>
+          </div>
           <div className="stSvcSectionCount">{items.length}</div>
         </div>
-        <div className="stSvcCardsGrid">
+        <div className="stSvcSectionScroll">
+          <div className="stSvcCardsGrid">
           {items.map((service) => (
-            <div className="stSvcCard" key={service.id}>
-              <h3 className="stSvcTitle">{service.name}</h3>
-              <div className="stSvcSub">{service.desc}</div>
-              <div className="stSvcMeta">
-                <span>Price:</span>
-                <strong>{formatPriceRangeLabel(service)}</strong>
-                <span className="stSvcMetaDot">•</span>
-                <span>Est:</span>
-                <strong>{service.mins} mins</strong>
+            <div className={`stSvcCard ${section.tone}`} key={service.id}>
+              <div className="stSvcCardTop">
+                <span className={`stSvcTypeBadge ${section.tone}`}>{section.label}</span>
+                {service.category ? <span className="stSvcCategoryBadge">{service.category}</span> : null}
+                <span className={`stSvcStatusBadge ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</span>
               </div>
-              <div className={`stSvcStatusBar ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</div>
+              <h3 className="stSvcTitle">{service.name}</h3>
+              <div className="stSvcSub">{service.desc || "No description provided."}</div>
+              <div className="stSvcInfoGrid">
+                <div className="stSvcInfoItem">
+                  <span>Price Range</span>
+                  <strong>{formatPriceRangeLabel(service)}</strong>
+                </div>
+                <div className="stSvcInfoItem">
+                  <span>Duration</span>
+                  <strong>{service.mins || 0} mins</strong>
+                </div>
+                <div className="stSvcInfoItem wide">
+                  <span>Required Time of Arrival</span>
+                  <strong>{getArrivalTimesLabel(service) || "Not configured"}</strong>
+                </div>
+              </div>
               <div className="stSvcSection">Consumables</div>
-              <ul className="stSvcList">
-                {Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables)).map(([name, quantities]) => (
-                  <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
-                ))}
-              </ul>
+              <div className="stSvcConsumablesPreview">{renderConsumablesList(service)}</div>
               <div className="stSvcCardActions">
-                <span className="stSvcSmallBtn stSvcSmallBtnOutline">View Only</span>
+                {canManageServices ? (
+                  <>
+                    <button className="stSvcSmallBtn stSvcSmallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button>
+                    <button className="stSvcSmallBtn stSvcSmallBtnOutline" type="button" onClick={() => toggleService(service)}>{service.enabled ? "Disable" : "Enable"}</button>
+                  </>
+                ) : (
+                  <span className="stSvcSmallBtn stSvcSmallBtnView">View Only</span>
+                )}
               </div>
             </div>
           ))}
+          </div>
         </div>
       </section>
     ) : null
-  );
+    );
+  };
 
   return (
     <div className="stSvcWrap">
@@ -291,7 +421,13 @@ export default function StaffServices() {
           <img src={icoFilter} alt="" className="stSvcFilterIcon" />
         </button>
 
-        <div className="stSvcActionBtns" />
+        <div className="stSvcActionBtns">
+          {canManageServices ? (
+            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setIsAddOpen(true); }}>
+              Add New Service
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="stSvcBoard">
@@ -320,6 +456,10 @@ export default function StaffServices() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const priceBySize = buildPriceBySizePayload(form.priceBySize);
+                if (!form.allowedArrivalTimes?.length) {
+                  setServiceFormError("Select at least one required time of arrival.");
+                  return;
+                }
                 updateService(selectedService.id, {
                   ...selectedService,
                   name: form.name.trim(),
@@ -329,6 +469,7 @@ export default function StaffServices() {
                   price: Number(priceBySize.sedanSmallCar) || 0,
                   priceBySize,
                   mins: Number(form.mins) || 0,
+                  allowedArrivalTimes: form.allowedArrivalTimes,
                   consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
                 });
                 setIsEditOpen(false);
@@ -341,10 +482,12 @@ export default function StaffServices() {
                 <div className="stSvcFieldGrid"><label className="stSvcField"><span>Service Type</span><select value={form.serviceType} onChange={(e) => setForm((prev) => ({ ...prev, serviceType: e.target.value }))}>{SERVICE_TYPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><label className="stSvcField"><span>Category</span><select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label></div>
                 {renderPriceFields("edit", form.priceBySize)}
                 <div className="stSvcFieldGrid">
-                  <label className="stSvcField"><span>Est. Duration (Mins)</span><input type="number" min="0" value={form.mins} onChange={(e) => setForm((prev) => ({ ...prev, mins: e.target.value }))} required /></label>
+                  <label className="stSvcField"><span>Est. Duration (Mins)</span><input type="number" min="0" value={form.mins} onChange={(e) => updateServiceDuration("edit", e.target.value)} required /></label>
                 </div>
               </div>
+              {renderArrivalTimePicker("edit", Number(form.mins) || 0, form.allowedArrivalTimes)}
               {renderConsumablesPicker("edit", form.consumablesBySize)}
+              {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
               <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => setIsEditOpen(false)}>Cancel</button><button className="stSvcPrimaryBtn" type="submit">Save Service</button></div>
             </form>
           </div>
@@ -362,6 +505,10 @@ export default function StaffServices() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
+                if (!addForm.allowedArrivalTimes?.length) {
+                  setServiceFormError("Select at least one required time of arrival.");
+                  return;
+                }
                 createService({
                   name: addForm.name.trim(),
                   desc: "",
@@ -370,6 +517,7 @@ export default function StaffServices() {
                   price: Number(priceBySize.sedanSmallCar) || 0,
                   priceBySize,
                   mins: (Number(addForm.durationHours) || 0) * 60,
+                  allowedArrivalTimes: addForm.allowedArrivalTimes,
                   enabled: addForm.status === "Active",
                   consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
                 });
@@ -386,11 +534,13 @@ export default function StaffServices() {
                 </div>
                 {renderPriceFields("add", addForm.priceBySize)}
                 <div className="stSvcFieldGrid">
-                  <label className="stSvcField"><span>Duration (Hrs)</span><input type="number" min="1" value={addForm.durationHours} onChange={(e) => setAddForm((prev) => ({ ...prev, durationHours: e.target.value }))} required /></label>
+                  <label className="stSvcField"><span>Duration (Hrs)</span><input type="number" min="1" value={addForm.durationHours} onChange={(e) => updateServiceDuration("add", e.target.value)} required /></label>
                   <label className="stSvcField"><span>Status</span><select value={addForm.status} onChange={(e) => setAddForm((prev) => ({ ...prev, status: e.target.value }))}><option value="Active">Active</option><option value="Inactive">Inactive</option></select></label>
                 </div>
               </div>
+              {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
               {renderConsumablesPicker("add", addForm.consumablesBySize)}
+              {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
               <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => setIsAddOpen(false)}>Cancel</button><button className="stSvcPrimaryBtn" type="submit">Add Service</button></div>
             </form>
           </div>

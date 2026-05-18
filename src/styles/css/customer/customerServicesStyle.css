@@ -3,7 +3,7 @@
 }
 
 .clSvcTop {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .clSvcSearchWrap {
@@ -13,7 +13,7 @@
 }
 
 .clSvcSearchBox {
-  width: 184px;
+  width: min(100%, 340px);
   height: 36px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -54,29 +54,38 @@
 .clSvcBoard {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
-  padding: 16px 14px;
+  padding: 18px;
 }
 
 .clSvcSectionBlock + .clSvcSectionBlock {
-  margin-top: 20px;
+  margin-top: 26px;
 }
 
 .clSvcSectionHead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: 14px;
+  padding: 0 2px 12px;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .clSvcSectionTitle {
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 950;
   color: var(--text);
+  line-height: 1.2;
+}
+
+.clSvcSectionSubtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 750;
+  color: #64748b;
+  line-height: 1.35;
 }
 
 .clSvcSectionCount {
@@ -96,50 +105,183 @@
 
 .clSvcGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  padding-right: 4px;
+}
+
+.clSvcSectionScroll {
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .clSvcCard {
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 18px 16px;
+  border-radius: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
+  min-height: 330px;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.clSvcCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: #d8b53b;
+}
+
+.clSvcCard.package::before {
+  background: linear-gradient(90deg, #111827, #d8b53b);
+}
+
+.clSvcCard:hover {
+  border-color: #e0bc47;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+}
+
+.clSvcCardTop {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 28px;
+}
+
+.clSvcTypeBadge,
+.clSvcCategoryBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.clSvcTypeBadge.basic {
+  background: #fff8e6;
+  color: #7c5f12;
+  border: 1px solid #f0d36c;
+}
+
+.clSvcTypeBadge.package {
+  background: #111827;
+  color: #f8d45c;
+  border: 1px solid #111827;
+}
+
+.clSvcCategoryBadge {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #dbe4ef;
 }
 
 .clSvcTitle {
-  font-size: 15px;
+  margin-top: 12px;
+  font-size: 22px;
   font-weight: 950;
   color: var(--text);
-  line-height: 1.2;
+  line-height: 1.16;
+  overflow-wrap: anywhere;
 }
 
 .clSvcSub {
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 8px;
+  font-size: 12px;
   font-weight: 700;
   color: #6b7280;
+  line-height: 1.45;
 }
 
-.clSvcMeta {
-  margin-top: 18px;
-  font-size: 13px;
-  font-weight: 900;
-  color: #111827;
+.clSvcInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.clSvcInfoItem {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+  min-width: 0;
+}
+
+.clSvcInfoItem span,
+.clSvcArrivalPreview span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.clSvcInfoItem strong,
+.clSvcArrivalPreview strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.clSvcArrivalPreview {
+  margin-top: 10px;
+  border: 1px solid #e9d993;
+  border-radius: 12px;
+  background: #fffaf0;
+  padding: 10px;
+}
+
+.clSvcPaymentChip {
+  margin-top: 10px;
+  align-self: flex-start;
+  border: 1px solid #e7cf83;
+  background: #fff9e8;
+  color: #7c5f12;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.clSvcPaymentChip.exempt {
+  border-color: #d8e1ec;
+  background: #f8fafc;
+  color: #475569;
 }
 
 .clSvcBookBtn {
-  margin-top: 14px;
-  align-self: flex-start;
-  height: 32px;
+  margin-top: auto;
+  align-self: stretch;
+  height: 38px;
   padding: 0 20px;
   border: none;
-  border-radius: 999px;
+  border-radius: 12px;
   background: #d8b53b;
   font-size: 13px;
   font-weight: 950;
   cursor: pointer;
+  color: #111827;
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.clSvcBookBtn:hover {
+  filter: brightness(0.98);
+  transform: translateY(-1px);
 }
 
 .clSvcPager {
@@ -383,6 +525,30 @@
 }
 
 @media (max-width: 640px) {
+  .clSvcSearchWrap {
+    width: 100%;
+  }
+
+  .clSvcSearchBox {
+    flex: 1;
+  }
+
+  .clSvcBoard {
+    padding: 14px;
+  }
+
+  .clSvcSectionHead {
+    flex-direction: column;
+  }
+
+  .clSvcGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .clSvcInfoGrid {
+    grid-template-columns: 1fr;
+  }
+
   .clSvcModalOverlay {
     padding: 14px;
   }

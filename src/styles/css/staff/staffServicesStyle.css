@@ -117,27 +117,37 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 18px;
-  padding: 14px;
+  padding: 18px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
 }
 
 .stSvcSectionBlock + .stSvcSectionBlock {
-  margin-top: 22px;
+  margin-top: 26px;
 }
 
 .stSvcSectionHead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: 14px;
+  padding: 0 2px 12px;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .stSvcSectionTitle {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 950;
   color: var(--text);
+  line-height: 1.2;
+}
+
+.stSvcSectionSubtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 750;
+  color: #64748b;
+  line-height: 1.35;
 }
 
 .stSvcSectionCount {
@@ -157,19 +167,40 @@
 
 .stSvcCardsGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  padding-right: 4px;
+}
+
+.stSvcSectionScroll {
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .stSvcCard {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 16px;
   background: #fff;
-  padding: 16px;
-  min-height: 320px;
+  padding: 18px;
+  min-height: 390px;
+  position: relative;
+  overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stSvcCard::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: #d8b53b;
+}
+
+.stSvcCard.package::before {
+  background: linear-gradient(90deg, #111827, #d8b53b);
 }
 
 .stSvcCard:hover {
@@ -179,11 +210,12 @@
 }
 
 .stSvcTitle {
-  margin: 0;
-  font-size: 18px;
+  margin: 12px 0 0;
+  font-size: 21px;
   font-weight: 900;
   color: var(--text);
-  line-height: 1.2;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
 }
 
 .stSvcSub {
@@ -194,25 +226,93 @@
   line-height: 1.5;
 }
 
-.stSvcMeta {
-  margin-top: 12px;
+.stSvcCardTop {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 700;
+  gap: 7px;
+  min-height: 28px;
+}
+
+.stSvcTypeBadge,
+.stSvcCategoryBadge,
+.stSvcStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stSvcTypeBadge.basic {
+  background: #fff8e6;
+  color: #7c5f12;
+  border: 1px solid #f0d36c;
+}
+
+.stSvcTypeBadge.package {
+  background: #111827;
+  color: #f8d45c;
+  border: 1px solid #111827;
+}
+
+.stSvcCategoryBadge {
+  background: #f8fafc;
   color: #475569;
+  border: 1px solid #dbe4ef;
 }
 
-.stSvcMeta strong {
-  font-weight: 900;
-  color: var(--text);
+.stSvcStatusBadge.enabled {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
 }
 
-.stSvcMetaDot {
-  margin: 0 2px;
-  color: #94a3b8;
+.stSvcStatusBadge.disabled {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.stSvcInfoGrid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stSvcInfoItem {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.stSvcInfoItem.wide {
+  grid-column: 1 / -1;
+}
+
+.stSvcInfoItem span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.stSvcInfoItem strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 950;
+  color: #0f172a;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .stSvcStatusBar {
@@ -239,7 +339,7 @@
 }
 
 .stSvcSection {
-  margin-top: 14px;
+  margin-top: 16px;
   font-size: 11px;
   font-weight: 900;
   color: var(--gold-dark);
@@ -248,7 +348,7 @@
 }
 
 .stSvcList {
-  margin: 8px 0 0;
+  margin: 0;
   padding-left: 18px;
   font-size: 12px;
   font-weight: 600;
@@ -258,6 +358,22 @@
 
 .stSvcList li {
   margin-bottom: 6px;
+}
+
+.stSvcConsumablesPreview {
+  margin-top: 8px;
+  max-height: 118px;
+  overflow-y: auto;
+  border: 1px solid #e5eaf1;
+  border-radius: 12px;
+  background: #fbfdff;
+  padding: 10px 10px 8px;
+}
+
+.stSvcEmptyText {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .stSvcCardActions {
@@ -296,6 +412,12 @@
   border-color: #fecaca;
   color: #dc2626;
   background: #fff5f5;
+}
+
+.stSvcSmallBtnView {
+  cursor: default;
+  background: #f8fafc;
+  color: #64748b;
 }
 
 .stSvcSmallBtnOutline:hover {
@@ -611,6 +733,52 @@
   background: rgba(255, 255, 255, 0.7);
 }
 
+.stSvcArrivalPanel {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.stSvcArrivalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.stSvcArrivalOption {
+  min-height: 44px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #334155;
+}
+
+.stSvcArrivalOption.selected {
+  border-color: #d4a93a;
+  background: #fff8e6;
+  color: #111827;
+}
+
+.stSvcFormError {
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  color: #b91c1c;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .stSvcModalActions {
   display: flex;
   justify-content: flex-end;
@@ -675,6 +843,10 @@
   }
 
   .stSvcConsumablesGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stSvcArrivalGrid {
     grid-template-columns: 1fr;
   }
 

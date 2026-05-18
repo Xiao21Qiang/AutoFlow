@@ -374,33 +374,78 @@ export default function AdminServices({ initialAction = null, onActionHandled })
 
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");
-  const renderServiceSection = (title, items) => (
+  const getSectionDetails = (title) => {
+    const isPackage = title.toLowerCase().includes("package");
+    return {
+      tone: isPackage ? "package" : "basic",
+      label: isPackage ? "Package" : "Basic Service",
+      subtitle: isPackage ? "Bundled premium protection and detailing packages." : "Quick and standard detailing services.",
+    };
+  };
+  const getArrivalTimesLabel = (service) =>
+    normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins)
+      .map((time) => formatTimeLabel(time))
+      .join(", ");
+  const renderConsumablesList = (service) => {
+    const entries = Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables));
+    return entries.length ? (
+      <ul className="svcList">
+        {entries.map(([name, quantities]) => (
+          <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
+        ))}
+      </ul>
+    ) : (
+      <div className="svcEmptyText">No consumables linked.</div>
+    );
+  };
+  const renderServiceSection = (title, items) => {
+    const section = getSectionDetails(title);
+    return (
     items.length ? (
-      <section className="svcSectionBlock" key={title}>
+      <section className={`svcSectionBlock ${section.tone}`} key={title}>
         <div className="svcSectionHead">
-          <div className="svcSectionTitle">{title}</div>
+          <div>
+            <div className="svcSectionTitle">{title}</div>
+            <div className="svcSectionSubtitle">{section.subtitle}</div>
+          </div>
           <div className="svcSectionCount">{items.length}</div>
         </div>
-        <div className="svcCardsGrid">
+        <div className="svcSectionScroll">
+          <div className="svcCardsGrid">
           {items.map((service) => (
-            <div className="svcCard" key={service.id}>
+            <div className={`svcCard ${section.tone}`} key={service.id}>
+              <div className="svcCardTop">
+                <span className={`svcTypeBadge ${section.tone}`}>{section.label}</span>
+                {service.category ? <span className="svcCategoryBadge">{service.category}</span> : null}
+                <span className={`svcStatusBadge ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</span>
+              </div>
               <h3 className="svcTitle">{service.name}</h3>
-              <div className="svcSub">{service.desc}</div>
-              <div className="svcMeta"><span>Price:</span><strong>{formatPriceRangeLabel(service)}</strong><span className="svcMetaDot">•</span><span>Est:</span><strong>{service.mins} mins</strong></div>
-              <div className={`statusBar ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</div>
+              <div className="svcSub">{service.desc || "No description provided."}</div>
+              <div className="svcInfoGrid">
+                <div className="svcInfoItem">
+                  <span>Price Range</span>
+                  <strong>{formatPriceRangeLabel(service)}</strong>
+                </div>
+                <div className="svcInfoItem">
+                  <span>Duration</span>
+                  <strong>{service.mins || 0} mins</strong>
+                </div>
+                <div className="svcInfoItem wide">
+                  <span>Required Time of Arrival</span>
+                  <strong>{getArrivalTimesLabel(service) || "Not configured"}</strong>
+                </div>
+              </div>
               <div className="svcSection">Consumables</div>
-              <ul className="svcList">
-                {Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables)).map(([name, quantities]) => (
-                  <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
-                ))}
-              </ul>
+              <div className="svcConsumablesPreview">{renderConsumablesList(service)}</div>
               <div className="cardActions"><button className="smallBtn smallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button><button className="smallBtn smallBtnOutline" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Change Service Status", message: "Enter the special PIN before changing this service status.", onConfirm: async () => { await toggleService(service); setSecurityConfirm(null); } })}>{service.enabled ? "Disable" : "Enable"}</button></div>
             </div>
           ))}
+          </div>
         </div>
       </section>
     ) : null
-  );
+    );
+  };
 
   return (
     <div className="servicesWrap">

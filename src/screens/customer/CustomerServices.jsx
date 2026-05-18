@@ -153,30 +153,69 @@ export default function CustomerServices() {
 
   const pageBasicServices = pageRows.filter((service) => getServiceType(service) === "Basic Service");
   const pagePackages = pageRows.filter((service) => getServiceType(service) === "Package");
-  const renderServiceSection = (title, items) => (
+  const getSectionDetails = (title) => {
+    const isPackage = title.toLowerCase().includes("package");
+    return {
+      tone: isPackage ? "package" : "basic",
+      label: isPackage ? "Package" : "Basic Service",
+      subtitle: isPackage ? "Bundled premium protection and detailing packages." : "Quick and standard detailing services.",
+    };
+  };
+  const getArrivalPreview = (service) => {
+    const options = getServiceArrivalTimeOptions(service || {});
+    if (!options.length) return "No time slots configured";
+    return options.map((option) => option.label).join(", ");
+  };
+  const renderServiceSection = (title, items) => {
+    const section = getSectionDetails(title);
+    return (
     items.length ? (
-      <section className="clSvcSectionBlock" key={title}>
+      <section className={`clSvcSectionBlock ${section.tone}`} key={title}>
         <div className="clSvcSectionHead">
-          <div className="clSvcSectionTitle">{title}</div>
+          <div>
+            <div className="clSvcSectionTitle">{title}</div>
+            <div className="clSvcSectionSubtitle">{section.subtitle}</div>
+          </div>
           <div className="clSvcSectionCount">{items.length}</div>
         </div>
-        <div className="clSvcGrid">
+        <div className="clSvcSectionScroll">
+          <div className="clSvcGrid">
           {items.map((service) => (
-            <div className="clSvcCard" key={service.id}>
+            <div className={`clSvcCard ${section.tone}`} key={service.id}>
+              <div className="clSvcCardTop">
+                <span className={`clSvcTypeBadge ${section.tone}`}>{section.label}</span>
+                {service.category ? <span className="clSvcCategoryBadge">{service.category}</span> : null}
+              </div>
               <div className="clSvcTitle">{service.name}</div>
-              <div className="clSvcSub">{service.desc}</div>
-              <div className="clSvcMeta">
-                Price: {formatPriceRangeLabel(service)} • Est: {service.mins} mins
+              <div className="clSvcSub">{service.desc || "Premium auto care service from All Pro-Tec."}</div>
+              <div className="clSvcInfoGrid">
+                <div className="clSvcInfoItem">
+                  <span>Price</span>
+                  <strong>{formatPriceRangeLabel(service)}</strong>
+                </div>
+                <div className="clSvcInfoItem">
+                  <span>Duration</span>
+                  <strong>{service.mins || 0} mins</strong>
+                </div>
+              </div>
+              <div className="clSvcArrivalPreview">
+                <span>Available Time Slots</span>
+                <strong>{getArrivalPreview(service)}</strong>
+              </div>
+              <div className={`clSvcPaymentChip${requiresDownPayment(service) ? "" : " exempt"}`}>
+                {requiresDownPayment(service) ? "Down payment required" : "No down payment required"}
               </div>
               <button className="clSvcBookBtn" type="button" onClick={() => setSelectedService(service)}>
                 Book
               </button>
             </div>
           ))}
+          </div>
         </div>
       </section>
     ) : null
-  );
+    );
+  };
 
   return (
     <div className="clSvcWrap">
