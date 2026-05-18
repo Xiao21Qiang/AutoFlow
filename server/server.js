@@ -1574,6 +1574,7 @@ const ACTION_KEYS = {
   bookingUpdate: "booking.update",
   bookingDelete: "booking.delete",
   bookingReassignDetailer: "booking.reassignDetailer",
+  detailerReassign: "detailer.reassign",
   bookingUpdateStatus: "booking.updateStatus",
   trackingView: "tracking.view",
   trackingUpdateIssueNotes: "tracking.updateIssueNotes",
@@ -1675,6 +1676,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingCreate,
     ACTION_KEYS.bookingUpdate,
     ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
     ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.trackingUpdateIssueNotes,
@@ -1688,6 +1690,8 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.engagementManage,
     ACTION_KEYS.usersViewStaff,
     ACTION_KEYS.commissionViewAll,
+    ACTION_KEYS.commissionMarkPaid,
+    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.commissionPrint,
     ACTION_KEYS.commissionExport,
     ACTION_KEYS.auditViewOperational,
@@ -1783,8 +1787,6 @@ function requiresAdminSpecialCredential(actionKey) {
   return [
     ACTION_KEYS.bookingDelete,
     ACTION_KEYS.paymentOverride,
-    ACTION_KEYS.commissionMarkPaid,
-    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.settingsManageSecurity,
     ACTION_KEYS.settingsManageDownPayment,
     ACTION_KEYS.usersPromote,
@@ -1828,6 +1830,10 @@ function getActorDisplayNames(user = {}) {
     if (normalized) names.add(normalized);
   });
   return names;
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isBookingAssignedToUser(booking, user = {}) {
@@ -1898,7 +1904,20 @@ function canViewCommission(user, commission) {
 }
 
 function canManageCommission(user) {
-  return isAdmin(user);
+  if (isAdmin(user)) return true;
+  return getEffectiveRole(user) === "general manager" && canPerformAction(user, ACTION_KEYS.commissionMarkPaid);
+}
+
+function canReassignDetailer(user) {
+  if (isAdmin(user)) return true;
+  return getEffectiveRole(user) === "general manager" && canPerformAction(user, ACTION_KEYS.detailerReassign);
+}
+
+function isActiveDetailerUser(user = {}) {
+  const status = String(user.status || user.isActive || "active").trim().toLowerCase();
+  const active = user.isActive === false ? false : !["inactive", "disabled", "deactivated"].includes(status);
+  const role = normalizeRoleKey(user.role);
+  return active && normalizeUserType(user.userType, user.role) === "staff" && (role === "junior detailer" || role === "senior detailer");
 }
 
 function buildAuthPayload(user) {
@@ -4386,7 +4405,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
     const scopedUsers = data.users.filter((user) => {
       const type = normalizeUserType(user.userType, user.role);
       if (type === "admin") return false;
-      if (hasModule(MODULE_KEYS.userManagement)) return type === "staff";
+      if (hasModule(MODULE_KEYS.userManagement)) return staffRole === "general manager" ? type === "staff" || type === "customer" : type === "staff";
       if (staffRole === "junior detailer" || staffRole === "senior detailer") return type === "staff";
       if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
@@ -5674,6 +5693,84 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
   }
 });
 
+app.patch("/api/admin/bookings/:id/reassign-detailer", requireRoles("admin", "staff"), async (req, res, next) => {
+  try {
+    if (!canReassignDetailer(req.authUser)) {
+      denyForbidden(res);
+      return;
+    }
+
+    const booking = await Booking.findOne({ id: req.params.id });
+    if (!booking) {
+      res.status(404).json({ message: "Booking not found." });
+      return;
+    }
+
+    if (isCancelledStatus(booking.status)) {
+      res.status(400).json({ message: "Cancelled bookings are locked and cannot be reassigned." });
+      return;
+    }
+
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    await requireSpecialCredentialForRequest(req, {
+      mode: "pin",
+      scope: actorType === "staff" ? "staff" : "admin",
+      actionKey: ACTION_KEYS.detailerReassign,
+    });
+
+    const requestedDetailer = String(req.body.assigned || req.body.detailerName || req.body.newAssignedDetailer || "").trim();
+    if (!requestedDetailer) {
+      res.status(400).json({ message: "Please choose a new assigned detailer." });
+      return;
+    }
+
+    const detailer = await User.findOne({
+      name: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" },
+    }).lean();
+
+    if (!isActiveDetailerUser(detailer)) {
+      res.status(400).json({ message: "Please choose an active Junior or Senior Detailer." });
+      return;
+    }
+
+    const previousAssigned = String(booking.assigned || "").trim();
+    booking.assigned = detailer.name || requestedDetailer;
+    const savedBooking = await booking.save();
+
+    const commission = await Commission.findOne({ bookingId: booking.id });
+    const commissionStatus = String(commission?.status || "").trim().toLowerCase();
+    if (commission && !["paid", "voided", "cancelled"].includes(commissionStatus)) {
+      commission.worker = detailer.name || requestedDetailer;
+      commission.role = toDisplaySubtype(detailer.userType, detailer.role);
+      commission.remarks = String(req.body.remarks || req.body.reason || commission.remarks || "").trim();
+      await commission.save();
+    }
+
+    const actor = req.authUser?.email || req.body.auditUser || "system";
+    await recordAudit(actor, "Reassigned detailer", savedBooking.id, {
+      customer: savedBooking.customer || "",
+      service: savedBooking.service || "",
+      previousAssigned,
+      assigned: savedBooking.assigned || "",
+      reason: String(req.body.reason || req.body.remarks || "").trim(),
+    });
+
+    if (savedBooking.assigned && savedBooking.assigned !== previousAssigned) {
+      await recordAudit("system", "Detailer assignment changed", savedBooking.id, {
+        message: `You have been assigned to booking ${savedBooking.id}.`,
+        assigned: savedBooking.assigned,
+        previousAssigned,
+        customer: savedBooking.customer || "",
+        service: savedBooking.service || "",
+      });
+    }
+
+    res.json(savedBooking);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) => {
   try {
     await requireSpecialCredentialForRequest(req, { mode: "pin", scope: "admin" });
@@ -6933,7 +7030,7 @@ app.post("/api/admin/expenses", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.patch("/api/admin/commissions/:id", requireAdminUser, async (req, res, next) => {
+app.patch("/api/admin/commissions/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
     const commission = await Commission.findOne({ id: req.params.id });
     if (!commission) {
@@ -6947,9 +7044,24 @@ app.patch("/api/admin/commissions/:id", requireAdminUser, async (req, res, next)
 
     const nextStatus = String(req.body.status || "").trim();
     if (nextStatus === "Paid") {
-      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin", actionKey: ACTION_KEYS.commissionMarkPaid });
+      const currentStatus = String(commission.status || "").trim().toLowerCase();
+      if (currentStatus === "paid") {
+        res.status(400).json({ message: "This commission is already marked as Paid." });
+        return;
+      }
+      if (["voided", "cancelled"].includes(currentStatus)) {
+        res.status(400).json({ message: "Voided or cancelled commissions cannot be marked as Paid." });
+        return;
+      }
+      const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+      await requireSpecialCredentialForRequest(req, {
+        mode: "pin",
+        scope: actorType === "staff" ? "staff" : "admin",
+        actionKey: ACTION_KEYS.commissionMarkPaid,
+      });
       commission.status = "Paid";
       commission.datePaid = new Date().toISOString();
+      commission.paidBy = req.authUser?.email || req.body.auditUser || "";
       commission.remarks = String(req.body.remarks || commission.remarks || "Marked as paid.").trim();
       await commission.save();
       await recordAudit(req.authUser?.email || req.body.auditUser, "Marked commission paid", commission.id, {
@@ -6967,7 +7079,25 @@ app.patch("/api/admin/commissions/:id", requireAdminUser, async (req, res, next)
         res.status(400).json({ message: "Void reason is required." });
         return;
       }
-      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin", actionKey: ACTION_KEYS.commissionVoid });
+      const currentStatus = String(commission.status || "").trim().toLowerCase();
+      if (currentStatus === "paid") {
+        res.status(400).json({ message: "Paid commissions cannot be voided." });
+        return;
+      }
+      if (currentStatus === "voided") {
+        res.status(400).json({ message: "This commission is already voided." });
+        return;
+      }
+      if (currentStatus === "cancelled") {
+        res.status(400).json({ message: "Cancelled commissions cannot be voided." });
+        return;
+      }
+      const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+      await requireSpecialCredentialForRequest(req, {
+        mode: "pin",
+        scope: actorType === "staff" ? "staff" : "admin",
+        actionKey: ACTION_KEYS.commissionVoid,
+      });
       commission.status = "Voided";
       commission.voidReason = reason;
       commission.voidedAt = new Date().toISOString();

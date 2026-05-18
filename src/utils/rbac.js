@@ -24,6 +24,7 @@ export const ACTION_KEYS = {
   bookingUpdate: "booking.update",
   bookingDelete: "booking.delete",
   bookingReassignDetailer: "booking.reassignDetailer",
+  detailerReassign: "detailer.reassign",
   bookingUpdateStatus: "booking.updateStatus",
   trackingView: "tracking.view",
   trackingUpdateIssueNotes: "tracking.updateIssueNotes",
@@ -137,6 +138,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingCreate,
     ACTION_KEYS.bookingUpdate,
     ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
     ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.trackingUpdateIssueNotes,
@@ -150,6 +152,8 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.engagementManage,
     ACTION_KEYS.usersViewStaff,
     ACTION_KEYS.commissionViewAll,
+    ACTION_KEYS.commissionMarkPaid,
+    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.commissionPrint,
     ACTION_KEYS.commissionExport,
     ACTION_KEYS.auditViewOperational,
@@ -274,8 +278,6 @@ export function requiresAdminSpecialCredential(actionKey) {
   return [
     ACTION_KEYS.bookingDelete,
     ACTION_KEYS.paymentOverride,
-    ACTION_KEYS.commissionMarkPaid,
-    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.settingsManageSecurity,
     ACTION_KEYS.settingsManageDownPayment,
     ACTION_KEYS.usersPromote,
@@ -290,5 +292,8 @@ export function requiresStaffSpecialCredential(actionKey) {
     ACTION_KEYS.trackingUpdateWarranty,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockManage,
+    ACTION_KEYS.detailerReassign,
+    ACTION_KEYS.commissionMarkPaid,
+    ACTION_KEYS.commissionVoid,
   ].includes(actionKey);
 }

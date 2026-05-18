@@ -223,11 +223,18 @@ export default function StaffBookings() {
     return disabledOptions;
   }, [completionReadiness.canComplete, isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, modal, scheduleRequirementsMet]);
   const matchedCustomer = useMemo(
-    () =>
-      customerOptions.find(
-        (customer) => customer.name.trim().toLowerCase() === String(form.customer || "").trim().toLowerCase()
-      ) || null,
-    [customerOptions, form.customer]
+    () => {
+      const customerName = String(form.customer || "").trim().toLowerCase();
+      const customerEmail = String(form.customerEmail || "").trim().toLowerCase();
+      return (
+        customerOptions.find((customer) => {
+          const optionName = String(customer.name || "").trim().toLowerCase();
+          const optionEmail = String(customer.email || "").trim().toLowerCase();
+          return (customerName && optionName === customerName) || (customerEmail && optionEmail === customerEmail);
+        }) || null
+      );
+    },
+    [customerOptions, form.customer, form.customerEmail]
   );
   const selectedCustomerCars = useMemo(() => normalizeCustomerCars(matchedCustomer?.cars), [matchedCustomer]);
   const carOptions = useMemo(() => selectedCustomerCars.map((car) => `${car.vehicle} | ${car.plate}`), [selectedCustomerCars]);
@@ -348,8 +355,20 @@ export default function StaffBookings() {
       return;
     }
 
+    if (
+      modal === "edit" &&
+      selectedBooking &&
+      (
+        String(selectedBooking.customerEmail || "").trim().toLowerCase() === String(form.customerEmail || "").trim().toLowerCase() ||
+        String(selectedBooking.customer || "").trim().toLowerCase() === typedName.toLowerCase()
+      )
+    ) {
+      setCustomerFieldError("");
+      return;
+    }
+
     setCustomerFieldError("This customer is not registered yet. Please choose a registered customer from the list.");
-  }, [form.customer, form.customerEmail, matchedCustomer]);
+  }, [form.customer, form.customerEmail, matchedCustomer, modal, selectedBooking]);
 
   useEffect(() => {
     if (!form.placeSlot) return;
