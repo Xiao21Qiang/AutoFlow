@@ -68,7 +68,11 @@ function isCancelledStatus(status) {
 
 function isScheduleBlockingStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
-  return normalized !== "completed" && normalized !== "cancelled";
+  return !["completed", "cancelled", "rejected"].includes(normalized);
+}
+
+function hasRealPlaceSlot(value) {
+  return PLACE_SLOT_OPTIONS.includes(Number(value || 0));
 }
 
 function isCompletedStatus(status) {
@@ -276,6 +280,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
       if (selectedBooking && booking.id === selectedBooking.id) return false;
       if (String(booking.date || "") !== String(form.date || "")) return false;
       if (!isScheduleBlockingStatus(booking.status)) return false;
+      if (!hasRealPlaceSlot(booking.placeSlot)) return false;
 
       const bookingStart = timeToMinutes(booking.time);
       if (bookingStart === null) return false;
@@ -289,16 +294,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
 
     overlappingBookings.forEach((booking) => {
       const slot = Number(booking.placeSlot || 0);
-      if (PLACE_SLOT_OPTIONS.includes(slot)) {
+      if (hasRealPlaceSlot(slot)) {
         occupied.add(slot);
       }
-    });
-
-    overlappingBookings.forEach((booking) => {
-      const slot = Number(booking.placeSlot || 0);
-      if (PLACE_SLOT_OPTIONS.includes(slot)) return;
-      const fallbackSlot = PLACE_SLOT_OPTIONS.find((candidate) => !occupied.has(candidate));
-      if (fallbackSlot) occupied.add(fallbackSlot);
     });
 
     return occupied;

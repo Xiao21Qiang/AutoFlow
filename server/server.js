@@ -475,7 +475,15 @@ function throwValidationError(message, statusCode = 400) {
 
 function isScheduleBlockingStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
-  return normalized !== "completed" && normalized !== "cancelled";
+  return !["completed", "cancelled", "rejected"].includes(normalized);
+}
+
+function isRealPlaceSlot(value) {
+  return PLACE_SLOT_OPTIONS.includes(Number(value || 0));
+}
+
+function isBlockingPlaceSlotStatus(status, placeSlot) {
+  return isRealPlaceSlot(placeSlot) && isScheduleBlockingStatus(status);
 }
 
 function getOverlappingBookingsForSchedule(bookings, durationByService, bookingTime, requestedDuration) {
@@ -484,7 +492,7 @@ function getOverlappingBookingsForSchedule(bookings, durationByService, bookingT
   const requestedEnd = requestedStart + requestedDuration;
 
   return bookings.filter((booking) => {
-    if (!isScheduleBlockingStatus(booking.status)) return false;
+    if (!isBlockingPlaceSlotStatus(booking.status, booking.placeSlot)) return false;
     const existingStart = timeToMinutes(booking.time);
     if (existingStart === null) return false;
     const existingDuration = durationByService.get(booking.service) || 1;
@@ -498,17 +506,9 @@ function getOccupiedPlaceSlots(overlappingBookings) {
 
   for (const booking of overlappingBookings) {
     const slot = Number(booking.placeSlot || 0);
-    if (PLACE_SLOT_OPTIONS.includes(slot)) {
+    if (isRealPlaceSlot(slot)) {
       occupied.add(slot);
     }
-  }
-
-  for (const booking of overlappingBookings) {
-    const slot = Number(booking.placeSlot || 0);
-    if (PLACE_SLOT_OPTIONS.includes(slot)) continue;
-    const fallbackSlot = PLACE_SLOT_OPTIONS.find((candidate) => !occupied.has(candidate));
-    if (!fallbackSlot) break;
-    occupied.add(fallbackSlot);
   }
 
   return occupied;
@@ -529,7 +529,7 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     throw error;
   }
 
-  if (!PLACE_SLOT_OPTIONS.includes(requestedPlaceSlot)) {
+  if (!isRealPlaceSlot(requestedPlaceSlot)) {
     const error = new Error("Please choose one of the 8 place slots.");
     error.statusCode = 400;
     throw error;
@@ -554,7 +554,13 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     error.statusCode = 400;
     throw error;
   }
-  const sameDayBookings = await Booking.find({ date: bookingDate, ...(bookingId ? { id: { $ne: bookingId } } : {}) }).lean();
+  const excludedBookingId = String(bookingId || "").trim();
+  const sameDayBookingsRaw = await Booking.find({ date: bookingDate, ...(excludedBookingId ? { id: { $ne: excludedBookingId } } : {}) }).lean();
+  const sameDayBookings = excludedBookingId
+    ? sameDayBookingsRaw.filter((booking) =>
+        ![booking.id, booking.bookingId, booking._id].some((value) => String(value || "").trim() === excludedBookingId)
+      )
+    : sameDayBookingsRaw;
   const serviceNames = [...new Set(sameDayBookings.map((booking) => String(booking.service || "").trim()).filter(Boolean))];
   const sameDayServices = serviceNames.length ? await Service.find({ name: { $in: serviceNames } }).lean() : [];
   const durationByService = new Map(sameDayServices.map((item) => [item.name, Math.max(1, Number(item.mins) || 0)]));
