@@ -109,8 +109,18 @@ const ROLE_MODULES = {
     MODULE_KEYS.auditLogs,
     MODULE_KEYS.profile,
   ],
-  "junior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
-  "senior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
+  "junior detailer": [
+    MODULE_KEYS.myWork,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.profile,
+  ],
+  "senior detailer": [
+    MODULE_KEYS.myWork,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.profile,
+  ],
   marketing: [
     MODULE_KEYS.dashboard,
     MODULE_KEYS.analytics,

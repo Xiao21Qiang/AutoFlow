@@ -1647,8 +1647,18 @@ const ROLE_MODULES = {
     MODULE_KEYS.auditLogs,
     MODULE_KEYS.profile,
   ],
-  "junior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
-  "senior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
+  "junior detailer": [
+    MODULE_KEYS.myWork,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.profile,
+  ],
+  "senior detailer": [
+    MODULE_KEYS.myWork,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.profile,
+  ],
   marketing: [
     MODULE_KEYS.dashboard,
     MODULE_KEYS.analytics,
@@ -4357,6 +4367,12 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       canAccessModule(scopedUser, MODULE_KEYS.detailerManagement) ||
       canAccessModule(scopedUser, MODULE_KEYS.myWork) ||
       canSeeFinancials;
+    const scopedCommissions = canSeeCommissions
+      ? data.commissions.filter((commission) => {
+          if (canViewCommission(scopedUser, commission)) return true;
+          return staffRole === "senior detailer" && visibleBookingIds.has(String(commission.bookingId || ""));
+        })
+      : [];
     const scopedAuditLogs = data.auditLogs.filter((log) => {
       const action = String(log.action || "").trim().toLowerCase();
       const userId = String(log.userId || "").trim().toLowerCase();
@@ -4371,6 +4387,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       const type = normalizeUserType(user.userType, user.role);
       if (type === "admin") return false;
       if (hasModule(MODULE_KEYS.userManagement)) return type === "staff";
+      if (staffRole === "junior detailer" || staffRole === "senior detailer") return type === "staff";
       if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
       return String(user.email || "").trim().toLowerCase() === email;
@@ -4390,7 +4407,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       promos: canSeeEngagement ? data.promos : data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
       quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
-      commissions: canSeeCommissions ? data.commissions.filter((commission) => canViewCommission(scopedUser, commission)) : [],
+      commissions: scopedCommissions,
       customerRewards: canSeeEngagement ? data.customerRewards : [],
       rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
       alerts: canSeeStock ? data.alerts : [],
@@ -5342,6 +5359,10 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const staffRoleForBookingUpdate = getEffectiveRole(req.authUser);
     if (staffRoleForBookingUpdate === "junior detailer" || staffRoleForBookingUpdate === "senior detailer") {
       if (!canViewDetailerTask(req.authUser, existingBookingObject, allUsersForScope)) {
+        denyForbidden(res);
+        return;
+      }
+      if (staffRoleForBookingUpdate === "senior detailer" && !isBookingAssignedToUser(existingBookingObject, req.authUser)) {
         denyForbidden(res);
         return;
       }

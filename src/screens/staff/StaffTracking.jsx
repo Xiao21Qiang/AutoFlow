@@ -29,6 +29,19 @@ import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 const ISSUE_TYPES = WARRANTY_ISSUE_TYPES;
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isAssignedToCurrentUser(booking, currentUser) {
+  const assigned = normalizeText(booking?.assigned || booking?.assignedTo || booking?.assignedStaff || booking?.assignedDetailer);
+  if (!assigned) return false;
+  return [currentUser?.name, currentUser?.email]
+    .map(normalizeText)
+    .filter(Boolean)
+    .includes(assigned);
+}
+
 const formatDateForInput = (value) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
@@ -471,7 +484,7 @@ export default function StaffTracking() {
                   <td>{r.assigned}</td>
                   <td className="stTrackColActions">
                     <div className="stTrackRowActions">
-                      {canEditTracking ? <button
+                      {canEditTracking && isAssignedToCurrentUser(r, currentUser) ? <button
                         className="stTrackMiniBtn"
                         type="button"
                         onClick={() => {

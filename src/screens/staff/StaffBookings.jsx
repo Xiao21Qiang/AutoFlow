@@ -86,6 +86,19 @@ function isCompletedStatus(status) {
   return String(status || "").trim().toLowerCase() === "completed";
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isAssignedToCurrentUser(booking, currentUser) {
+  const assigned = normalizeText(booking?.assigned || booking?.assignedTo || booking?.assignedStaff || booking?.assignedDetailer);
+  if (!assigned) return false;
+  return [currentUser?.name, currentUser?.email]
+    .map(normalizeText)
+    .filter(Boolean)
+    .includes(assigned);
+}
+
 function normalizeCustomerCars(cars) {
   if (!Array.isArray(cars)) return [];
   return cars
@@ -159,6 +172,10 @@ export default function StaffBookings() {
   const [toast, setToast] = useState(null);
   const canCreateBooking = canPerformAction(currentUser, ACTION_KEYS.bookingCreate);
   const canUpdateBookingAction = canPerformAction(currentUser, ACTION_KEYS.bookingUpdate);
+  const canUpdateOwnDetailerBooking =
+    canPerformAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes) ||
+    canPerformAction(currentUser, ACTION_KEYS.trackingUpdateWarranty) ||
+    canPerformAction(currentUser, ACTION_KEYS.trackingComplete);
   const todayKey = getTodayKey();
 
   const selectedBooking = useMemo(
@@ -464,7 +481,7 @@ export default function StaffBookings() {
                   <td>{booking.service}</td>
                   <td>{booking.assigned}</td>
                   <td className="stColActions">
-                    {canUpdateBookingAction && <button
+                    {(canUpdateBookingAction || (canUpdateOwnDetailerBooking && isAssignedToCurrentUser(booking, currentUser))) && <button
                       className="stEditBtn"
                       type="button"
                       onClick={() => openEditModal(booking)}
