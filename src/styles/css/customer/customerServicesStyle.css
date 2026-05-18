@@ -112,7 +112,7 @@
 }
 
 .clSvcSectionScroll {
-  max-height: 500px;
+  max-height: 480px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -123,7 +123,7 @@
   padding: 12px;
   display: flex;
   flex-direction: column;
-  min-height: 226px;
+  height: 232px;
   position: relative;
   overflow: hidden;
   background: #fff;
@@ -195,7 +195,7 @@
   line-height: 1.16;
   overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -245,6 +245,8 @@
   color: #0f172a;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  max-height: 27px;
+  overflow-y: auto;
 }
 
 .clSvcArrivalPreview {
@@ -253,7 +255,7 @@
   border-radius: 10px;
   background: #fffaf0;
   padding: 6px 7px;
-  max-height: 40px;
+  max-height: 34px;
   overflow-y: auto;
 }
 
@@ -560,6 +562,11 @@
 
   .clSvcGrid {
     grid-template-columns: 1fr;
+  }
+
+  .clSvcCard {
+    height: auto;
+    min-height: 232px;
   }
 
   .clSvcInfoGrid {

@@ -10,7 +10,6 @@ import loginBackground from "../assets/IMAGE/IMG_9815.jpg";
 
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
 const isSignUpEmail = (v) => /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(String(v || "").trim());
-const onlyLettersSpaces = (v) => /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/.test(String(v || "").trim());
 const onlyDigits = (v) => /^\d+$/.test(String(v || "").trim());
 const OTP_RESEND_WAIT_SECONDS = 120;
 const OTP_RESEND_LIMIT = 3;
@@ -49,6 +48,14 @@ const getPasswordChecks = (password) => {
     { key: "number", label: "At least 1 number", met: rules.okNum },
   ];
 };
+
+const sanitizeNameInput = (value) =>
+  String(value || "")
+    .replace(/[^\p{L}\s'.-]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .slice(0, 24);
+
+const normalizeNameForSubmit = (value) => sanitizeNameInput(value).trim().replace(/\s+/g, " ");
 
 export default function Login() {
   const navigate = useNavigate();
@@ -126,16 +133,12 @@ export default function Login() {
   const signUpErrors = useMemo(() => {
     const e = {};
 
-    const firstName = signUp.firstName.trim();
-    const lastName = signUp.lastName.trim();
+    const firstName = normalizeNameForSubmit(signUp.firstName);
+    const lastName = normalizeNameForSubmit(signUp.lastName);
 
     if (!firstName) e.firstName = "First name is required.";
-    else if (firstName.length > 24) e.firstName = "First name must be 24 characters or less.";
-    else if (!onlyLettersSpaces(firstName)) e.firstName = "Use letters only.";
 
     if (!lastName) e.lastName = "Last name is required.";
-    else if (lastName.length > 24) e.lastName = "Last name must be 24 characters or less.";
-    else if (!onlyLettersSpaces(lastName)) e.lastName = "Use letters only.";
 
     if (!signUp.email.trim()) e.email = "Email is required.";
     else if (!isSignUpEmail(signUp.email)) e.email = "Enter a valid email address.";
@@ -628,6 +631,8 @@ export default function Login() {
         method: "POST",
         body: JSON.stringify({
           ...signUp,
+          firstName: normalizeNameForSubmit(signUp.firstName),
+          lastName: normalizeNameForSubmit(signUp.lastName),
           channel,
         }),
       });
@@ -814,8 +819,9 @@ export default function Login() {
                       <input
                         className={`authInput ${shouldShowSignUpError("firstName") ? "inputError" : ""}`}
                         value={signUp.firstName}
-                        onChange={(e) => setSignUp((p) => ({ ...p, firstName: e.target.value }))}
+                        onChange={(e) => setSignUp((p) => ({ ...p, firstName: sanitizeNameInput(e.target.value) }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, firstName: true }))}
+                        maxLength={24}
                         placeholder="Enter your first name"
                       />
                       {shouldShowSignUpError("firstName") && (
@@ -828,8 +834,9 @@ export default function Login() {
                       <input
                         className={`authInput ${shouldShowSignUpError("lastName") ? "inputError" : ""}`}
                         value={signUp.lastName}
-                        onChange={(e) => setSignUp((p) => ({ ...p, lastName: e.target.value }))}
+                        onChange={(e) => setSignUp((p) => ({ ...p, lastName: sanitizeNameInput(e.target.value) }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, lastName: true }))}
+                        maxLength={24}
                         placeholder="Enter your last name"
                       />
                       {shouldShowSignUpError("lastName") && (

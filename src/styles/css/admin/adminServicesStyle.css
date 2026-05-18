@@ -174,7 +174,7 @@
 }
 
 .svcSectionScroll {
-  max-height: 540px;
+  max-height: 530px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -186,7 +186,7 @@
   border-radius: 16px;
   background: #fff;
   padding: 12px;
-  min-height: 238px;
+  height: 258px;
   position: relative;
   overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -219,7 +219,7 @@
   line-height: 1.18;
   overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -291,7 +291,7 @@
 .svcInfoGrid {
   margin-top: 7px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -304,7 +304,7 @@
 }
 
 .svcInfoItem.wide {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 .svcInfoItem span {
@@ -323,6 +323,8 @@
   color: #0f172a;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  max-height: 28px;
+  overflow-y: auto;
 }
 
 .svcPriceGrid {
@@ -378,7 +380,7 @@
 
 .svcConsumablesPreview {
   margin-top: 4px;
-  max-height: 42px;
+  max-height: 34px;
   overflow-y: auto;
   border: 1px solid #e5eaf1;
   border-radius: 10px;
@@ -876,6 +878,8 @@
 
   .svcCard {
     max-width: none;
+    height: auto;
+    min-height: 258px;
   }
 
   .svcFieldGrid {
