@@ -8,7 +8,7 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
 export default function AdminAuditLogs() {
-  const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs } = useAdminData();
+  const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs, currentUser } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -16,6 +16,7 @@ export default function AdminAuditLogs() {
   const [showArchived, setShowArchived] = useState(false);
   const [selectedLogIds, setSelectedLogIds] = useState([]);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
+  const canArchiveLogs = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
 
   const getLogSelectionKey = (log, fallbackIndex) => String(log.id || `audit-${fallbackIndex}`);
 
@@ -115,8 +116,8 @@ export default function AdminAuditLogs() {
         <div className="auditBtns">
           <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div>
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
-          {!showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveAuditLogs}>Archive Logs</button> : null}
-          {showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Restore</button> : null}
+          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveAuditLogs}>Archive Logs</button> : null}
+          {canArchiveLogs && showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Restore</button> : null}
         </div>
       </div>
 

@@ -520,6 +520,7 @@ export function AdminDataProvider({ children, session }) {
       }),
     createExpense: (payload) => mutate("/api/admin/expenses", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     createCommission: (payload) => mutate("/api/admin/commissions", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateCommission: (id, payload) => mutate("/api/admin/commissions/" + id, { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     createReward: (payload) => mutate("/api/admin/rewards", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateReward: (id, payload) => mutate("/api/admin/rewards/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     deleteReward: (id) => mutate("/api/admin/rewards/" + id, { method: "DELETE", body: JSON.stringify({ auditUser }) }),

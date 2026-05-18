@@ -501,7 +501,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       />
 
       <FilterModal open={isFilterOpen} title="Filter Services" fields={[{ key: "category", label: "Category", type: "select", options: CATEGORY_OPTIONS }, { key: "enabled", label: "Status", type: "select", options: ["Enabled", "Disabled"] }]} values={filters} onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))} onClose={() => setIsFilterOpen(false)} onApply={() => { setPage(1); setIsFilterOpen(false); }} onReset={() => { setFilters({ category: "", enabled: "" }); setPage(1); }} />
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

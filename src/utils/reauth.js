@@ -8,10 +8,10 @@ export function getSpecialPasswordStatus(config = {}) {
   return config.adminSpecialPasswordConfigured === false ? "Not configured" : "Configured";
 }
 
-export async function validateSpecialCredential(mode, value, scope = "admin", actor = {}) {
+export async function validateSpecialCredential(mode, value, scope = "admin", actor = {}, actionKey = "") {
   await apiRequest("/api/admin/security/validate", {
     method: "POST",
-    body: JSON.stringify({ mode, value, scope, actorUserType: actor.userType, actorRole: actor.role, actorEmail: actor.email }),
+    body: JSON.stringify({ mode, value, scope, actionKey, actorUserType: actor.userType, actorRole: actor.role, actorEmail: actor.email }),
   });
   return true;
 }

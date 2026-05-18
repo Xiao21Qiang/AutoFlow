@@ -19,6 +19,7 @@ import AdminEngagement from "./AdminEngagement";
 import AdminUsers from "./AdminUsers";
 import AdminAuditLogs from "./AdminAuditLogs";
 import AdminProfile from "./AdminProfile";
+import AdminDetailerManagement from "./AdminDetailerManagement";
 
 import icoDashboard from "../../styles/icons/dashboard.png";
 import icoBookings from "../../styles/icons/bookings.png";
@@ -68,6 +69,7 @@ const NAV_SECTIONS = [
     title: "Account",
     items: [
       { key: "users", label: "User Management", icon: icoUsers },
+      { key: "detailer-management", label: "Detailer Management", icon: icoTracking },
       { key: "profile", label: "Profile", icon: icoProfile },
     ],
   },
@@ -130,6 +132,7 @@ function AdminMainContent({ session }) {
     if (activeTab === "analytics") return { title: "Analytics", sub: "Trends and performance insights." };
     if (activeTab === "engagement") return { title: "Engagement", sub: "Reviews, promos, and messaging." };
     if (activeTab === "users") return { title: "User Management", sub: "Manage admin, staff, and customer accounts." };
+    if (activeTab === "detailer-management") return { title: "Detailer Management", sub: "Supervise detailer work, workload, and commissions." };
     if (activeTab === "audit") return { title: "Audit Logs", sub: "Track actions for accountability." };
     if (activeTab === "profile") return { title: "Profile", sub: "Account details and settings." };
     return { title: "Dashboard", sub: "Overview and quick stats." };
@@ -175,6 +178,7 @@ function AdminMainContent({ session }) {
     if (activeTab === "analytics") return <AdminAnalytics />;
     if (activeTab === "engagement") return <AdminEngagement />;
     if (activeTab === "users") return <AdminUsers />;
+    if (activeTab === "detailer-management") return <AdminDetailerManagement />;
     if (activeTab === "audit") return <AdminAuditLogs />;
     if (activeTab === "profile") return <AdminProfile session={session} />;
     return null;

@@ -4,6 +4,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRewardStatus } from "../../utils/rewards";
+import { ACTION_KEYS } from "../../utils/rbac";
 
 export default function AdminEngagement() {
   const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
@@ -515,7 +516,8 @@ export default function AdminEngagement() {
         </div>
       )}
 
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey || ACTION_KEYS.engagementManage}
+        onConfirm={securityConfirm?.onConfirm} />
     </div>
   );
 }

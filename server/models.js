@@ -320,6 +320,14 @@ const commissionSchema = new mongoose.Schema(
     rate: { type: Number, default: 0 },
     earned: { type: Number, default: 0 },
     status: { type: String, default: "Pending" },
+    generatedBy: { type: String, default: "" },
+    remarks: { type: String, default: "" },
+    dateCompleted: { type: String, default: "" },
+    dateGenerated: { type: String, default: "" },
+    datePaid: { type: String, default: "" },
+    voidReason: { type: String, default: "" },
+    voidedAt: { type: String, default: "" },
+    voidedBy: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
 );

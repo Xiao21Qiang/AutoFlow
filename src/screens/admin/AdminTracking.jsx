@@ -560,7 +560,8 @@ export default function AdminTracking() {
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
         onReset={() => { setFilters({ status: "", assignedTo: "" }); setPage(1); }}
       />
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="admin" onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="admin" onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm} />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );

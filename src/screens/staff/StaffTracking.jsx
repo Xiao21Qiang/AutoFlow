@@ -16,6 +16,7 @@ import {
   getIssueNotesLockedMessage,
   hasMeaningfulIssueNotes,
 } from "../../utils/trackingIssueNotes";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 import {
   buildWarrantyPayload,
   canEditWarranty,
@@ -128,6 +129,7 @@ export default function StaffTracking() {
   const [toast, setToast] = useState(null);
   const [issueNoteMessage, setIssueNoteMessage] = useState("");
   const [warrantyMessage, setWarrantyMessage] = useState("");
+  const canEditTracking = canPerformAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes) || canPerformAction(currentUser, ACTION_KEYS.trackingUpdateWarranty) || canPerformAction(currentUser, ACTION_KEYS.trackingComplete);
   const [issueNoteAi, setIssueNoteAi] = useState({
     status: "idle",
     message: "",
@@ -309,6 +311,7 @@ export default function StaffTracking() {
 
     setSecurityConfirm({
       mode: "pin",
+      actionKey: ACTION_KEYS.trackingUpdateIssueNotes,
       title: "Save Issue Notes",
       message: "Enter the staff special PIN before saving issue notes.",
       onConfirm: async ({ secret }) => {
@@ -344,6 +347,7 @@ export default function StaffTracking() {
 
     setSecurityConfirm({
       mode: "pin",
+      actionKey: ACTION_KEYS.trackingUpdateWarranty,
       title: "Save Warranty Details",
       message: "Enter the staff special PIN before saving warranty details.",
       onConfirm: async ({ secret }) => {
@@ -391,6 +395,7 @@ export default function StaffTracking() {
     };
     setSecurityConfirm({
       mode: "pin",
+      actionKey: editForm.status === "Completed" ? ACTION_KEYS.trackingComplete : ACTION_KEYS.trackingUpdateWarranty,
       title: "Update Service Tracking",
       message: "Enter the staff special PIN before saving tracking or warranty updates.",
       onConfirm: async ({ secret }) => {
@@ -466,7 +471,7 @@ export default function StaffTracking() {
                   <td>{r.assigned}</td>
                   <td className="stTrackColActions">
                     <div className="stTrackRowActions">
-                      <button
+                      {canEditTracking ? <button
                         className="stTrackMiniBtn"
                         type="button"
                         onClick={() => {
@@ -486,7 +491,7 @@ export default function StaffTracking() {
                         }}
                       >
                         Edit
-                      </button>
+                      </button> : <span>View only</span>}
                     </div>
                   </td>
                 </tr>
@@ -718,7 +723,8 @@ export default function StaffTracking() {
           setPage(1);
         }}
       />
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="staff" onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope="staff" onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm} />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );

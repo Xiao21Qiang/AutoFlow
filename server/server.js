@@ -1550,6 +1550,347 @@ function normalizeStaffRoleForSave(role) {
   return STAFF_ROLE_LABELS.get(normalizedRole) || "";
 }
 
+const MODULE_KEYS = {
+  dashboard: "module.dashboard",
+  analytics: "module.analytics",
+  auditLogs: "module.auditLogs",
+  bookings: "module.bookings",
+  services: "module.services",
+  serviceTracking: "module.serviceTracking",
+  stockMonitoring: "module.stockMonitoring",
+  paymentTracking: "module.paymentTracking",
+  financialTracker: "module.financialTracker",
+  engagement: "module.engagement",
+  userManagement: "module.userManagement",
+  detailerManagement: "module.detailerManagement",
+  myWork: "module.myWork",
+  profile: "module.profile",
+  settings: "module.settings",
+};
+
+const ACTION_KEYS = {
+  bookingView: "booking.view",
+  bookingCreate: "booking.create",
+  bookingUpdate: "booking.update",
+  bookingDelete: "booking.delete",
+  bookingReassignDetailer: "booking.reassignDetailer",
+  bookingUpdateStatus: "booking.updateStatus",
+  trackingView: "tracking.view",
+  trackingUpdateIssueNotes: "tracking.updateIssueNotes",
+  trackingUpdateWarranty: "tracking.updateWarranty",
+  trackingComplete: "tracking.complete",
+  paymentView: "payment.view",
+  paymentVerify: "payment.verify",
+  paymentOverride: "payment.override",
+  stockView: "stock.view",
+  stockManage: "stock.manage",
+  engagementView: "engagement.view",
+  engagementManage: "engagement.manage",
+  usersViewStaff: "users.viewStaff",
+  usersManageStaff: "users.manageStaff",
+  usersPromote: "users.promote",
+  usersDelete: "users.delete",
+  commissionViewOwn: "commission.viewOwn",
+  commissionViewAll: "commission.viewAll",
+  commissionMarkPaid: "commission.markPaid",
+  commissionVoid: "commission.void",
+  commissionPrint: "commission.print",
+  commissionExport: "commission.export",
+  settingsManageSecurity: "settings.manageSecurity",
+  settingsManageDownPayment: "settings.manageDownPayment",
+  auditViewAll: "audit.viewAll",
+  auditViewOperational: "audit.viewOperational",
+  auditViewOwn: "audit.viewOwn",
+  servicesManage: "services.manage",
+};
+
+const ROLE_MODULES = {
+  admin: Object.values(MODULE_KEYS),
+  "general manager": [
+    MODULE_KEYS.dashboard,
+    MODULE_KEYS.analytics,
+    MODULE_KEYS.auditLogs,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.services,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.stockMonitoring,
+    MODULE_KEYS.paymentTracking,
+    MODULE_KEYS.financialTracker,
+    MODULE_KEYS.engagement,
+    MODULE_KEYS.userManagement,
+    MODULE_KEYS.detailerManagement,
+    MODULE_KEYS.profile,
+  ],
+  "sales manager": [
+    MODULE_KEYS.dashboard,
+    MODULE_KEYS.analytics,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.services,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.paymentTracking,
+    MODULE_KEYS.engagement,
+    MODULE_KEYS.profile,
+  ],
+  "sales associate": [
+    MODULE_KEYS.dashboard,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.services,
+    MODULE_KEYS.paymentTracking,
+    MODULE_KEYS.engagement,
+    MODULE_KEYS.profile,
+  ],
+  "inventory clerk": [
+    MODULE_KEYS.dashboard,
+    MODULE_KEYS.stockMonitoring,
+    MODULE_KEYS.serviceTracking,
+    MODULE_KEYS.bookings,
+    MODULE_KEYS.auditLogs,
+    MODULE_KEYS.profile,
+  ],
+  "junior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
+  "senior detailer": [MODULE_KEYS.myWork, MODULE_KEYS.profile],
+  marketing: [
+    MODULE_KEYS.dashboard,
+    MODULE_KEYS.analytics,
+    MODULE_KEYS.services,
+    MODULE_KEYS.engagement,
+    MODULE_KEYS.profile,
+  ],
+};
+
+const ROLE_ACTIONS = {
+  admin: Object.values(ACTION_KEYS),
+  "general manager": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.bookingUpdateStatus,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.trackingUpdateIssueNotes,
+    ACTION_KEYS.trackingUpdateWarranty,
+    ACTION_KEYS.trackingComplete,
+    ACTION_KEYS.paymentView,
+    ACTION_KEYS.paymentVerify,
+    ACTION_KEYS.stockView,
+    ACTION_KEYS.stockManage,
+    ACTION_KEYS.engagementView,
+    ACTION_KEYS.engagementManage,
+    ACTION_KEYS.usersViewStaff,
+    ACTION_KEYS.commissionViewAll,
+    ACTION_KEYS.commissionPrint,
+    ACTION_KEYS.commissionExport,
+    ACTION_KEYS.auditViewOperational,
+    ACTION_KEYS.servicesManage,
+  ],
+  "sales manager": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingUpdateStatus,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.paymentView,
+    ACTION_KEYS.paymentVerify,
+    ACTION_KEYS.engagementView,
+    ACTION_KEYS.engagementManage,
+    ACTION_KEYS.servicesManage,
+  ],
+  "sales associate": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.paymentView,
+    ACTION_KEYS.engagementView,
+  ],
+  "inventory clerk": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.stockView,
+    ACTION_KEYS.stockManage,
+    ACTION_KEYS.auditViewOperational,
+  ],
+  "junior detailer": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.trackingUpdateIssueNotes,
+    ACTION_KEYS.trackingUpdateWarranty,
+    ACTION_KEYS.trackingComplete,
+    ACTION_KEYS.commissionViewOwn,
+    ACTION_KEYS.commissionPrint,
+    ACTION_KEYS.commissionExport,
+    ACTION_KEYS.auditViewOwn,
+  ],
+  "senior detailer": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.trackingUpdateIssueNotes,
+    ACTION_KEYS.trackingUpdateWarranty,
+    ACTION_KEYS.trackingComplete,
+    ACTION_KEYS.commissionViewOwn,
+    ACTION_KEYS.commissionPrint,
+    ACTION_KEYS.commissionExport,
+    ACTION_KEYS.auditViewOwn,
+  ],
+  marketing: [
+    ACTION_KEYS.engagementView,
+    ACTION_KEYS.engagementManage,
+  ],
+};
+
+function isAdmin(user) {
+  return normalizeUserType(user?.userType, user?.role) === "admin";
+}
+
+function isStaff(user) {
+  return normalizeUserType(user?.userType, user?.role) === "staff";
+}
+
+function normalizeRole(user) {
+  return normalizeRoleKey(user?.role);
+}
+
+function getEffectiveRole(user) {
+  if (isAdmin(user)) return "admin";
+  const role = normalizeRole(user);
+  if (role === "admin") return "general manager";
+  if (role && ROLE_MODULES[role]) return role;
+  return "general manager";
+}
+
+function canAccessModule(user, moduleKey) {
+  if (isAdmin(user)) return true;
+  if (!isStaff(user)) return moduleKey === MODULE_KEYS.profile;
+  return (ROLE_MODULES[getEffectiveRole(user)] || []).includes(moduleKey);
+}
+
+function canPerformAction(user, actionKey) {
+  if (isAdmin(user)) return true;
+  if (!isStaff(user)) return false;
+  return (ROLE_ACTIONS[getEffectiveRole(user)] || []).includes(actionKey);
+}
+
+function requiresAdminSpecialCredential(actionKey) {
+  return [
+    ACTION_KEYS.bookingDelete,
+    ACTION_KEYS.paymentOverride,
+    ACTION_KEYS.commissionMarkPaid,
+    ACTION_KEYS.commissionVoid,
+    ACTION_KEYS.settingsManageSecurity,
+    ACTION_KEYS.settingsManageDownPayment,
+    ACTION_KEYS.usersPromote,
+    ACTION_KEYS.usersDelete,
+  ].includes(actionKey);
+}
+
+function canUseStaffSpecialCredentialForAction(user, actionKey) {
+  // All staff roles share one Staff Special PIN and one Staff Special Password created by Admin. Staff special credentials are used only for staff-level protected actions that the logged-in staff role is already allowed to perform. Staff special credentials must never grant access to unauthorized modules or admin-only actions. Admin-only actions must continue to require Admin special credentials.
+  return isStaff(user) && !requiresAdminSpecialCredential(actionKey) && canPerformAction(user, actionKey);
+}
+
+function denyForbidden(res) {
+  res.status(403).json({ message: "You do not have permission to perform this action." });
+}
+
+function requireAction(actionKey) {
+  return (req, res, next) => {
+    if (!canPerformAction(req.authUser, actionKey)) {
+      denyForbidden(res);
+      return;
+    }
+    next();
+  };
+}
+
+function requireModule(moduleKey) {
+  return (req, res, next) => {
+    if (!canAccessModule(req.authUser, moduleKey)) {
+      denyForbidden(res);
+      return;
+    }
+    next();
+  };
+}
+
+function getActorDisplayNames(user = {}) {
+  const names = new Set();
+  [user.name, user.email].forEach((value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized) names.add(normalized);
+  });
+  return names;
+}
+
+function isBookingAssignedToUser(booking, user = {}) {
+  const names = getActorDisplayNames(user);
+  const assignedValues = [
+    booking?.assigned,
+    booking?.assignedTo,
+    booking?.assignedStaff,
+    booking?.assignedDetailer,
+    booking?.preferredDetailerName,
+    booking?.preferredDetailerId,
+  ].map((value) => String(value || "").trim().toLowerCase());
+  return assignedValues.some((value) => value && names.has(value));
+}
+
+function isUserJuniorDetailer(user = {}) {
+  return normalizeUserType(user.userType, user.role) === "staff" && normalizeRoleKey(user.role) === "junior detailer";
+}
+
+function getJuniorDetailerNames(users = []) {
+  return new Set(
+    users
+      .filter(isUserJuniorDetailer)
+      .flatMap((user) => [user.name, user.email])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function canViewDetailerTask(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  const role = getEffectiveRole(user);
+  if (role === "general manager") return true;
+  if (role === "junior detailer") return isBookingAssignedToUser(booking, user);
+  if (role === "senior detailer") {
+    if (isBookingAssignedToUser(booking, user)) return true;
+    const juniorDetailers = getJuniorDetailerNames(users);
+    return juniorDetailers.has(String(booking?.assigned || "").trim().toLowerCase());
+  }
+  return false;
+}
+
+function canViewBooking(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  const userType = normalizeUserType(user?.userType, user?.role);
+  if (userType === "customer") {
+    return String(booking?.customerEmail || "").trim().toLowerCase() === String(user?.email || "").trim().toLowerCase();
+  }
+  if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
+  const role = getEffectiveRole(user);
+  if (role === "junior detailer" || role === "senior detailer") return canViewDetailerTask(user, booking, users);
+  return true;
+}
+
+function canUpdateBooking(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  if (!canViewBooking(user, booking, users) || !canPerformAction(user, ACTION_KEYS.bookingUpdate)) return false;
+  const role = getEffectiveRole(user);
+  if (role === "inventory clerk" || role === "marketing") return false;
+  return true;
+}
+
+function canViewCommission(user, commission) {
+  if (isAdmin(user) || canPerformAction(user, ACTION_KEYS.commissionViewAll)) return true;
+  if (!canPerformAction(user, ACTION_KEYS.commissionViewOwn)) return false;
+  const names = getActorDisplayNames(user);
+  return names.has(String(commission?.worker || "").trim().toLowerCase());
+}
+
+function canManageCommission(user) {
+  return isAdmin(user);
+}
+
 function buildAuthPayload(user) {
   const userType = normalizeUserType(user.userType, user.role);
   const role = normalizeSubtype(user.userType, user.role);
@@ -1740,9 +2081,11 @@ async function getRequestActorType(req) {
 
 async function blockStaffEngagementMutation(req, res) {
   const actorType = await getRequestActorType(req);
-  if (actorType !== "staff") return false;
-  res.status(403).json({ message: "Staff engagement access is view-only." });
-  return true;
+  if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.engagementManage)) {
+    res.status(403).json({ message: "You do not have permission to manage engagement records." });
+    return true;
+  }
+  return false;
 }
 
 async function validateSpecialCredential(mode, value, scope = "admin") {
@@ -1755,7 +2098,7 @@ async function validateSpecialCredential(mode, value, scope = "admin") {
   return verifySpecialCredential(value, storedValue);
 }
 
-async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "" } = {}) {
+async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "", actionKey = "" } = {}) {
   const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
   const credentialScope = scope || (actorType === "staff" ? "staff" : "admin");
   const credentialMode = String(mode || "pin").trim().toLowerCase() === "password" ? "password" : "pin";
@@ -1766,6 +2109,18 @@ async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "
   if (!value) {
     const error = new Error(`Special ${credentialMode === "password" ? "password" : "PIN"} is required.`);
     error.statusCode = 401;
+    throw error;
+  }
+
+  // All staff roles share one Staff Special PIN and one Staff Special Password created by Admin. Staff special credentials are used only for staff-level protected actions that the logged-in staff role is already allowed to perform. Staff special credentials must never grant access to unauthorized modules or admin-only actions. Admin-only actions must continue to require Admin special credentials.
+  if (credentialScope === "admin" && actorType !== "admin") {
+    const error = new Error("Admin special credentials are required for this action.");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (credentialScope === "staff" && (!actionKey || !canUseStaffSpecialCredentialForAction(req.authUser, actionKey))) {
+    const error = new Error("Staff special credentials cannot authorize this action.");
+    error.statusCode = 403;
     throw error;
   }
 
@@ -3115,7 +3470,10 @@ async function ensureBookingCommission(booking, auditUser) {
     serviceValue,
     rate: 10,
     earned: Number((serviceValue * 0.1).toFixed(2)),
-    status: "Pending",
+    status: "Earned",
+    generatedBy: auditUser || "System",
+    dateCompleted: booking.date || toDateKey(),
+    dateGenerated: toDateKey(),
   });
 
   await upsertAutomaticExpense({
@@ -3952,6 +4310,9 @@ function filterBootstrapDataForRole(data, authUser = {}) {
   const userType = normalizeUserType(authUser.userType, authUser.role);
   const email = String(authUser.email || "").trim().toLowerCase();
   const ownUser = data.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
+  const scopedUser = ownUser
+    ? { ...authUser, ...ownUser, userType: authUser.userType || ownUser.userType, role: authUser.role || ownUser.role }
+    : authUser;
   const actorTypeLookup = buildAuditActorTypeLookup(data.users);
 
   if (userType === "admin") {
@@ -3984,16 +4345,55 @@ function filterBootstrapDataForRole(data, authUser = {}) {
   }
 
   if (userType === "staff") {
+    const staffRole = getEffectiveRole(scopedUser);
+    const hasModule = (moduleKey) => canAccessModule(scopedUser, moduleKey);
+    const scopedBookings = data.bookings.filter((booking) => canViewBooking(scopedUser, booking, data.users));
+    const visibleBookingIds = new Set(scopedBookings.map((booking) => String(booking.id || "")));
+    const canSeePayments = hasModule(MODULE_KEYS.paymentTracking);
+    const canSeeFinancials = hasModule(MODULE_KEYS.financialTracker);
+    const canSeeStock = hasModule(MODULE_KEYS.stockMonitoring);
+    const canSeeEngagement = hasModule(MODULE_KEYS.engagement);
+    const canSeeCommissions =
+      canAccessModule(scopedUser, MODULE_KEYS.detailerManagement) ||
+      canAccessModule(scopedUser, MODULE_KEYS.myWork) ||
+      canSeeFinancials;
+    const scopedAuditLogs = data.auditLogs.filter((log) => {
+      const action = String(log.action || "").trim().toLowerCase();
+      const userId = String(log.userId || "").trim().toLowerCase();
+      if (staffRole === "general manager") return !["updated security controls", "updated required down payment amount"].includes(action);
+      if (staffRole === "inventory clerk") return action.includes("stock") || action.includes("inventory") || action.includes("consumable");
+      if (staffRole === "marketing") return action.includes("promo") || action.includes("reward") || action.includes("review") || action.includes("engagement");
+      if (staffRole === "sales associate") return userId === email;
+      if (staffRole === "junior detailer" || staffRole === "senior detailer") return userId === email || action.includes("commission");
+      return false;
+    });
+    const scopedUsers = data.users.filter((user) => {
+      const type = normalizeUserType(user.userType, user.role);
+      if (type === "admin") return false;
+      if (hasModule(MODULE_KEYS.userManagement)) return type === "staff";
+      if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
+      if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
+      return String(user.email || "").trim().toLowerCase() === email;
+    });
     return {
       ...data,
-      users: data.users.filter((user) => normalizeUserType(user.userType, user.role) !== "admin"),
-      auditLogs: [],
+      bookings: scopedBookings,
+      services: hasModule(MODULE_KEYS.services) || hasModule(MODULE_KEYS.bookings) || hasModule(MODULE_KEYS.myWork) ? data.services : [],
+      stockMonitoring: canSeeStock ? data.stockMonitoring : [],
+      payments: canSeePayments
+        ? data.payments.filter((payment) => visibleBookingIds.has(String(payment.bookingId || "")) || staffRole === "general manager" || staffRole === "sales manager" || staffRole === "sales associate")
+        : [],
+      users: scopedUsers,
+      auditLogs: scopedAuditLogs,
       archivedAuditLogs: [],
-      quoteRequests: data.quoteRequests,
-      expenses: [],
-      commissions: [],
-      customerRewards: data.customerRewards,
-      rewards: data.rewards,
+      reviews: canSeeEngagement || staffRole === "marketing" ? data.reviews : [],
+      promos: canSeeEngagement ? data.promos : data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
+      quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
+      expenses: canSeeFinancials ? data.expenses : [],
+      commissions: canSeeCommissions ? data.commissions.filter((commission) => canViewCommission(scopedUser, commission)) : [],
+      customerRewards: canSeeEngagement ? data.customerRewards : [],
+      rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
+      alerts: canSeeStock ? data.alerts : [],
     };
   }
 
@@ -4168,8 +4568,14 @@ app.post("/api/admin/security/validate", requireRoles("admin", "staff"), async (
     const mode = String(req.body.mode || "pin").trim().toLowerCase();
     const scope = String(req.body.scope || "admin").trim().toLowerCase() === "staff" ? "staff" : "admin";
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const actionKey = String(req.body.actionKey || "").trim();
     if (actorType === "staff" && scope === "admin") {
       res.status(403).json({ message: "Staff actions must use staff security credentials." });
+      return;
+    }
+    // All staff roles share one Staff Special PIN and one Staff Special Password created by Admin. Staff special credentials are used only for staff-level protected actions that the logged-in staff role is already allowed to perform. Staff special credentials must never grant access to unauthorized modules or admin-only actions. Admin-only actions must continue to require Admin special credentials.
+    if (actorType === "staff" && (!actionKey || !canUseStaffSpecialCredentialForAction(req.authUser, actionKey))) {
+      res.status(403).json({ message: "Staff special credentials cannot authorize this action." });
       return;
     }
     const value = String(req.body.value || "");
@@ -4314,6 +4720,14 @@ app.post("/api/public/quotes", async (req, res, next) => {
 
 app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
+    if (
+      normalizeUserType(req.authUser?.userType, req.authUser?.role) === "staff" &&
+      !canPerformAction(req.authUser, ACTION_KEYS.bookingUpdate) &&
+      !canPerformAction(req.authUser, ACTION_KEYS.engagementManage)
+    ) {
+      denyForbidden(res);
+      return;
+    }
     const status = normalizeQuoteStatus(req.body.status);
     const quoteRequest = await QuoteRequest.findOneAndUpdate(
       { id: req.params.id },
@@ -4331,11 +4745,11 @@ app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (
   }
 });
 
-app.post("/api/ai/analytics/interpret", requireAdminUser, handleAnalyticsAiInterpret);
-app.post("/api/admin/analytics/interpretation", requireAdminUser, handleAnalyticsAiInterpret);
+app.post("/api/ai/analytics/interpret", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.analytics), handleAnalyticsAiInterpret);
+app.post("/api/admin/analytics/interpretation", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.analytics), handleAnalyticsAiInterpret);
 
-app.post("/api/ai/financial/interpret", requireAdminUser, handleFinancialAiInterpret);
-app.post("/api/admin/financials/interpretation", requireAdminUser, handleFinancialAiInterpret);
+app.post("/api/ai/financial/interpret", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.financialTracker), handleFinancialAiInterpret);
+app.post("/api/admin/financials/interpretation", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.financialTracker), handleFinancialAiInterpret);
 
 app.get("/api/tracking/:id/warranty", async (req, res, next) => {
   try {
@@ -4727,6 +5141,10 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
   try {
     const bookingDate = String(req.body.date || "").trim();
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.bookingCreate)) {
+      denyForbidden(res);
+      return;
+    }
     const isCustomerRequested =
       actorType === "customer";
     const bookingTime = isCustomerRequested ? "" : String(req.body.time || "").trim();
@@ -4920,6 +5338,51 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       res.status(403).json({ message: "Customers cannot update booking workflow fields." });
       return;
     }
+    const allUsersForScope = await User.find({}).lean();
+    const staffRoleForBookingUpdate = getEffectiveRole(req.authUser);
+    if (staffRoleForBookingUpdate === "junior detailer" || staffRoleForBookingUpdate === "senior detailer") {
+      if (!canViewDetailerTask(req.authUser, existingBookingObject, allUsersForScope)) {
+        denyForbidden(res);
+        return;
+      }
+      const detailerAllowedFields = new Set([
+        "status",
+        "issueNote",
+        "issueTypes",
+        "issueMarkers",
+        "warrantyChecklist",
+        "warrantyChecklistItems",
+        "warrantyCoveragePackage",
+        "warrantyAcknowledgement",
+        "warrantyReleased",
+        "warrantyReleasedAt",
+        "warrantyQrCode",
+        "specialPin",
+        "specialCredential",
+        "auditUser",
+      ]);
+      req.body = Object.fromEntries(
+        Object.entries(req.body || {}).filter(([key]) => detailerAllowedFields.has(key))
+      );
+    } else if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)) {
+      denyForbidden(res);
+      return;
+    } else if (staffRoleForBookingUpdate === "sales manager" || staffRoleForBookingUpdate === "sales associate") {
+      [
+        "issueNote",
+        "issueTypes",
+        "issueMarkers",
+        "warrantyChecklist",
+        "warrantyChecklistItems",
+        "warrantyCoveragePackage",
+        "warrantyAcknowledgement",
+        "warrantyReleased",
+        "warrantyReleasedAt",
+        "warrantyQrCode",
+      ].forEach((field) => {
+        delete req.body[field];
+      });
+    }
 
     const requestedService = String(req.body.service || "").trim();
     if (requestedService && requestedService !== String(existingBooking.service || "").trim()) {
@@ -4953,6 +5416,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       await requireSpecialCredentialForRequest(req, {
         mode: "pin",
         scope: actorType === "staff" ? "staff" : "admin",
+        actionKey: ACTION_KEYS.bookingUpdateStatus,
       });
     }
     const dateChanged = Object.prototype.hasOwnProperty.call(req.body, "date") && String(req.body.date || "") !== String(existingBooking.date || "");
@@ -5210,7 +5674,7 @@ app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) =
   }
 });
 
-app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
   try {
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
     const consumablesBySize = buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables);
@@ -5230,7 +5694,7 @@ app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
   try {
     const service = await Service.findOne({ id: req.params.id });
     const existingService = service?.toObject ? service.toObject() : null;
@@ -5325,7 +5789,7 @@ function validateStockQuantityLimit({ currentStock, maxStock, qtyToAdd = null })
   return "";
 }
 
-app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), async (req, res, next) => {
+app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.create({ id: createId("INV"), ...req.body });
     const initialStock = Number(req.body.currentStock || 0);
@@ -5351,7 +5815,7 @@ app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), async (r
   }
 });
 
-app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async (req, res, next) => {
+app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
     const validationMessage = validateStockQuantityLimit({
       currentStock: req.body.currentStock,
@@ -5378,7 +5842,7 @@ app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async
   }
 });
 
-app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff"), async (req, res, next) => {
+app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
     const item = await StockMonitoringItem.findOne({ id: req.params.id });
     if (!item) {
@@ -5434,7 +5898,11 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
 
 app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    await requireSpecialCredentialForRequest(req, { mode: "pin" });
+    if (!canPerformAction(req.authUser, ACTION_KEYS.stockManage)) {
+      denyForbidden(res);
+      return;
+    }
+    await requireSpecialCredentialForRequest(req, { mode: "pin", actionKey: ACTION_KEYS.stockManage });
     const deletedItem = await StockMonitoringItem.findOneAndDelete({ id: req.params.id });
     if (!deletedItem) {
       res.status(404).json({ message: "Stock monitoring item not found." });
@@ -5497,6 +5965,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const isCustomerDownPaymentSubmission = actorType === "customer" && !isCustomerFinalPaymentSubmission;
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
       res.status(403).json({ message: "You can only update your own payment records." });
+      return;
+    }
+    if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.paymentVerify)) {
+      res.status(403).json({ message: "You can view payment status, but you cannot verify or update payments." });
       return;
     }
     if (actorType === "customer" && nextStatus && nextStatus !== "For Verification") {
@@ -5622,7 +6094,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const isMarkingDownPaymentPaid = nextDownPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.downPaymentStatus, "") !== "Paid";
     const isMarkingFinalPaymentPaid = nextFinalPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.finalPaymentStatus, "") !== "Paid";
     if (isPaymentReviewer && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
-      await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin" });
+      await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin", actionKey: ACTION_KEYS.paymentVerify });
 
       const methodForVerification = normalizePaymentMethodLabel(
         isMarkingDownPaymentPaid
@@ -5884,8 +6356,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
   }
 });
 
-app.post("/api/ai/tracking/issue-note", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
-app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), handleTrackingIssueNoteAi);
+app.post("/api/ai/tracking/issue-note", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.trackingUpdateIssueNotes), handleTrackingIssueNoteAi);
+app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.trackingUpdateIssueNotes), handleTrackingIssueNoteAi);
 
 app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
   try {
@@ -6157,7 +6629,7 @@ app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, re
   }
 });
 
-app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/promos", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const title = String(req.body.title || "").trim();
@@ -6229,7 +6701,7 @@ app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/promos/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const existingPromo = await Promo.findOne({ id: req.params.id });
@@ -6311,7 +6783,7 @@ app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/promos/:id/use", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/promos/:id/use", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const promo = await Promo.findOne({ id: req.params.id });
@@ -6341,7 +6813,7 @@ app.post("/api/admin/promos/:id/use", requireAdminUser, async (req, res, next) =
   }
 });
 
-app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/rewards", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const payload = normalizeRewardPayload(req.body);
@@ -6361,7 +6833,7 @@ app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/rewards/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const existingReward = await Reward.findOne({ id: req.params.id });
@@ -6401,7 +6873,7 @@ app.delete("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) =>
   }
 });
 
-app.post("/api/admin/rewards/generate", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/rewards/generate", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
@@ -6435,6 +6907,62 @@ app.post("/api/admin/expenses", requireAdminUser, async (req, res, next) => {
       description: expense.description,
     });
     res.status(201).json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/commissions/:id", requireAdminUser, async (req, res, next) => {
+  try {
+    const commission = await Commission.findOne({ id: req.params.id });
+    if (!commission) {
+      res.status(404).json({ message: "Commission not found." });
+      return;
+    }
+    if (!canManageCommission(req.authUser, commission)) {
+      denyForbidden(res);
+      return;
+    }
+
+    const nextStatus = String(req.body.status || "").trim();
+    if (nextStatus === "Paid") {
+      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin", actionKey: ACTION_KEYS.commissionMarkPaid });
+      commission.status = "Paid";
+      commission.datePaid = new Date().toISOString();
+      commission.remarks = String(req.body.remarks || commission.remarks || "Marked as paid.").trim();
+      await commission.save();
+      await recordAudit(req.authUser?.email || req.body.auditUser, "Marked commission paid", commission.id, {
+        bookingId: commission.bookingId,
+        worker: commission.worker,
+        earned: commission.earned,
+      });
+      res.json(commission);
+      return;
+    }
+
+    if (nextStatus === "Voided") {
+      const reason = String(req.body.reason || req.body.voidReason || "").trim();
+      if (!reason) {
+        res.status(400).json({ message: "Void reason is required." });
+        return;
+      }
+      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin", actionKey: ACTION_KEYS.commissionVoid });
+      commission.status = "Voided";
+      commission.voidReason = reason;
+      commission.voidedAt = new Date().toISOString();
+      commission.voidedBy = req.authUser?.email || req.body.auditUser || "";
+      commission.remarks = reason;
+      await commission.save();
+      await recordAudit(req.authUser?.email || req.body.auditUser, "Voided commission", commission.id, {
+        bookingId: commission.bookingId,
+        worker: commission.worker,
+        reason,
+      });
+      res.json(commission);
+      return;
+    }
+
+    res.status(400).json({ message: "Unsupported commission status update." });
   } catch (error) {
     next(error);
   }

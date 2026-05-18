@@ -21,6 +21,7 @@ import {
   isScheduledStatus,
 } from "../../utils/bookingWorkflow";
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 
@@ -156,6 +157,8 @@ export default function StaffBookings() {
   const [customerFieldError, setCustomerFieldError] = useState("");
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState(null);
+  const canCreateBooking = canPerformAction(currentUser, ACTION_KEYS.bookingCreate);
+  const canUpdateBookingAction = canPerformAction(currentUser, ACTION_KEYS.bookingUpdate);
   const todayKey = getTodayKey();
 
   const selectedBooking = useMemo(
@@ -423,9 +426,9 @@ export default function StaffBookings() {
         </div>
 
         <div className="stBookActions">
-          <button className="stBookAddBtn" type="button" onClick={openAddModal}>
+          {canCreateBooking && <button className="stBookAddBtn" type="button" onClick={openAddModal}>
             Add New Booking
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -461,13 +464,13 @@ export default function StaffBookings() {
                   <td>{booking.service}</td>
                   <td>{booking.assigned}</td>
                   <td className="stColActions">
-                    <button
+                    {canUpdateBookingAction && <button
                       className="stEditBtn"
                       type="button"
                       onClick={() => openEditModal(booking)}
                     >
                       Edit
-                    </button>
+                    </button>}
                   </td>
                 </tr>
               ))
@@ -610,6 +613,7 @@ export default function StaffBookings() {
                     if (needsCancelPin || needsReschedulePin) {
                       setSecurityConfirm({
                         mode: "pin",
+                        actionKey: ACTION_KEYS.bookingUpdateStatus,
                         title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
                         message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
                         onConfirm: async ({ secret }) => {
@@ -890,7 +894,8 @@ export default function StaffBookings() {
           setPage(1);
         }}
       />
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm} />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );

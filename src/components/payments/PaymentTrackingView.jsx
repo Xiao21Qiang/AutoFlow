@@ -16,6 +16,7 @@ import {
   isDownPaymentSatisfied,
   isPaidStatus,
 } from "../../utils/paymentStages";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
@@ -131,6 +132,7 @@ function formatSubmittedValue(value) {
 export default function PaymentTrackingView({ role = "admin" }) {
   const classes = CLASS_NAMES[role] || CLASS_NAMES.admin;
   const { payments, updatePayment, users, currentUser } = useAdminData();
+  const canVerifyPayments = canPerformAction(currentUser, ACTION_KEYS.paymentVerify);
   const customerNameByEmail = useMemo(() => {
     const map = new Map();
     users
@@ -256,7 +258,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <td><span className={`${classes.badge} ${getPaymentStageClass(payment)}`}>{getPaymentStageLabel(payment)}</span></td>
                 <td>{getDisplayMethod(payment)}</td>
                 <td className={classes.actionsCell}>
-                  <button className={classes.editBtn} type="button" onClick={() => openPayment(payment)}>✎</button>
+                  {canVerifyPayments ? <button className={classes.editBtn} type="button" onClick={() => openPayment(payment)}>✎</button> : "View only"}
                 </td>
               </tr>
             ))}
@@ -297,12 +299,17 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   showToast("success", "Payment updated.");
                   setSelectedPayment(null);
                 };
+                if ((isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) && !canVerifyPayments) {
+                  showToast("error", "You can view payment status, but you cannot verify payments.");
+                  return;
+                }
                 if (isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) {
                   const methodForCredential = isMarkingDownPaymentPaid
                     ? selectedPayment.downPaymentMethod || selectedPayment.method
                     : selectedPayment.finalPaymentMethod || selectedPayment.method;
                   setSecurityConfirm({
                     mode: role === "staff" || String(methodForCredential || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
+                    actionKey: ACTION_KEYS.paymentVerify,
                     title: isMarkingDownPaymentPaid ? "Verify Down Payment" : "Verify Full Payment",
                     message: "Enter the required security confirmation before marking this payment as Paid.",
                     onConfirm: async (securityPayload) => {
@@ -432,6 +439,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
         message={securityConfirm?.message}
         currentUser={currentUser}
         onClose={() => setSecurityConfirm(null)}
+        actionKey={securityConfirm?.actionKey}
         onConfirm={securityConfirm?.onConfirm}
       />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />

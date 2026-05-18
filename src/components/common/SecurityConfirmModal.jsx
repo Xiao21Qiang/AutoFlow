@@ -36,6 +36,7 @@ export default function SecurityConfirmModal({
   message = "Confirm this sensitive action before continuing.",
   currentUser,
   scope,
+  actionKey,
   onClose,
   onConfirm,
 }) {
@@ -67,7 +68,7 @@ export default function SecurityConfirmModal({
       if (mode === "currentPassword") {
         await verifyCurrentPassword(currentUser?.email, secret);
       } else {
-        await validateSpecialCredential(mode === "password" ? "password" : "pin", secret, resolvedScope, currentUser);
+        await validateSpecialCredential(mode === "password" ? "password" : "pin", secret, resolvedScope, currentUser, actionKey);
       }
 
       if (mode === "cash" && String(accountName || "").trim().toLowerCase() !== expectedName) {

@@ -4,6 +4,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
+import { ACTION_KEYS } from "../../utils/rbac";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -280,6 +281,7 @@ export default function StaffStockMonitoring() {
   const confirmDelete = () => {
     setSecurityConfirm({
       mode: "pin",
+      actionKey: ACTION_KEYS.stockManage,
       title: "Delete Stock Item",
       message: "Enter the staff special PIN before deleting this stock item.",
       onConfirm: async ({ secret }) => {
@@ -739,6 +741,7 @@ export default function StaffStockMonitoring() {
         message={securityConfirm?.message}
         currentUser={currentUser}
         onClose={() => setSecurityConfirm(null)}
+        actionKey={securityConfirm?.actionKey}
         onConfirm={securityConfirm?.onConfirm}
       />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />

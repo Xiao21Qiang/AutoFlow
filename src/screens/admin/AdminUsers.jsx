@@ -10,6 +10,7 @@ import {
   isValidStaffRole,
   normalizeStaffRole,
 } from "../../utils/staffRoles";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -91,6 +92,8 @@ export default function AdminUsers() {
   const [employeeForm, setEmployeeForm] = useState(() => createEmployeeForm());
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const canManageStaff = canPerformAction(currentUser, ACTION_KEYS.usersManageStaff);
+  const canDeleteStaff = canPerformAction(currentUser, ACTION_KEYS.usersDelete);
 
   const manageableUsers = useMemo(
     () => users.filter((user) => {
@@ -141,13 +144,15 @@ export default function AdminUsers() {
         <button className="usersFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img className="usersFilterIcon" src={icoFilter} alt="" /></button>
       </div>
 
-      <div className="usersCreateCard">
-        <div>
-          <div className="usersCreateTitle">Employee Accounts</div>
-          <p className="usersCreateText">Create new staff accounts here for managers, associates, clerks, detailers, and marketing staff.</p>
+      {canManageStaff && (
+        <div className="usersCreateCard">
+          <div>
+            <div className="usersCreateTitle">Employee Accounts</div>
+            <p className="usersCreateText">Create new staff accounts here for managers, associates, clerks, detailers, and marketing staff.</p>
+          </div>
+          <button className="usersCreateBtn" type="button" onClick={() => { setEmployeeForm(createEmployeeForm()); setModal("employee"); }}>Add Employee Account</button>
         </div>
-        <button className="usersCreateBtn" type="button" onClick={() => { setEmployeeForm(createEmployeeForm()); setModal("employee"); }}>Add Employee Account</button>
-      </div>
+      )}
 
       <div className="usersBoard">
         <table className="usersTable">
@@ -164,7 +169,7 @@ export default function AdminUsers() {
                   <td>{user.email}</td>
                   <td>{user.phone}</td>
                   <td><span className={user.status === "active" ? "stActive" : "stInactive"}>{user.status}</span></td>
-                  <td><div className="uActions"><button className="uBtn uBtnEdit" type="button" onClick={() => { setSelectedUser(user); setEditForm(createEditForm(user)); setModal("edit"); }}>Edit</button><button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button></div></td>
+                  <td><div className="uActions">{canManageStaff ? <button className="uBtn uBtnEdit" type="button" onClick={() => { setSelectedUser(user); setEditForm(createEditForm(user)); setModal("edit"); }}>Edit</button> : <span className="usersEmpty">View only</span>}{canDeleteStaff && <button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button>}</div></td>
                 </tr>
               );
             }) : <tr><td colSpan={7} className="usersEmpty">No users found.</td></tr>}
@@ -306,7 +311,8 @@ export default function AdminUsers() {
         onApply={() => { setPage(1); setIsFilterOpen(false); }}
         onReset={() => { setFilters({ userType: "", role: "", status: "" }); setPage(1); }}
       />
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} onConfirm={securityConfirm?.onConfirm} />
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm} />
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
     </div>
   );

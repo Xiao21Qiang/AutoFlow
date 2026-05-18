@@ -53,6 +53,7 @@ export default function AdminFinancialTracker() {
   const [aiInterpretation, setAiInterpretation] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [aiMessage, setAiMessage] = useState("");
+  const canCreateExpense = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
 
   const paidPayments = useMemo(
     () => payments.filter((item) => String(item.status || "").toLowerCase() === "paid"),
@@ -332,7 +333,7 @@ export default function AdminFinancialTracker() {
 
         <div className="finTopActions">
           <button className="finExportBtn" type="button" onClick={exportPdf}>Export as PDF</button>
-          <button className="finPrimaryBtn" type="button" onClick={openExpenseModal}>+ Add Expense</button>
+          {canCreateExpense && <button className="finPrimaryBtn" type="button" onClick={openExpenseModal}>+ Add Expense</button>}
         </div>
       </div>
 
@@ -479,7 +480,7 @@ export default function AdminFinancialTracker() {
         </table>
       </div>
 
-      {modal === "expense" && (
+      {canCreateExpense && modal === "expense" && (
         <div className="finModalOverlay" onClick={closeModal}>
           <div className="finModalCard" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button className="finModalClose" type="button" onClick={closeModal}>x</button>
@@ -537,6 +538,7 @@ export default function AdminFinancialTracker() {
         message={securityConfirm?.message}
         currentUser={currentUser}
         onClose={() => { setSecurityConfirm(null); setSaving(false); }}
+        actionKey={securityConfirm?.actionKey}
         onConfirm={securityConfirm?.onConfirm}
       />
     </div>
