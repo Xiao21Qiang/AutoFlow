@@ -5,7 +5,18 @@ export const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 export const SHOP_OPEN_TIME = "08:00";
 export const SHOP_CLOSE_TIME = "17:00";
 export const SHOP_DAY_MINUTES = 540;
-export const SERVICE_ARRIVAL_TIME_OPTIONS = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"];
+export const SERVICE_ARRIVAL_TIME_OPTIONS = [
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "12:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+];
 
 export function normalizeRole(value) {
   return normalizeStaffRole(value);

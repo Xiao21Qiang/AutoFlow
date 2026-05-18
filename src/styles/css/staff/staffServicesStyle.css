@@ -167,8 +167,9 @@
 
 .stSvcCardsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 420px));
   gap: 16px;
+  justify-content: start;
   padding-right: 4px;
 }
 
@@ -186,6 +187,7 @@
   background: #fff;
   padding: 18px;
   min-height: 390px;
+  max-width: 420px;
   position: relative;
   overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -743,13 +745,16 @@
 
 .stSvcArrivalGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
   margin-top: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .stSvcArrivalOption {
-  min-height: 44px;
+  min-height: 48px;
   border: 1px solid #dbe3ef;
   border-radius: 12px;
   background: #fff;
@@ -760,12 +765,25 @@
   font-size: 12px;
   font-weight: 900;
   color: #334155;
+  flex-wrap: wrap;
 }
 
 .stSvcArrivalOption.selected {
   border-color: #d4a93a;
   background: #fff8e6;
   color: #111827;
+}
+
+.stSvcArrivalOption em {
+  margin-left: auto;
+  border-radius: 999px;
+  background: #f8fafc;
+  border: 1px solid #dbe4ef;
+  color: #64748b;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 950;
 }
 
 .stSvcFormError {
@@ -811,7 +829,7 @@
 
 @media (max-width: 1180px) {
   .stSvcCardsGrid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 420px));
   }
 }
 
@@ -827,6 +845,10 @@
 
   .stSvcCardsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .stSvcCard {
+    max-width: none;
   }
 
   .stSvcModalCardWide {

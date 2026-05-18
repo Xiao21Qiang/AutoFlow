@@ -105,8 +105,9 @@
 
 .clSvcGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 380px));
   gap: 16px;
+  justify-content: start;
   padding-right: 4px;
 }
 
@@ -123,6 +124,7 @@
   display: flex;
   flex-direction: column;
   min-height: 330px;
+  max-width: 380px;
   position: relative;
   overflow: hidden;
   background: #fff;
@@ -543,6 +545,10 @@
 
   .clSvcGrid {
     grid-template-columns: 1fr;
+  }
+
+  .clSvcCard {
+    max-width: none;
   }
 
   .clSvcInfoGrid {

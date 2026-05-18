@@ -294,25 +294,26 @@ export default function StaffServices() {
 
   const renderArrivalTimePicker = (mode, durationMinutes, selectedTimes) => {
     const suggestedTimes = getDefaultArrivalTimesForDuration(durationMinutes);
-    const visibleTimes = [...new Set([...suggestedTimes, ...(selectedTimes || [])])].filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item));
+    const selectedSet = new Set(selectedTimes || []);
     return (
       <div className="stSvcArrivalPanel">
         <div className="stSvcConsumablesHeader">
           <div>
             <div className="stSvcConsumablesTitle">Required Time of Arrival</div>
-            <div className="stSvcConsumablesHint">Select the arrival time slots customers/staff can choose for this service. Suggested slots are based on service duration.</div>
+            <div className="stSvcConsumablesHint">Select any hourly arrival slots from 8:00 AM to 5:00 PM. Duration changes auto-select the suggested defaults, but you can customize them.</div>
           </div>
           <div className="stSvcConsumablesCount">{(selectedTimes || []).length} selected</div>
         </div>
         <div className="stSvcArrivalGrid">
-          {visibleTimes.map((time) => (
-            <label className={`stSvcArrivalOption${(selectedTimes || []).includes(time) ? " selected" : ""}`} key={time}>
+          {SERVICE_ARRIVAL_TIME_OPTIONS.map((time) => (
+            <label className={`stSvcArrivalOption${selectedSet.has(time) ? " selected" : ""}`} key={time}>
               <input
                 type="checkbox"
-                checked={(selectedTimes || []).includes(time)}
+                checked={selectedSet.has(time)}
                 onChange={() => toggleArrivalTime(mode, time)}
               />
               <span>{formatTimeLabel(time)}</span>
+              {suggestedTimes.includes(time) ? <em>Suggested</em> : null}
             </label>
           ))}
         </div>

@@ -1,5 +1,18 @@
 const mongoose = require("mongoose");
 
+const SERVICE_ARRIVAL_TIME_OPTIONS = [
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "12:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+];
+
 const markerSchema = new mongoose.Schema(
   {
     id: Number,
@@ -118,7 +131,7 @@ const serviceSchema = new mongoose.Schema(
     price: { type: Number, default: 0 },
     priceBySize: { type: servicePriceBySizeSchema, default: () => ({}) },
     mins: { type: Number, default: 0 },
-    allowedArrivalTimes: { type: [String], default: [] },
+    allowedArrivalTimes: { type: [{ type: String, enum: SERVICE_ARRIVAL_TIME_OPTIONS }], default: [] },
     enabled: { type: Boolean, default: true },
     consumables: { type: [String], default: [] },
     consumablesBySize: {

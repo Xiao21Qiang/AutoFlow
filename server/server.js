@@ -428,7 +428,18 @@ function isPastDateKey(value) {
 }
 
 const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
-const SERVICE_ARRIVAL_TIME_OPTIONS = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"];
+const SERVICE_ARRIVAL_TIME_OPTIONS = [
+  "08:00",
+  "09:00",
+  "10:00",
+  "11:00",
+  "12:00",
+  "13:00",
+  "14:00",
+  "15:00",
+  "16:00",
+  "17:00",
+];
 const SHOP_OPEN_MINUTES = 8 * 60;
 const SHOP_CLOSE_MINUTES = 17 * 60;
 const SHOP_DAY_MINUTES = SHOP_CLOSE_MINUTES - SHOP_OPEN_MINUTES;
@@ -465,6 +476,20 @@ function normalizeAllowedArrivalTimes(value, durationMinutes = 0) {
     : [];
   const unique = [...new Set(allowed)];
   return unique.length ? unique : getDefaultArrivalTimesForDuration(durationMinutes);
+}
+
+function validateAllowedArrivalTimesPayload(value) {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length === 0) {
+    throwValidationError("Select at least one required time of arrival.");
+  }
+
+  const invalidTimes = value
+    .map((item) => String(item || "").trim())
+    .filter((item) => !SERVICE_ARRIVAL_TIME_OPTIONS.includes(item));
+  if (invalidTimes.length) {
+    throwValidationError("Required time of arrival must be hourly values between 08:00 and 17:00.");
+  }
 }
 
 function throwValidationError(message, statusCode = 400) {
@@ -5883,6 +5908,7 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
     const consumablesBySize = buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables);
     const mins = Math.max(0, Number(req.body.mins) || 0);
+    validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
     const payload = {
       ...req.body,
       serviceType: normalizeServiceType(req.body.serviceType, req.body.name, req.body.desc),
@@ -5913,6 +5939,9 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
 
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price ?? existingService?.price);
     const mins = Math.max(0, Number(req.body.mins ?? existingService?.mins) || 0);
+    if (Object.prototype.hasOwnProperty.call(req.body, "allowedArrivalTimes")) {
+      validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
+    }
     const consumablesBySize = buildServiceConsumablesBySize(
       req.body.consumablesBySize,
       req.body.consumables ?? existingService?.consumables
