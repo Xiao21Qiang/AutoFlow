@@ -345,6 +345,56 @@
   line-height: 1.45;
 }
 
+.passwordChecklist {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.passwordCheckItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #9b3d3d;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.passwordCheckItem.met {
+  color: #15803d;
+}
+
+.passwordCheckIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid #efcaca;
+  background: #fff7f7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  color: #c24141;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.passwordCheckItem.met .passwordCheckIcon {
+  border-color: #bbf7d0;
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+@media (max-width: 520px) {
+  .passwordChecklist {
+    grid-template-columns: 1fr;
+  }
+}
+
 .fpOverlay {
   position: fixed;
   inset: 0;

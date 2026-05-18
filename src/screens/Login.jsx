@@ -34,7 +34,19 @@ const passRules = (v) => {
     okUpper: /[A-Z]/.test(s),
     okLower: /[a-z]/.test(s),
     okNum: /\d/.test(s),
+    okSpecial: /[^A-Za-z0-9]/.test(s),
   };
+};
+
+const getPasswordChecks = (password) => {
+  const rules = passRules(password);
+  return [
+    { key: "length", label: "At least 8 characters", met: rules.okLen },
+    { key: "uppercase", label: "At least 1 uppercase letter", met: rules.okUpper },
+    { key: "lowercase", label: "At least 1 lowercase letter", met: rules.okLower },
+    { key: "special", label: "At least 1 special character", met: rules.okSpecial },
+    { key: "number", label: "At least 1 number", met: rules.okNum },
+  ];
 };
 
 export default function Login() {
@@ -132,6 +144,7 @@ export default function Login() {
       if (!r.okLen) e.password = "Password must be at least 8 characters.";
       else if (!r.okUpper) e.password = "Add at least 1 uppercase letter.";
       else if (!r.okLower) e.password = "Add at least 1 lowercase letter.";
+      else if (!r.okSpecial) e.password = "Add at least 1 special character.";
       else if (!r.okNum) e.password = "Add at least 1 number.";
     }
 
@@ -143,6 +156,7 @@ export default function Login() {
 
   const canSubmitSignIn = Object.keys(signInErrors).length === 0;
   const canSubmitSignUp = Object.keys(signUpErrors).length === 0;
+  const signUpPasswordChecks = useMemo(() => getPasswordChecks(signUp.password), [signUp.password]);
 
   const fpErrors = useMemo(() => {
     const e = {};
@@ -866,8 +880,13 @@ export default function Login() {
                         {showPass ? "Hide" : "Show"}
                       </button>
                     </div>
-                    <div className="hintText">
-                      Password must be 8+ chars with uppercase, lowercase, and a number.
+                    <div className="passwordChecklist" aria-live="polite">
+                      {signUpPasswordChecks.map((check) => (
+                        <div className={`passwordCheckItem ${check.met ? "met" : ""}`} key={check.key}>
+                          <span className="passwordCheckIcon">{check.met ? "✓" : "•"}</span>
+                          <span>{check.label}</span>
+                        </div>
+                      ))}
                     </div>
                     {touchedUp.password && signUpErrors.password && (
                       <div className="fieldError">{signUpErrors.password}</div>
