@@ -5,6 +5,7 @@ export const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 export const SHOP_OPEN_TIME = "08:00";
 export const SHOP_CLOSE_TIME = "17:00";
 export const SHOP_DAY_MINUTES = 540;
+export const SERVICE_ARRIVAL_TIME_OPTIONS = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"];
 
 export function normalizeRole(value) {
   return normalizeStaffRole(value);
@@ -171,7 +172,7 @@ export function getShopTimeValidationMessage(value, serviceDurationMinutes = 0) 
   return "";
 }
 
-function formatTimeLabel(value) {
+export function formatTimeLabel(value) {
   const [hours, minutes] = String(value).split(":").map(Number);
   const period = hours >= 12 ? "PM" : "AM";
   const hour12 = hours % 12 || 12;
@@ -195,6 +196,36 @@ export function buildShopTimeOptions(intervalMinutes = 30) {
 }
 
 export const SHOP_TIME_OPTIONS = buildShopTimeOptions(30);
+
+export function getDefaultArrivalTimesForDuration(durationMinutes = 0) {
+  const duration = Math.max(0, Number(durationMinutes) || 0);
+  if (duration >= 240) return ["08:00"];
+  if (duration > 120) return ["09:00", "11:00", "14:00"];
+  return ["08:00", "10:00", "13:00", "15:00"];
+}
+
+export function normalizeAllowedArrivalTimes(value, durationMinutes = 0) {
+  const allowed = Array.isArray(value)
+    ? value
+        .map((item) => String(item || "").trim())
+        .filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item))
+    : [];
+  const unique = [...new Set(allowed)];
+  return unique.length ? unique : getDefaultArrivalTimesForDuration(durationMinutes);
+}
+
+export function getServiceArrivalTimeOptions(service = {}, currentValue = "") {
+  const allowedTimes = normalizeAllowedArrivalTimes(service?.allowedArrivalTimes, service?.mins);
+  const currentTime = String(currentValue || "").trim();
+  const values = currentTime && !allowedTimes.includes(currentTime)
+    ? [currentTime, ...allowedTimes]
+    : allowedTimes;
+  return values.map((value) => ({
+    value,
+    label: SERVICE_ARRIVAL_TIME_OPTIONS.includes(value) ? formatTimeLabel(value) : `${value} / Legacy selected time`,
+    legacy: !SERVICE_ARRIVAL_TIME_OPTIONS.includes(value),
+  }));
+}
 
 export function canScheduleBooking(booking = {}, payment = null) {
   return (

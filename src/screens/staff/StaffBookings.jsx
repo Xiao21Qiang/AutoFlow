@@ -11,8 +11,8 @@ import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing
 import { getDetailerStaffOptions } from "../../utils/staffRoles";
 import {
   PLACE_SLOT_OPTIONS,
-  SHOP_TIME_OPTIONS,
   canScheduleBooking,
+  getServiceArrivalTimeOptions,
   getLinkedPaymentForBooking,
   getPreferredDetailerDisplay,
   getSchedulingValidationMessage,
@@ -212,7 +212,11 @@ export default function StaffBookings() {
   const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
   const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
   const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
-  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
+  const isOwnDetailerBooking = modal === "edit" && isAssignedToCurrentUser(selectedBooking, currentUser);
+  const currentEffectiveRole = String(currentUser?.role || "").trim().toLowerCase();
+  const isDetailerUser = currentEffectiveRole === "junior detailer" || currentEffectiveRole === "senior detailer";
+  const canEditOwnDetailerPlaceSlot = isDetailerUser && isOwnDetailerBooking && !isCompletedBookingLocked && String(form.status || "").trim().toLowerCase() !== "cancelled" && Boolean(form.date && form.time);
+  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim())) || canEditOwnDetailerPlaceSlot;
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
   const disabledStatusOptions = useMemo(() => {
     if (isCompletedBookingLocked) return [];
@@ -283,7 +287,15 @@ export default function StaffBookings() {
     () => Object.fromEntries(services.map((service) => [service.name, Math.max(1, Number(service.mins) || 0)])),
     [services]
   );
+  const selectedServiceForSchedule = useMemo(
+    () => services.find((service) => service.name === form.service) || null,
+    [services, form.service]
+  );
   const selectedServiceDuration = Math.max(1, Number(serviceDurationByName[form.service] || 0));
+  const timeOptions = useMemo(
+    () => getServiceArrivalTimeOptions(selectedServiceForSchedule || { mins: selectedServiceDuration }, form.time),
+    [selectedServiceForSchedule, selectedServiceDuration, form.time]
+  );
   const overlappingBookings = useMemo(() => {
     if (!form.date || !form.time) return [];
 
@@ -626,7 +638,7 @@ export default function StaffBookings() {
                 if (modal === "edit" && selectedBooking && !canPersistScheduleEdit) {
                   payload.date = selectedBooking.date;
                   payload.time = selectedBooking.time || "";
-                  payload.placeSlot = selectedBooking.placeSlot || 0;
+                  payload.placeSlot = canEditOwnDetailerPlaceSlot ? Number(form.placeSlot || 0) : selectedBooking.placeSlot || 0;
                 }
 
                 try {
@@ -775,7 +787,7 @@ export default function StaffBookings() {
                     options={serviceOptions}
                     placeholder="Select service"
                     disabled={modal === "edit"}
-                    onSelect={(option) => setForm((prev) => ({ ...prev, service: option }))}
+                    onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "", placeSlot: "" }))}
                   />
                 </label>
 
@@ -832,7 +844,7 @@ export default function StaffBookings() {
                     required={modal === "add" || isRescheduledStatus(form.status) || String(form.status || "").trim().toLowerCase() === "scheduled"}
                   >
                     <option value="">Select time</option>
-                    {SHOP_TIME_OPTIONS.map((option) => (
+                    {timeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>

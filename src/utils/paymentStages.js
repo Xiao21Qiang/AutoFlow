@@ -40,6 +40,23 @@ export function isDownPaymentSatisfied(payment = {}) {
   );
 }
 
+export function hasCustomerFinalPaymentSubmission(payment = {}) {
+  const finalStatus = normalizeStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+  return (
+    finalStatus === "For Verification" &&
+    Boolean(String(payment.finalPaymentMethod || "").trim()) &&
+    Boolean(
+      String(payment.finalPaymentReference || "").trim() ||
+      String(payment.finalPaymentProofUrl || "").trim() ||
+      String(payment.finalPaymentProofName || "").trim()
+    )
+  );
+}
+
+export function canReviewFinalPaymentStage(payment = {}) {
+  return isDownPaymentSatisfied(payment) && hasCustomerFinalPaymentSubmission(payment);
+}
+
 export function getPaymentStageLabel(payment = {}) {
   const legacyStatus = normalizeStageStatus(payment.status, "Pending");
   const downPaymentStatus = normalizeStageStatus(payment.downPaymentStatus, payment.downPaymentRequired === false ? "Not Required" : legacyStatus);

@@ -428,6 +428,7 @@ function isPastDateKey(value) {
 }
 
 const PLACE_SLOT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
+const SERVICE_ARRIVAL_TIME_OPTIONS = ["08:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"];
 const SHOP_OPEN_MINUTES = 8 * 60;
 const SHOP_CLOSE_MINUTES = 17 * 60;
 const SHOP_DAY_MINUTES = SHOP_CLOSE_MINUTES - SHOP_OPEN_MINUTES;
@@ -447,6 +448,23 @@ function timeToMinutes(value) {
 
 function isValidScheduleTime(value) {
   return /^\d{2}:\d{2}$/.test(String(value || "").trim()) && timeToMinutes(value) !== null;
+}
+
+function getDefaultArrivalTimesForDuration(durationMinutes = 0) {
+  const duration = Math.max(0, Number(durationMinutes) || 0);
+  if (duration >= 240) return ["08:00"];
+  if (duration > 120) return ["09:00", "11:00", "14:00"];
+  return ["08:00", "10:00", "13:00", "15:00"];
+}
+
+function normalizeAllowedArrivalTimes(value, durationMinutes = 0) {
+  const allowed = Array.isArray(value)
+    ? value
+        .map((item) => String(item || "").trim())
+        .filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item))
+    : [];
+  const unique = [...new Set(allowed)];
+  return unique.length ? unique : getDefaultArrivalTimesForDuration(durationMinutes);
 }
 
 function throwValidationError(message, statusCode = 400) {
@@ -530,6 +548,12 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
   }
 
   const requestedDuration = Math.max(1, Number(selectedService.mins) || 0);
+  const allowedArrivalTimes = normalizeAllowedArrivalTimes(selectedService.allowedArrivalTimes, selectedService.mins);
+  if (!allowedArrivalTimes.includes(bookingTime)) {
+    const error = new Error("Selected time is not available for this service.");
+    error.statusCode = 400;
+    throw error;
+  }
   const sameDayBookings = await Booking.find({ date: bookingDate, ...(bookingId ? { id: { $ne: bookingId } } : {}) }).lean();
   const serviceNames = [...new Set(sameDayBookings.map((booking) => String(booking.service || "").trim()).filter(Boolean))];
   const sameDayServices = serviceNames.length ? await Service.find({ name: { $in: serviceNames } }).lean() : [];
@@ -2700,11 +2724,13 @@ function hydrateService(service) {
   const baseService = service?.toObject ? service.toObject() : { ...(service || {}) };
   const priceBySize = buildServicePriceBySize(baseService.priceBySize, baseService.price);
   const consumablesBySize = buildServiceConsumablesBySize(baseService.consumablesBySize, baseService.consumables);
+  const allowedArrivalTimes = normalizeAllowedArrivalTimes(baseService.allowedArrivalTimes, baseService.mins);
   return {
     ...baseService,
     price: Math.max(0, Number(baseService.price) || priceBySize.sedanSmallCar || 0),
     priceBySize,
     consumablesBySize,
+    allowedArrivalTimes,
   };
 }
 
@@ -3062,6 +3088,27 @@ function isPaymentFullyPaid(payment = {}) {
   return isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status);
 }
 
+function isDownPaymentSatisfiedForFinalReview(payment = {}) {
+  const downPaymentStatus = normalizePaymentStageStatus(
+    payment.downPaymentStatus,
+    payment.downPaymentRequired === false ? "Not Required" : "Pending"
+  );
+  return payment.downPaymentRequired === false || downPaymentStatus === "Not Required" || downPaymentStatus === "Paid";
+}
+
+function hasCustomerFinalPaymentSubmission(payment = {}) {
+  const finalStatus = normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+  return (
+    finalStatus === "For Verification" &&
+    Boolean(String(payment.finalPaymentMethod || "").trim()) &&
+    Boolean(String(payment.finalPaymentReference || "").trim() || String(payment.finalPaymentProofUrl || "").trim() || String(payment.finalPaymentProofName || "").trim())
+  );
+}
+
+function canReviewFinalPaymentStage(payment = {}) {
+  return isDownPaymentSatisfiedForFinalReview(payment) && hasCustomerFinalPaymentSubmission(payment);
+}
+
 function getVerifiedRevenueForPayment(payment = {}) {
   const totalAmount = getPaymentTotalAmount(payment);
   const downPaymentAmount = Math.min(totalAmount, Math.max(0, roundMoney(payment.downPaymentAmount || 0)));
@@ -3211,6 +3258,10 @@ async function validateShopHours({ time = "", service = "" }) {
 
   const selectedService = await Service.findOne({ name: String(service || "").trim() }).lean();
   const serviceMinutes = Number(selectedService?.mins || 0);
+  const allowedArrivalTimes = normalizeAllowedArrivalTimes(selectedService?.allowedArrivalTimes, serviceMinutes);
+  if (selectedService && !allowedArrivalTimes.includes(String(time || "").trim())) {
+    throwValidationError("Selected time is not available for this service.");
+  }
   if (
     Number.isFinite(serviceMinutes) &&
     serviceMinutes > 0 &&
@@ -5397,6 +5448,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         "warrantyReleased",
         "warrantyReleasedAt",
         "warrantyQrCode",
+        "placeSlot",
         "specialPin",
         "specialCredential",
         "auditUser",
@@ -5796,11 +5848,14 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
   try {
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
     const consumablesBySize = buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables);
+    const mins = Math.max(0, Number(req.body.mins) || 0);
     const payload = {
       ...req.body,
       serviceType: normalizeServiceType(req.body.serviceType, req.body.name, req.body.desc),
       price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
       priceBySize,
+      mins,
+      allowedArrivalTimes: normalizeAllowedArrivalTimes(req.body.allowedArrivalTimes, mins),
       consumablesBySize,
       consumables: buildLegacyConsumables(consumablesBySize),
     };
@@ -5823,6 +5878,7 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
     }
 
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price ?? existingService?.price);
+    const mins = Math.max(0, Number(req.body.mins ?? existingService?.mins) || 0);
     const consumablesBySize = buildServiceConsumablesBySize(
       req.body.consumablesBySize,
       req.body.consumables ?? existingService?.consumables
@@ -5832,6 +5888,11 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
       serviceType: normalizeServiceType(req.body.serviceType, req.body.name, req.body.desc),
       price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
       priceBySize,
+      mins,
+      allowedArrivalTimes: normalizeAllowedArrivalTimes(
+        Object.prototype.hasOwnProperty.call(req.body, "allowedArrivalTimes") ? req.body.allowedArrivalTimes : existingService?.allowedArrivalTimes,
+        mins
+      ),
       consumablesBySize,
       consumables: buildLegacyConsumables(consumablesBySize),
     };
@@ -6205,6 +6266,33 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     }
     if (existingPayment.downPaymentRequired !== false && nextDownPaymentStatus === "Not Required") {
       res.status(400).json({ message: "Down payment cannot be marked not required for this service." });
+      return;
+    }
+
+    const normalizedExistingPayment = normalizePaymentStageFields(existingPayment);
+    const bodyFieldChanged = (field) => {
+      if (!hasBodyField(field)) return false;
+      if (field === "amountPaid" || field === "remainingBalance") {
+        return Number(req.body[field] || 0) !== Number(normalizedExistingPayment[field] || 0);
+      }
+      return String(req.body[field] ?? "") !== String(normalizedExistingPayment[field] ?? "");
+    };
+    const isReviewerFinalPaymentUpdate =
+      isPaymentReviewer &&
+      [
+        "finalPaymentStatus",
+        "finalPaymentMethod",
+        "finalPaymentReference",
+        "finalPaymentProofUrl",
+        "finalPaymentProofName",
+        "finalPaymentNotes",
+        "finalPaymentVerifiedAt",
+        "finalPaymentVerifiedBy",
+        "amountPaid",
+        "remainingBalance",
+      ].some(bodyFieldChanged);
+    if (isReviewerFinalPaymentUpdate && !canReviewFinalPaymentStage(existingPayment)) {
+      res.status(400).json({ message: "Full payment can only be reviewed after the customer submits remaining balance proof." });
       return;
     }
 

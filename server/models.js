@@ -118,6 +118,7 @@ const serviceSchema = new mongoose.Schema(
     price: { type: Number, default: 0 },
     priceBySize: { type: servicePriceBySizeSchema, default: () => ({}) },
     mins: { type: Number, default: 0 },
+    allowedArrivalTimes: { type: [String], default: [] },
     enabled: { type: Boolean, default: true },
     consumables: { type: [String], default: [] },
     consumablesBySize: {

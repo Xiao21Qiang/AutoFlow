@@ -618,6 +618,52 @@
   background: rgba(255, 255, 255, 0.7);
 }
 
+.svcArrivalPanel {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.svcArrivalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.svcArrivalOption {
+  min-height: 44px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #334155;
+}
+
+.svcArrivalOption.selected {
+  border-color: #d4a93a;
+  background: #fff8e6;
+  color: #111827;
+}
+
+.svcFormError {
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff5f5;
+  color: #b91c1c;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .svcModalActions {
   display: flex;
   justify-content: flex-end;
@@ -700,6 +746,10 @@
   }
 
   .svcConsumablesGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .svcArrivalGrid {
     grid-template-columns: 1fr;
   }
 

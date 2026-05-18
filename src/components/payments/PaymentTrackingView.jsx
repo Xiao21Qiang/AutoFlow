@@ -13,6 +13,7 @@ import {
   getPaymentStageLabel,
   getPaymentTotal,
   getRemainingBalance,
+  canReviewFinalPaymentStage,
   isDownPaymentSatisfied,
   isPaidStatus,
 } from "../../utils/paymentStages";
@@ -213,6 +214,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
     finalPaymentStatus: form.finalPaymentStatus,
   } : null;
   const finalPaymentEnabled = selectedWithForm ? isDownPaymentSatisfied(selectedWithForm) : false;
+  const finalPaymentReviewable = selectedPayment ? canReviewFinalPaymentStage(selectedPayment) : false;
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
 
   const renderProof = (src, fileName, label, { noProofRequired = false } = {}) => {
@@ -283,16 +285,21 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 const isMarkingDownPaymentPaid = form.downPaymentStatus === "Paid" && selectedPayment.downPaymentStatus !== "Paid";
                 const isMarkingFinalPaymentPaid = form.finalPaymentStatus === "Paid" && !isPaidStatus(selectedPayment.finalPaymentStatus) && !isPaidStatus(selectedPayment.status);
                 const savePayment = async (securityPayload = {}) => {
+                  const finalPaymentPayload = finalPaymentReviewable
+                    ? {
+                        finalPaymentStatus: form.finalPaymentStatus,
+                        finalPaymentNotes: form.finalPaymentNotes,
+                      }
+                    : {};
                   const nextStatus = form.finalPaymentStatus === "Paid" || form.finalPaymentStatus === "For Verification" || form.finalPaymentStatus === "Rejected"
                     ? form.finalPaymentStatus
                     : selectedPayment.status || "Pending";
                   await updatePayment(selectedPayment.id, {
                     ...selectedPayment,
-                    status: nextStatus,
+                    status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
                     downPaymentStatus: form.downPaymentStatus,
                     downPaymentNotes: form.downPaymentNotes,
-                    finalPaymentStatus: form.finalPaymentStatus,
-                    finalPaymentNotes: form.finalPaymentNotes,
+                    ...finalPaymentPayload,
                     ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
                     ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
                   });
@@ -301,6 +308,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 };
                 if ((isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) && !canVerifyPayments) {
                   showToast("error", "You can view payment status, but you cannot verify payments.");
+                  return;
+                }
+                if (isMarkingFinalPaymentPaid && !finalPaymentReviewable) {
+                  showToast("error", "Full payment can only be reviewed after the customer submits remaining balance proof.");
                   return;
                 }
                 if (isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) {
@@ -381,10 +392,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
               <div className={classes.section}>
                 <div className={classes.sectionTitle}>Full Payment / Remaining Balance</div>
                 {!finalPaymentEnabled && <div className={classes.hint}>Full payment can only be updated after the down payment is verified as paid.</div>}
+                {finalPaymentEnabled && !finalPaymentReviewable && <div className={classes.hint}>Full payment can only be reviewed after the customer submits remaining balance proof.</div>}
                 <div className={classes.grid}>
                   <label className={classes.field}>
                     <span>Status</span>
-                    <select value={form.finalPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentStatus: event.target.value }))} disabled={!finalPaymentEnabled || finalPaymentLocked}>
+                    <select value={form.finalPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentStatus: event.target.value }))} disabled={!finalPaymentReviewable || finalPaymentLocked}>
                       {PAYMENT_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </label>
@@ -398,7 +410,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                   <label className={classes.field}>
                     <span>Notes</span>
-                    <textarea rows="3" value={form.finalPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentNotes: event.target.value }))} disabled={!finalPaymentEnabled || finalPaymentLocked} />
+                    <textarea rows="3" value={form.finalPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentNotes: event.target.value }))} disabled={!finalPaymentReviewable || finalPaymentLocked} />
                   </label>
                 </div>
                 {renderProof(

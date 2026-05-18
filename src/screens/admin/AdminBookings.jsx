@@ -13,8 +13,8 @@ import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing
 import { getDetailerStaffOptions } from "../../utils/staffRoles";
 import {
   PLACE_SLOT_OPTIONS,
-  SHOP_TIME_OPTIONS,
   canScheduleBooking,
+  getServiceArrivalTimeOptions,
   getLinkedPaymentForBooking,
   getPreferredDetailerDisplay,
   getSchedulingValidationMessage,
@@ -256,7 +256,15 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     () => Object.fromEntries(services.map((service) => [service.name, Math.max(1, Number(service.mins) || 0)])),
     [services]
   );
+  const selectedServiceForSchedule = useMemo(
+    () => services.find((service) => service.name === form.service) || null,
+    [services, form.service]
+  );
   const selectedServiceDuration = Math.max(1, Number(serviceDurationByName[form.service] || 0));
+  const timeOptions = useMemo(
+    () => getServiceArrivalTimeOptions(selectedServiceForSchedule || { mins: selectedServiceDuration }, form.time),
+    [selectedServiceForSchedule, selectedServiceDuration, form.time]
+  );
   const overlappingBookings = useMemo(() => {
     if (!form.date || !form.time) return [];
 
@@ -598,7 +606,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   )}
                 </label>
                 <label className="bookField"><span>Plate Number</span><input value={form.plate || ""} onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))} disabled={modal === "edit" || carOptions.length > 0} required /></label>
-                <label className="bookField"><span>Service</span><ModalSelect value={form.service} options={serviceOptions} placeholder="Select service" onSelect={(option) => setForm((prev) => ({ ...prev, service: option }))} disabled={modal === "edit"} /></label>
+                <label className="bookField"><span>Service</span><ModalSelect value={form.service} options={serviceOptions} placeholder="Select service" onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "", placeSlot: "" }))} disabled={modal === "edit"} /></label>
                 {promoOptions.length > 0 && (
                   <label className="bookField">
                     <span>Promo</span>
@@ -670,7 +678,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     required={modal === "add" || isRescheduledStatus(form.status) || String(form.status || "").trim().toLowerCase() === "scheduled"}
                   >
                     <option value="">Select time</option>
-                    {SHOP_TIME_OPTIONS.map((option) => (
+                    {timeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
