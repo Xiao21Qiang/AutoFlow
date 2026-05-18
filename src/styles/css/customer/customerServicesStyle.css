@@ -56,11 +56,11 @@
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: var(--shadow);
-  padding: 18px;
+  padding: 14px;
 }
 
 .clSvcSectionBlock + .clSvcSectionBlock {
-  margin-top: 26px;
+  margin-top: 18px;
 }
 
 .clSvcSectionHead {
@@ -68,13 +68,13 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
-  padding: 0 2px 12px;
+  margin-bottom: 10px;
+  padding: 0 2px 9px;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .clSvcSectionTitle {
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.2;
@@ -82,7 +82,7 @@
 
 .clSvcSectionSubtitle {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
   color: #64748b;
   line-height: 1.35;
@@ -112,7 +112,7 @@
 }
 
 .clSvcSectionScroll {
-  max-height: min(70vh, 620px);
+  max-height: 500px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -120,10 +120,10 @@
 .clSvcCard {
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 14px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  min-height: 272px;
+  min-height: 226px;
   position: relative;
   overflow: hidden;
   background: #fff;
@@ -152,18 +152,18 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 24px;
+  gap: 4px;
+  min-height: 20px;
 }
 
 .clSvcTypeBadge,
 .clSvcCategoryBadge {
   display: inline-flex;
   align-items: center;
-  min-height: 21px;
+  min-height: 18px;
   border-radius: 999px;
-  padding: 0 8px;
-  font-size: 9px;
+  padding: 0 6px;
+  font-size: 8.5px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -188,22 +188,26 @@
 }
 
 .clSvcTitle {
-  margin-top: 10px;
-  font-size: 18px;
+  margin-top: 8px;
+  font-size: 16px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.16;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .clSvcSub {
-  margin-top: 5px;
-  font-size: 11px;
+  margin-top: 3px;
+  font-size: 10px;
   font-weight: 700;
   color: #6b7280;
   line-height: 1.35;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -211,15 +215,15 @@
 .clSvcInfoGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 7px;
 }
 
 .clSvcInfoItem {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;
-  padding: 8px;
+  padding: 6px 7px;
   min-width: 0;
 }
 
@@ -227,7 +231,7 @@
 .clSvcArrivalPreview span {
   display: block;
   margin-bottom: 3px;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 950;
   text-transform: uppercase;
   color: #64748b;
@@ -236,7 +240,7 @@
 .clSvcInfoItem strong,
 .clSvcArrivalPreview strong {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 950;
   color: #0f172a;
   line-height: 1.35;
@@ -244,24 +248,24 @@
 }
 
 .clSvcArrivalPreview {
-  margin-top: 8px;
+  margin-top: 6px;
   border: 1px solid #e9d993;
   border-radius: 10px;
   background: #fffaf0;
-  padding: 8px;
-  max-height: 54px;
+  padding: 6px 7px;
+  max-height: 40px;
   overflow-y: auto;
 }
 
 .clSvcPaymentChip {
-  margin-top: 8px;
+  margin-top: 6px;
   align-self: flex-start;
   border: 1px solid #e7cf83;
   background: #fff9e8;
   color: #7c5f12;
   border-radius: 999px;
-  padding: 5px 9px;
-  font-size: 10px;
+  padding: 4px 8px;
+  font-size: 9px;
   font-weight: 950;
 }
 
@@ -274,12 +278,12 @@
 .clSvcBookBtn {
   margin-top: auto;
   align-self: stretch;
-  height: 34px;
+  height: 32px;
   padding: 0 20px;
   border: none;
   border-radius: 12px;
   background: #d8b53b;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 950;
   cursor: pointer;
   color: #111827;

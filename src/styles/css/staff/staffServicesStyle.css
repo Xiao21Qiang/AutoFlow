@@ -117,12 +117,12 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 18px;
-  padding: 18px;
+  padding: 14px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
 }
 
 .stSvcSectionBlock + .stSvcSectionBlock {
-  margin-top: 26px;
+  margin-top: 18px;
 }
 
 .stSvcSectionHead {
@@ -130,13 +130,13 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
-  padding: 0 2px 12px;
+  margin-bottom: 10px;
+  padding: 0 2px 9px;
   border-bottom: 1px solid #e2e8f0;
 }
 
 .stSvcSectionTitle {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.2;
@@ -144,7 +144,7 @@
 
 .stSvcSectionSubtitle {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
   color: #64748b;
   line-height: 1.35;
@@ -174,7 +174,7 @@
 }
 
 .stSvcSectionScroll {
-  max-height: min(70vh, 660px);
+  max-height: 540px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -185,8 +185,8 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;
-  padding: 14px;
-  min-height: 292px;
+  padding: 12px;
+  min-height: 238px;
   position: relative;
   overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -211,22 +211,26 @@
 }
 
 .stSvcTitle {
-  margin: 10px 0 0;
-  font-size: 18px;
+  margin: 8px 0 0;
+  font-size: 16px;
   font-weight: 900;
   color: var(--text);
   line-height: 1.18;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .stSvcSub {
-  margin-top: 5px;
-  font-size: 11px;
+  margin-top: 3px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.35;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -235,8 +239,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 24px;
+  gap: 4px;
+  min-height: 20px;
 }
 
 .stSvcTypeBadge,
@@ -244,10 +248,10 @@
 .stSvcStatusBadge {
   display: inline-flex;
   align-items: center;
-  min-height: 21px;
+  min-height: 18px;
   border-radius: 999px;
-  padding: 0 8px;
-  font-size: 9px;
+  padding: 0 6px;
+  font-size: 8.5px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -284,10 +288,10 @@
 }
 
 .stSvcInfoGrid {
-  margin-top: 10px;
+  margin-top: 7px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .stSvcInfoItem {
@@ -295,7 +299,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;
-  padding: 8px;
+  padding: 6px 7px;
 }
 
 .stSvcInfoItem.wide {
@@ -305,7 +309,7 @@
 .stSvcInfoItem span {
   display: block;
   margin-bottom: 3px;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 950;
   text-transform: uppercase;
   color: #64748b;
@@ -313,8 +317,8 @@
 
 .stSvcInfoItem strong {
   display: block;
-  font-size: 11px;
-  font-weight: 950;
+  font-size: 10px;
+  font-weight: 900;
   color: #0f172a;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -344,8 +348,8 @@
 }
 
 .stSvcSection {
-  margin-top: 10px;
-  font-size: 10px;
+  margin-top: 7px;
+  font-size: 9px;
   font-weight: 900;
   color: var(--gold-dark);
   letter-spacing: 0.5px;
@@ -355,24 +359,24 @@
 .stSvcList {
   margin: 0;
   padding-left: 16px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.55;
 }
 
 .stSvcList li {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .stSvcConsumablesPreview {
-  margin-top: 6px;
-  max-height: 68px;
+  margin-top: 4px;
+  max-height: 42px;
   overflow-y: auto;
   border: 1px solid #e5eaf1;
   border-radius: 10px;
   background: #fbfdff;
-  padding: 8px 8px 6px;
+  padding: 6px 7px 4px;
 }
 
 .stSvcEmptyText {
@@ -385,15 +389,15 @@
   display: flex;
   gap: 8px;
   margin-top: auto;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .stSvcSmallBtn {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 9px;
-  padding: 7px 12px;
-  font-size: 11px;
+  padding: 6px 10px;
+  font-size: 10px;
   font-weight: 900;
   cursor: pointer;
   color: var(--text);

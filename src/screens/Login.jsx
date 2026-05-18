@@ -9,6 +9,7 @@ import Navbar from "../components/Navbar";
 import loginBackground from "../assets/IMAGE/IMG_9815.jpg";
 
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
+const isSignUpEmail = (v) => /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(String(v || "").trim());
 const onlyLettersSpaces = (v) => /^[A-Za-zÀ-ÖØ-öø-ÿ\s'-]+$/.test(String(v || "").trim());
 const onlyDigits = (v) => /^\d+$/.test(String(v || "").trim());
 const OTP_RESEND_WAIT_SECONDS = 120;
@@ -125,14 +126,19 @@ export default function Login() {
   const signUpErrors = useMemo(() => {
     const e = {};
 
-    if (!signUp.firstName.trim()) e.firstName = "First name is required.";
-    else if (!onlyLettersSpaces(signUp.firstName)) e.firstName = "Use letters only.";
+    const firstName = signUp.firstName.trim();
+    const lastName = signUp.lastName.trim();
 
-    if (!signUp.lastName.trim()) e.lastName = "Last name is required.";
-    else if (!onlyLettersSpaces(signUp.lastName)) e.lastName = "Use letters only.";
+    if (!firstName) e.firstName = "First name is required.";
+    else if (firstName.length > 24) e.firstName = "First name must be 24 characters or less.";
+    else if (!onlyLettersSpaces(firstName)) e.firstName = "Use letters only.";
+
+    if (!lastName) e.lastName = "Last name is required.";
+    else if (lastName.length > 24) e.lastName = "Last name must be 24 characters or less.";
+    else if (!onlyLettersSpaces(lastName)) e.lastName = "Use letters only.";
 
     if (!signUp.email.trim()) e.email = "Email is required.";
-    else if (!isEmail(signUp.email)) e.email = "Enter a valid email.";
+    else if (!isSignUpEmail(signUp.email)) e.email = "Enter a valid email address.";
 
     if (!signUp.phone.trim()) e.phone = "Phone number is required.";
     else if (!onlyDigits(signUp.phone)) e.phone = "Phone must contain digits only.";
@@ -157,6 +163,8 @@ export default function Login() {
   const canSubmitSignIn = Object.keys(signInErrors).length === 0;
   const canSubmitSignUp = Object.keys(signUpErrors).length === 0;
   const signUpPasswordChecks = useMemo(() => getPasswordChecks(signUp.password), [signUp.password]);
+  const shouldShowSignUpError = (field) =>
+    Boolean(signUpErrors[field] && (touchedUp[field] || String(signUp[field] || "").length > 0));
 
   const fpErrors = useMemo(() => {
     const e = {};
@@ -804,13 +812,13 @@ export default function Login() {
                     <div className="authField">
                       <label className="authLabel">First Name</label>
                       <input
-                        className={`authInput ${touchedUp.firstName && signUpErrors.firstName ? "inputError" : ""}`}
+                        className={`authInput ${shouldShowSignUpError("firstName") ? "inputError" : ""}`}
                         value={signUp.firstName}
                         onChange={(e) => setSignUp((p) => ({ ...p, firstName: e.target.value }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, firstName: true }))}
                         placeholder="Enter your first name"
                       />
-                      {touchedUp.firstName && signUpErrors.firstName && (
+                      {shouldShowSignUpError("firstName") && (
                         <div className="fieldError">{signUpErrors.firstName}</div>
                       )}
                     </div>
@@ -818,13 +826,13 @@ export default function Login() {
                     <div className="authField">
                       <label className="authLabel">Last Name</label>
                       <input
-                        className={`authInput ${touchedUp.lastName && signUpErrors.lastName ? "inputError" : ""}`}
+                        className={`authInput ${shouldShowSignUpError("lastName") ? "inputError" : ""}`}
                         value={signUp.lastName}
                         onChange={(e) => setSignUp((p) => ({ ...p, lastName: e.target.value }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, lastName: true }))}
                         placeholder="Enter your last name"
                       />
-                      {touchedUp.lastName && signUpErrors.lastName && (
+                      {shouldShowSignUpError("lastName") && (
                         <div className="fieldError">{signUpErrors.lastName}</div>
                       )}
                     </div>
@@ -833,14 +841,14 @@ export default function Login() {
                   <div className="authField">
                     <label className="authLabel">Email</label>
                     <input
-                      className={`authInput ${touchedUp.email && signUpErrors.email ? "inputError" : ""}`}
+                      className={`authInput ${shouldShowSignUpError("email") ? "inputError" : ""}`}
                       value={signUp.email}
                       onChange={(e) => setSignUp((p) => ({ ...p, email: e.target.value }))}
                       onBlur={() => setTouchedUp((p) => ({ ...p, email: true }))}
                       type="email"
                       placeholder="Enter your email"
                     />
-                    {touchedUp.email && signUpErrors.email && (
+                    {shouldShowSignUpError("email") && (
                       <div className="fieldError">{signUpErrors.email}</div>
                     )}
                   </div>
@@ -848,7 +856,7 @@ export default function Login() {
                   <div className="authField">
                     <label className="authLabel">Phone</label>
                     <input
-                      className={`authInput ${touchedUp.phone && signUpErrors.phone ? "inputError" : ""}`}
+                      className={`authInput ${shouldShowSignUpError("phone") ? "inputError" : ""}`}
                       value={signUp.phone}
                       onChange={(e) => handlePhoneChange(e.target.value)}
                       onBlur={() => setTouchedUp((p) => ({ ...p, phone: true }))}
@@ -856,7 +864,7 @@ export default function Login() {
                       placeholder="09xx xxx xxxx"
                     />
                     <div className="hintText">Phone must be 11 digits and start with 09.</div>
-                    {touchedUp.phone && signUpErrors.phone && (
+                    {shouldShowSignUpError("phone") && (
                       <div className="fieldError">{signUpErrors.phone}</div>
                     )}
                   </div>
@@ -865,7 +873,7 @@ export default function Login() {
                     <label className="authLabel">Password</label>
                     <div className="authPassRow">
                       <input
-                        className={`authInput authInputPass ${touchedUp.password && signUpErrors.password ? "inputError" : ""}`}
+                        className={`authInput authInputPass ${shouldShowSignUpError("password") ? "inputError" : ""}`}
                         value={signUp.password}
                         onChange={(e) => setSignUp((p) => ({ ...p, password: e.target.value }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, password: true }))}
@@ -888,7 +896,7 @@ export default function Login() {
                         </div>
                       ))}
                     </div>
-                    {touchedUp.password && signUpErrors.password && (
+                    {shouldShowSignUpError("password") && (
                       <div className="fieldError">{signUpErrors.password}</div>
                     )}
                   </div>
@@ -897,7 +905,7 @@ export default function Login() {
                     <label className="authLabel">Confirm Password</label>
                     <div className="authPassRow">
                       <input
-                        className={`authInput authInputPass ${touchedUp.confirmPassword && signUpErrors.confirmPassword ? "inputError" : ""}`}
+                        className={`authInput authInputPass ${shouldShowSignUpError("confirmPassword") ? "inputError" : ""}`}
                         value={signUp.confirmPassword}
                         onChange={(e) => setSignUp((p) => ({ ...p, confirmPassword: e.target.value }))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, confirmPassword: true }))}
@@ -912,7 +920,7 @@ export default function Login() {
                         {showPass2 ? "Hide" : "Show"}
                       </button>
                     </div>
-                    {touchedUp.confirmPassword && signUpErrors.confirmPassword && (
+                    {shouldShowSignUpError("confirmPassword") && (
                       <div className="fieldError">{signUpErrors.confirmPassword}</div>
                     )}
                   </div>
