@@ -167,14 +167,14 @@
 
 .stSvcCardsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 420px));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
   justify-content: start;
   padding-right: 4px;
 }
 
 .stSvcSectionScroll {
-  max-height: min(62vh, 620px);
+  max-height: min(70vh, 660px);
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -185,9 +185,8 @@
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;
-  padding: 18px;
-  min-height: 390px;
-  max-width: 420px;
+  padding: 14px;
+  min-height: 292px;
   position: relative;
   overflow: hidden;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -207,13 +206,13 @@
 
 .stSvcCard:hover {
   border-color: var(--accent-line);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
 }
 
 .stSvcTitle {
-  margin: 12px 0 0;
-  font-size: 21px;
+  margin: 10px 0 0;
+  font-size: 18px;
   font-weight: 900;
   color: var(--text);
   line-height: 1.18;
@@ -221,19 +220,23 @@
 }
 
 .stSvcSub {
-  margin-top: 6px;
-  font-size: 12px;
+  margin-top: 5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .stSvcCardTop {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 7px;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 24px;
 }
 
 .stSvcTypeBadge,
@@ -241,10 +244,10 @@
 .stSvcStatusBadge {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 21px;
   border-radius: 999px;
-  padding: 0 10px;
-  font-size: 10px;
+  padding: 0 8px;
+  font-size: 9px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -281,18 +284,18 @@
 }
 
 .stSvcInfoGrid {
-  margin-top: 14px;
+  margin-top: 10px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .stSvcInfoItem {
   min-width: 0;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f8fafc;
-  padding: 10px;
+  padding: 8px;
 }
 
 .stSvcInfoItem.wide {
@@ -301,8 +304,8 @@
 
 .stSvcInfoItem span {
   display: block;
-  margin-bottom: 4px;
-  font-size: 10px;
+  margin-bottom: 3px;
+  font-size: 9px;
   font-weight: 950;
   text-transform: uppercase;
   color: #64748b;
@@ -310,7 +313,7 @@
 
 .stSvcInfoItem strong {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 950;
   color: #0f172a;
   line-height: 1.35;
@@ -341,8 +344,8 @@
 }
 
 .stSvcSection {
-  margin-top: 16px;
-  font-size: 11px;
+  margin-top: 10px;
+  font-size: 10px;
   font-weight: 900;
   color: var(--gold-dark);
   letter-spacing: 0.5px;
@@ -351,25 +354,25 @@
 
 .stSvcList {
   margin: 0;
-  padding-left: 18px;
-  font-size: 12px;
+  padding-left: 16px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.55;
 }
 
 .stSvcList li {
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .stSvcConsumablesPreview {
-  margin-top: 8px;
-  max-height: 118px;
+  margin-top: 6px;
+  max-height: 68px;
   overflow-y: auto;
   border: 1px solid #e5eaf1;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fbfdff;
-  padding: 10px 10px 8px;
+  padding: 8px 8px 6px;
 }
 
 .stSvcEmptyText {
@@ -382,14 +385,14 @@
   display: flex;
   gap: 8px;
   margin-top: auto;
-  padding-top: 16px;
+  padding-top: 12px;
 }
 
 .stSvcSmallBtn {
   border: 1px solid var(--line);
   background: #fff;
-  border-radius: 10px;
-  padding: 8px 16px;
+  border-radius: 9px;
+  padding: 7px 12px;
   font-size: 11px;
   font-weight: 900;
   cursor: pointer;
@@ -829,7 +832,7 @@
 
 @media (max-width: 1180px) {
   .stSvcCardsGrid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 420px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
