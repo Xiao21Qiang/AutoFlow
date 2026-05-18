@@ -9,6 +9,7 @@ import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../.
 import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getPriceForCarSize } from "../../utils/servicePricing";
 import {
   buildPreferredDetailerPayload,
+  getServiceArrivalTimeOptions,
   getPreferredDetailerOptions,
 } from "../../utils/bookingWorkflow";
 
@@ -46,6 +47,7 @@ export default function CustomerServices() {
   const [selectedService, setSelectedService] = useState(null);
   const [bookingForm, setBookingForm] = useState({
     date: "",
+    time: "",
     selectedCar: "",
     vehicle: "",
     carSize: "",
@@ -125,11 +127,16 @@ export default function CustomerServices() {
     () => getRewardPreview(selectedReward, promoAdjustedPrice),
     [promoAdjustedPrice, selectedReward]
   );
+  const timeOptions = useMemo(
+    () => getServiceArrivalTimeOptions(selectedService || {}, bookingForm.time),
+    [selectedService, bookingForm.time]
+  );
 
   const closeModal = () => {
     setSelectedService(null);
     setBookingForm({
       date: "",
+      time: "",
       selectedCar: "",
       vehicle: "",
       carSize: "",
@@ -224,6 +231,10 @@ export default function CustomerServices() {
                   setBookingError("Please select today or a future date for this booking.");
                   return;
                 }
+                if (!bookingForm.time) {
+                  setBookingError("Please choose an available time slot for this service.");
+                  return;
+                }
 
                 try {
                   const preferredDetailerPayload = buildPreferredDetailerPayload(bookingForm, preferredDetailerOptions);
@@ -231,6 +242,7 @@ export default function CustomerServices() {
                     customer: currentUser?.name || "Customer",
                     customerEmail: currentUser?.email || "",
                     date: bookingForm.date,
+                    time: bookingForm.time,
                     vehicle: bookingForm.vehicle,
                     carSize: bookingForm.carSize,
                     plate: bookingForm.plate,
@@ -239,7 +251,6 @@ export default function CustomerServices() {
                     rewardId: bookingForm.rewardId,
                     originalAmount: Number(selectedServicePrice || 0),
                     assigned: "",
-                    time: null,
                     customerRequested: true,
                     bookingSource: "customer",
                     amount: Number(selectedServicePrice || 0),
@@ -328,6 +339,27 @@ export default function CustomerServices() {
                   onChange={(e) => setBookingForm((prev) => ({ ...prev, date: e.target.value }))}
                   required
                 />
+              </label>
+
+              <label className="clSvcField">
+                <span>Time Slot</span>
+                <select
+                  value={bookingForm.time}
+                  onChange={(e) => setBookingForm((prev) => ({ ...prev, time: e.target.value }))}
+                  required
+                >
+                  <option value="">Select time</option>
+                  {timeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="clSvcSlotHint">
+                  {timeOptions.length
+                    ? "Available time slots depend on the selected service."
+                    : "No available time slots configured for this service."}
+                </div>
               </label>
 
               {carOptions.length > 0 && <label className="clSvcField"><span>Saved Car</span><select value={bookingForm.selectedCar} onChange={(e) => { const option = e.target.value; const selectedCar = savedCars.find((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}` === option); setBookingForm((prev) => ({ ...prev, selectedCar: option, vehicle: selectedCar?.vehicle || prev.vehicle, carSize: String(selectedCar?.size || prev.carSize || ""), plate: String(selectedCar?.plate || prev.plate).toUpperCase() })); }}><option value="">Select saved car</option>{carOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>}

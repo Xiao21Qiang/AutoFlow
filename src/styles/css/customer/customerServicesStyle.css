@@ -289,6 +289,13 @@
   resize: none;
 }
 
+.clSvcSlotHint {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .clSvcFieldError {
   margin-top: 2px;
   border: 1px solid #fecaca;

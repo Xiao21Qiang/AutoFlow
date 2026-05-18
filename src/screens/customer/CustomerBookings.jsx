@@ -9,6 +9,7 @@ import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../.
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 import {
   buildPreferredDetailerPayload,
+  getServiceArrivalTimeOptions,
   getPreferredDetailerDisplay,
   getPreferredDetailerOptions,
 } from "../../utils/bookingWorkflow";
@@ -38,6 +39,7 @@ function formatDateTime(dateStr) {
 function createEmptyForm(defaultService = "Graphene Coating") {
   return {
     date: "",
+    time: "",
     selectedCar: "",
     vehicle: "",
     carSize: "",
@@ -176,6 +178,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     () => getPriceForCarSize(selectedService, form.carSize),
     [selectedService, form.carSize]
   );
+  const timeOptions = useMemo(
+    () => getServiceArrivalTimeOptions(selectedService || {}, form.time),
+    [selectedService, form.time]
+  );
   const promoAdjustedPrice = useMemo(() => {
     const discountPercent = Number(selectedPromo?.discountPercent || 0);
     return Math.max(0, Number(selectedServicePrice || 0) - ((Number(selectedServicePrice || 0) * discountPercent) / 100));
@@ -192,7 +198,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   useEffect(() => {
     setForm((prev) => {
       if (serviceOptions.includes(prev.service)) return prev;
-      return { ...prev, service: serviceOptions[0] || "" };
+      return { ...prev, service: serviceOptions[0] || "", time: "" };
     });
   }, [serviceOptions]);
 
@@ -350,6 +356,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     setFormError("Please select today or a future date for your booking.");
                     return;
                   }
+                  if (!form.time) {
+                    setFormError("Please choose an available time slot for your selected service.");
+                    return;
+                  }
 
                   try {
                     const matchedService = bookableServices.find((service) => service.name === form.service);
@@ -359,6 +369,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       customer: currentUser?.name || "Customer",
                       customerEmail: currentUser?.email || "",
                       date: form.date,
+                      time: form.time,
                       vehicle: form.vehicle,
                       carSize: form.carSize,
                       plate: form.plate,
@@ -367,7 +378,6 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       rewardId: form.rewardId,
                       originalAmount: Number(resolvedPrice || 0),
                       assigned: "",
-                      time: null,
                       customerRequested: true,
                       bookingSource: "customer",
                       amount: Number(resolvedPrice || 0),
@@ -461,8 +471,31 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.service}
                       options={serviceOptions}
                       placeholder="Select service"
-                      onSelect={(option) => setForm((prev) => ({ ...prev, service: option }))}
+                      onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "" }))}
                     />
+                  </label>
+                  <label className="clBookField">
+                    <span>Time Slot</span>
+                    <select
+                      value={form.time}
+                      onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
+                      disabled={!selectedService}
+                      required
+                    >
+                      <option value="">{selectedService ? "Select time" : "Select a service first"}</option>
+                      {timeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="clBookSlotHint">
+                      {selectedService
+                        ? timeOptions.length
+                          ? "Available time slots depend on the selected service."
+                          : "No available time slots configured for this service."
+                        : "Select a service first."}
+                    </div>
                   </label>
                   <label className="clBookField">
                     <span>Select Preferred Detailer</span>

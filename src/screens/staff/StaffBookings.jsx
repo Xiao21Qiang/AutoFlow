@@ -21,7 +21,7 @@ import {
   isScheduledStatus,
 } from "../../utils/bookingWorkflow";
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
-import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
+import { ACTION_KEYS, canPerformAction, getEffectiveRole } from "../../utils/rbac";
 
 const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
 
@@ -213,10 +213,12 @@ export default function StaffBookings() {
   const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
   const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
   const isOwnDetailerBooking = modal === "edit" && isAssignedToCurrentUser(selectedBooking, currentUser);
-  const currentEffectiveRole = String(currentUser?.role || "").trim().toLowerCase();
+  const currentEffectiveRole = getEffectiveRole(currentUser);
+  const canManageOperationalPlaceSlot = currentEffectiveRole === "general manager";
   const isDetailerUser = currentEffectiveRole === "junior detailer" || currentEffectiveRole === "senior detailer";
   const canEditOwnDetailerPlaceSlot = isDetailerUser && isOwnDetailerBooking && !isCompletedBookingLocked && String(form.status || "").trim().toLowerCase() !== "cancelled" && Boolean(form.date && form.time);
-  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim())) || canEditOwnDetailerPlaceSlot;
+  const canEditPlaceSlot = (canManageOperationalPlaceSlot && (modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim())))) || canEditOwnDetailerPlaceSlot;
+  const showPlaceSlotPicker = canManageOperationalPlaceSlot || canEditOwnDetailerPlaceSlot;
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
   const disabledStatusOptions = useMemo(() => {
     if (isCompletedBookingLocked) return [];
@@ -599,12 +601,12 @@ export default function StaffBookings() {
                   return;
                 }
 
-                if (requiresTime && !form.placeSlot) {
+                if (requiresTime && showPlaceSlotPicker && !form.placeSlot) {
                   setFormError(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "A place slot is required before scheduling.");
                   return;
                 }
 
-                if (requiresTime && !availablePlaceSlots.includes(Number(form.placeSlot))) {
+                if (requiresTime && showPlaceSlotPicker && !availablePlaceSlots.includes(Number(form.placeSlot))) {
                   setFormError("That place slot is no longer available. Please choose another one.");
                   return;
                 }
@@ -628,7 +630,7 @@ export default function StaffBookings() {
                 const payload = {
                   ...form,
                   selectedCar: undefined,
-                  placeSlot: Number(form.placeSlot || 0),
+                  placeSlot: showPlaceSlotPicker ? Number(form.placeSlot || 0) : 0,
                   status: isSchedulingPending ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
@@ -877,7 +879,7 @@ export default function StaffBookings() {
                   ) : null}
                 </label>
 
-                {form.date && form.time && (
+                {showPlaceSlotPicker && form.date && form.time && (
                   <div className="stBookSlotField">
                     <span>Place Slot</span>
                     <div className="stBookPlaceGrid">

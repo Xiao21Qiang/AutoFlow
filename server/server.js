@@ -1937,6 +1937,16 @@ function canReassignDetailer(user) {
   return getEffectiveRole(user) === "general manager" && canPerformAction(user, ACTION_KEYS.detailerReassign);
 }
 
+function canUpdatePlaceSlot(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  const role = getEffectiveRole(user);
+  if (role === "general manager") return true;
+  if (role === "junior detailer" || role === "senior detailer") {
+    return canViewDetailerTask(user, booking, users) && isBookingAssignedToUser(booking, user);
+  }
+  return false;
+}
+
 function isActiveDetailerUser(user = {}) {
   const status = String(user.status || user.isActive || "active").trim().toLowerCase();
   const active = user.isActive === false ? false : !["inactive", "disabled", "deactivated"].includes(status);
@@ -5234,8 +5244,9 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     }
     const isCustomerRequested =
       actorType === "customer";
-    const bookingTime = isCustomerRequested ? "" : String(req.body.time || "").trim();
-    const bookingPlaceSlot = isCustomerRequested ? 0 : Number(req.body.placeSlot || 0);
+    const canCreateWithPlaceSlot = actorType === "admin" || getEffectiveRole(req.authUser) === "general manager";
+    const bookingTime = String(req.body.time || "").trim();
+    const bookingPlaceSlot = canCreateWithPlaceSlot ? Number(req.body.placeSlot || 0) : 0;
     const bookingCustomerEmail = isCustomerRequested
       ? String(req.authUser?.email || "").trim().toLowerCase()
       : String(req.body.customerEmail || "").trim().toLowerCase();
@@ -5247,16 +5258,29 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       res.status(400).json({ message: "Booking date cannot be in the past." });
       return;
     }
+    if (isCustomerRequested && !bookingDate) {
+      res.status(400).json({ message: "Please choose a preferred booking date." });
+      return;
+    }
 
     await ensureBookableService(req.body.service);
 
-    if (bookingTime) {
+    if (isCustomerRequested && !bookingTime) {
+      res.status(400).json({ message: "Please choose an available time slot for your selected service." });
+      return;
+    }
+
+    if (bookingTime && isCustomerRequested) {
+      await validateShopHours({ time: bookingTime, service: req.body.service });
+    } else if (bookingTime && canCreateWithPlaceSlot) {
       await validateBookingSlotAvailability({
         date: bookingDate,
         time: bookingTime,
         service: req.body.service,
         placeSlot: bookingPlaceSlot,
       });
+    } else if (bookingTime) {
+      await validateShopHours({ time: bookingTime, service: req.body.service });
     }
 
     const promoResolution = await resolvePromoById(req.body.promoId).catch((error) => {
@@ -5303,7 +5327,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       date: bookingDate,
       time: bookingTime || "Pending Assignment",
       status: "Pending",
-      placeSlot: bookingTime ? bookingPlaceSlot : 0,
+      placeSlot: canCreateWithPlaceSlot && bookingTime ? bookingPlaceSlot : 0,
       ...pricing,
       ...rewardPricing,
       consumablesApplied: false,
@@ -5514,6 +5538,10 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const dateChanged = Object.prototype.hasOwnProperty.call(req.body, "date") && String(req.body.date || "") !== String(existingBooking.date || "");
     const timeChanged = Object.prototype.hasOwnProperty.call(req.body, "time") && String(req.body.time || "") !== String(existingBooking.time || "");
     const slotChanged = Object.prototype.hasOwnProperty.call(req.body, "placeSlot") && Number(req.body.placeSlot || 0) !== Number(existingBooking.placeSlot || 0);
+    if (slotChanged && !canUpdatePlaceSlot(req.authUser, existingBookingObject, allUsersForScope)) {
+      res.status(403).json({ message: "You do not have permission to update the place slot for this booking." });
+      return;
+    }
     const scheduleChanged = dateChanged || timeChanged || slotChanged;
     const requiresScheduleValidation = nextStatus === "Rescheduled" || shouldAutoSchedulePending;
 
