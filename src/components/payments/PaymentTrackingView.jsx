@@ -249,7 +249,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const runReferenceCheck = async (stageKey, payload) => {
     setReferenceChecks((prev) => ({
       ...prev,
-      [stageKey]: { status: "checking", message: "Reading payment proof..." },
+      [stageKey]: { status: "checking", message: getReferenceCheckMessage("checking") },
     }));
     const result = await checkPaymentReference(payload);
     setReferenceChecks((prev) => ({ ...prev, [stageKey]: result }));
@@ -277,7 +277,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
             onClick={() => runReferenceCheck(stageKey, { method, reference, proofImage })}
             disabled={!canRun}
           >
-            {status === "checking" ? "Checking..." : "Check Reference"}
+            {status === "checking" ? "Checking reference..." : "Check Reference"}
           </button>
         </div>
         {result ? (

@@ -1,8 +1,8 @@
 export function normalizePaymentReference(value) {
   return String(value || "")
     .trim()
-    .replace(/[\s-]+/g, "")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
 }
 
 export function getReferenceCheckUnavailableReason({ method, reference, proofImage }) {
@@ -17,18 +17,26 @@ export function getReferenceCheckMessage(reason) {
   if (reason === "cash") return "Cash payment - reference check not required.";
   if (reason === "no-proof") return "No payment proof available for reference checking.";
   if (reason === "no-reference") return "No reference number provided by customer.";
-  if (reason === "matched") return "Match found";
-  if (reason === "not-matched") return "No match found";
+  if (reason === "checking") return "Checking reference...";
+  if (reason === "matched") return "Reference matched";
+  if (reason === "not-matched") return "Reference not found";
   return "Unable to read proof image";
 }
 
-async function extractTextWithAvailableOcr(proofImage) {
-  const tesseract = typeof window !== "undefined" ? window.Tesseract : null;
-  if (!tesseract?.recognize) {
-    throw new Error("OCR unavailable");
+async function loadTesseract() {
+  const tesseractModule = await import("tesseract.js");
+  return tesseractModule.default || tesseractModule;
+}
+
+async function extractTextWithTesseract(proofImage) {
+  const tesseract = await loadTesseract();
+  const recognize = tesseract.recognize || tesseract.default?.recognize;
+
+  if (typeof recognize !== "function") {
+    throw new Error("Tesseract.js OCR is unavailable.");
   }
 
-  const result = await tesseract.recognize(proofImage, "eng");
+  const result = await recognize(proofImage, "eng", { logger: () => {} });
   return String(result?.data?.text || result?.text || "").trim();
 }
 
@@ -43,7 +51,7 @@ export async function checkPaymentReference({ method, reference, proofImage }) {
   }
 
   try {
-    const detectedText = await extractTextWithAvailableOcr(proofImage);
+    const detectedText = await extractTextWithTesseract(proofImage);
     const normalizedReference = normalizePaymentReference(reference);
     const normalizedDetectedText = normalizePaymentReference(detectedText);
 
