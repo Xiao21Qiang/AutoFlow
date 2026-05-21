@@ -106,15 +106,17 @@
 }
 
 .finMiniBtn {
+  min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   color: var(--text);
-  padding: 7px 9px;
-  margin: 2px;
+  padding: 0 10px;
   cursor: pointer;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .finMiniBtn:hover {
@@ -354,20 +356,54 @@
 }
 
 .finDetailerTable th {
-  padding: 12px 10px;
+  padding: 13px 14px;
+  background: #f8fafc;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .finDetailerTable td {
-  padding: 14px 10px;
-  line-height: 1.4;
+  padding: 13px 14px;
+  line-height: 1.42;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.finDetailerTableWrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #eef0f4;
+  border-radius: 12px;
+}
+
+.finDetailerTable {
+  min-width: 1120px;
+}
+
+.finDetailerTable th:nth-child(1),
+.finDetailerTable td:nth-child(1) {
+  width: 118px;
+}
+
+.finDetailerTable th:nth-child(3),
+.finDetailerTable td:nth-child(3) {
+  width: 180px;
+}
+
+.finDetailerTable th:nth-child(10),
+.finDetailerTable td:nth-child(10) {
+  width: 220px;
 }
 
 .finDetailerTable tbody tr:nth-child(odd) td {
-  background: #fff;
+  background: #ffffff;
 }
 
 .finDetailerTable tbody tr:nth-child(even) td {
-  background: #f8fafc;
+  background: #f6f7f9;
 }
 
 .finDetailerTable tbody tr:hover td {
@@ -375,11 +411,15 @@
 }
 
 .finActionCell {
-  min-width: 190px;
+  min-width: 220px;
 }
 
-.finActionCell .finMiniBtn {
-  margin: 3px;
+.detailerActionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
 }
 
 .finTable tbody tr:last-child td {

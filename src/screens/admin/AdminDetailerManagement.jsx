@@ -363,34 +363,38 @@ export default function AdminDetailerManagement() {
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All booking statuses</option><option>Pending</option><option>Scheduled</option><option>In Progress</option><option>Completed</option><option>Cancelled</option></select>
           <select value={commissionFilter} onChange={(event) => setCommissionFilter(event.target.value)}><option value="">All commissions</option><option>Pending</option><option>Earned</option><option>Paid</option><option>Cancelled</option><option>Voided</option></select>
         </div>
-        <table className="finTable finCommissionTable finDetailerTable">
-          <thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Vehicle / Plate</th><th>Assigned Detailer</th><th>Role</th><th>Status</th><th>Payment</th><th>Commission</th><th>Actions</th></tr></thead>
-          <tbody>
-            {rows.length ? rows.map((row) => {
-              const { booking, detailer, payment, commission } = row;
-              const commissionLocked = isTerminalCommissionStatus(commission.status);
-              return (
-                <tr key={booking.id}>
-                  <td>{booking.id}</td>
-                  <td>{booking.customer}</td>
-                  <td>{booking.service}</td>
-                  <td>{booking.vehicle || "-"} / {booking.plate || "-"}</td>
-                  <td>{booking.assigned || "-"}</td>
-                  <td>{detailer.role || commission.role || "-"}</td>
-                  <td>{booking.status || "-"}</td>
-                  <td>{payment.finalPaymentStatus || payment.status || "-"}</td>
-                  <td>{commission.status || "Pending"}</td>
-                  <td className="finActionCell">
-                    <button className="finMiniBtn" type="button" onClick={() => exportRowPdf(row)}>Print</button>
-                    {canReassign && <button className="finMiniBtn" type="button" onClick={() => openReassign(row)}>Reassign</button>}
-                    {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openPaid(row)}>Paid</button>}
-                    {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openVoid(row)}>Void</button>}
-                  </td>
-                </tr>
-              );
-            }) : <tr><td colSpan={10}>No assigned detailer work found.</td></tr>}
-          </tbody>
-        </table>
+        <div className="finDetailerTableWrap">
+          <table className="finTable finCommissionTable finDetailerTable">
+            <thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Vehicle / Plate</th><th>Assigned Detailer</th><th>Role</th><th>Status</th><th>Payment</th><th>Commission</th><th>Actions</th></tr></thead>
+            <tbody>
+              {rows.length ? rows.map((row) => {
+                const { booking, detailer, payment, commission } = row;
+                const commissionLocked = isTerminalCommissionStatus(commission.status);
+                return (
+                  <tr key={booking.id}>
+                    <td>{booking.id}</td>
+                    <td>{booking.customer}</td>
+                    <td>{booking.service}</td>
+                    <td>{booking.vehicle || "-"} / {booking.plate || "-"}</td>
+                    <td>{booking.assigned || "-"}</td>
+                    <td>{detailer.role || commission.role || "-"}</td>
+                    <td>{booking.status || "-"}</td>
+                    <td>{payment.finalPaymentStatus || payment.status || "-"}</td>
+                    <td>{commission.status || "Pending"}</td>
+                    <td className="finActionCell">
+                      <div className="detailerActionGroup">
+                        <button className="finMiniBtn" type="button" onClick={() => exportRowPdf(row)}>Print</button>
+                        {canReassign && <button className="finMiniBtn" type="button" onClick={() => openReassign(row)}>Reassign</button>}
+                        {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openPaid(row)}>Paid</button>}
+                        {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openVoid(row)}>Void</button>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : <tr><td colSpan={10}>No assigned detailer work found.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
       {renderModal()}
       <ToastMessage toast={toast} onClose={() => setToast(null)} />
