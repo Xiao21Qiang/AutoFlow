@@ -118,6 +118,30 @@ export default function AdminDetailerManagement() {
       ],
     });
 
+  const exportRowPdf = ({ booking, detailer, payment, commission }) =>
+    exportTabularPdf({
+      title: "Detailer Task Report",
+      subtitle: "Single assigned work record exported in tabular format.",
+      sections: [
+        {
+          columns: ["Booking ID", "Customer", "Service", "Vehicle / Plate", "Detailer", "Role", "Date", "Status", "Payment", "Commission"],
+          rows: [[
+            booking.id,
+            booking.customer,
+            booking.service,
+            `${booking.vehicle || "-"} / ${booking.plate || "-"}`,
+            booking.assigned || "-",
+            detailer.role || commission.role || "-",
+            booking.date || "-",
+            booking.status || "-",
+            payment.finalPaymentStatus || payment.status || "-",
+            commission.status || "Pending",
+          ]],
+          emptyMessage: "No detailer work record found.",
+        },
+      ],
+    });
+
   const resetActionModal = () => {
     setActionModal(null);
     setActionForm(EMPTY_ACTION_FORM);
@@ -339,7 +363,7 @@ export default function AdminDetailerManagement() {
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All booking statuses</option><option>Pending</option><option>Scheduled</option><option>In Progress</option><option>Completed</option><option>Cancelled</option></select>
           <select value={commissionFilter} onChange={(event) => setCommissionFilter(event.target.value)}><option value="">All commissions</option><option>Pending</option><option>Earned</option><option>Paid</option><option>Cancelled</option><option>Voided</option></select>
         </div>
-        <table className="finTable finCommissionTable">
+        <table className="finTable finCommissionTable finDetailerTable">
           <thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Vehicle / Plate</th><th>Assigned Detailer</th><th>Role</th><th>Status</th><th>Payment</th><th>Commission</th><th>Actions</th></tr></thead>
           <tbody>
             {rows.length ? rows.map((row) => {
@@ -356,8 +380,8 @@ export default function AdminDetailerManagement() {
                   <td>{booking.status || "-"}</td>
                   <td>{payment.finalPaymentStatus || payment.status || "-"}</td>
                   <td>{commission.status || "Pending"}</td>
-                  <td>
-                    <button className="finMiniBtn" type="button" onClick={() => window.print()}>Print</button>
+                  <td className="finActionCell">
+                    <button className="finMiniBtn" type="button" onClick={() => exportRowPdf(row)}>Print</button>
                     {canReassign && <button className="finMiniBtn" type="button" onClick={() => openReassign(row)}>Reassign</button>}
                     {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openPaid(row)}>Paid</button>}
                     {canManageDetailerCommission && commission.id && !commissionLocked && <button className="finMiniBtn" type="button" onClick={() => openVoid(row)}>Void</button>}

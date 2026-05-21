@@ -1517,6 +1517,10 @@ const STAFF_ROLE_OPTIONS = [
   "Marketing",
 ];
 
+const EMPLOYEE_STAFF_ROLE_OPTIONS = STAFF_ROLE_OPTIONS.filter((role) => role !== "Admin");
+const EMPLOYEE_STAFF_ROLE_KEYS = new Set(EMPLOYEE_STAFF_ROLE_OPTIONS.map((role) => normalizeRoleKey(role)));
+const EMPLOYEE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
 const STAFF_ROLE_LABELS = new Map(
   STAFF_ROLE_OPTIONS.map((role) => [normalizeRoleKey(role), role])
 );
@@ -1603,6 +1607,30 @@ function isValidStaffRole(role) {
 function normalizeStaffRoleForSave(role) {
   const normalizedRole = normalizeRoleKey(role);
   return STAFF_ROLE_LABELS.get(normalizedRole) || "";
+}
+
+function normalizeEmployeeStaffRoleForSave(role) {
+  const normalizedRole = normalizeRoleKey(role);
+  if (!EMPLOYEE_STAFF_ROLE_KEYS.has(normalizedRole)) return "";
+  return EMPLOYEE_STAFF_ROLE_OPTIONS.find((option) => normalizeRoleKey(option) === normalizedRole) || "";
+}
+
+function sanitizeEmployeeName(value) {
+  return String(value || "")
+    .replace(/[^\p{L}\s'.-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+}
+
+function getPasswordRuleError(password) {
+  const value = String(password || "");
+  if (value.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(value)) return "Password must include at least 1 uppercase letter.";
+  if (!/[a-z]/.test(value)) return "Password must include at least 1 lowercase letter.";
+  if (!/\d/.test(value)) return "Password must include at least 1 number.";
+  if (!/[^A-Za-z0-9]/.test(value)) return "Password must include at least 1 special character.";
+  return "";
 }
 
 const MODULE_KEYS = {
@@ -2242,6 +2270,20 @@ function sanitizeUser(user) {
   const serializedUser = typeof user.toObject === "function" ? user.toObject() : { ...user };
   delete serializedUser.password;
   return serializedUser;
+}
+
+function sanitizePreferredDetailerUser(user) {
+  if (!user) return user;
+  return {
+    id: user.id || String(user._id || ""),
+    _id: user.id || String(user._id || ""),
+    name: user.name || [user.first, user.last].filter(Boolean).join(" ").trim(),
+    fullName: user.name || [user.first, user.last].filter(Boolean).join(" ").trim(),
+    userType: "Staff",
+    role: toDisplaySubtype(user.userType, user.role),
+    status: user.status || "active",
+    isActive: true,
+  };
 }
 
 function normalizeCustomerCars(cars) {
@@ -4446,12 +4488,15 @@ function filterBootstrapDataForRole(data, authUser = {}) {
 
   if (userType === "customer") {
     const customerAuditScope = buildCustomerAuditScope(authUser, ownUser);
+    const safePreferredDetailers = data.users
+      .filter((user) => isActiveDetailerUser(user))
+      .map((user) => sanitizePreferredDetailerUser(user));
 
     return {
       ...data,
       bookings: data.bookings.filter((booking) => String(booking.customerEmail || "").trim().toLowerCase() === email),
       payments: data.payments.filter((payment) => String(payment.customerEmail || "").trim().toLowerCase() === email),
-      users: ownUser ? [ownUser] : [],
+      users: [...(ownUser ? [ownUser] : []), ...safePreferredDetailers],
       stockMonitoring: [],
       auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
       archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
@@ -6638,30 +6683,36 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
       return;
     }
 
-    const name = String(req.body.name || "").trim();
+    const rawName = String(req.body.name || "");
+    const name = sanitizeEmployeeName(rawName);
     const email = String(req.body.email || "").trim().toLowerCase();
-    const phone = String(req.body.phone || "").trim();
+    const phone = String(req.body.phone || "").replace(/\D/g, "").slice(0, 11);
     const password = String(req.body.password || "");
-    const role = normalizeStaffRoleForSave(req.body.role || USER_TYPE_DEFAULT_ROLE.staff);
+    const role = normalizeEmployeeStaffRoleForSave(req.body.role || "");
+    const passwordError = getPasswordRuleError(password);
 
     if (!name) {
       res.status(400).json({ message: "Full name is required." });
       return;
     }
-    if (!email || !email.includes("@")) {
+    if (name.length > 48 || !/^[\p{L}\s'.-]+$/u.test(name)) {
+      res.status(400).json({ message: "Full name can only contain letters, spaces, hyphens, apostrophes, and periods." });
+      return;
+    }
+    if (!email || !EMPLOYEE_EMAIL_REGEX.test(email)) {
       res.status(400).json({ message: "Valid email is required." });
       return;
     }
-    if (!phone) {
-      res.status(400).json({ message: "Contact number is required." });
+    if (!/^09\d{9}$/.test(phone)) {
+      res.status(400).json({ message: "Contact number must be 11 digits and start with 09." });
       return;
     }
-    if (password.length < 8) {
-      res.status(400).json({ message: "Password must be at least 8 characters." });
+    if (passwordError) {
+      res.status(400).json({ message: passwordError });
       return;
     }
     if (!role) {
-      res.status(400).json({ message: "Select a valid staff role." });
+      res.status(400).json({ message: "Select a valid staff role. Admin cannot be created from this form." });
       return;
     }
 

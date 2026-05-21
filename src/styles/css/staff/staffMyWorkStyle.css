@@ -157,10 +157,10 @@
 
 .mwTable th,
 .mwTable td {
-  padding: 13px 14px;
+  padding: 14px 16px;
   border-bottom: 1px solid #eef0f4;
   text-align: left;
-  vertical-align: middle;
+  vertical-align: top;
   font-size: 12px;
 }
 
@@ -175,15 +175,24 @@
 .mwTable td {
   color: #1f2937;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .mwTable tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.mwTable tbody tr:nth-child(odd) td {
+  background: #fff;
+}
+
+.mwTable tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
 .mwTable tbody tr:hover td {
-  background: #fffdf6;
+  background: #f1f5f9;
 }
 
 .mwStrong {

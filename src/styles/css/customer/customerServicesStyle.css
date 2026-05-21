@@ -543,6 +543,40 @@
   color: #fff;
 }
 
+.clSvcTextBtn:disabled,
+.clSvcPrimaryBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.clSvcConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.clSvcConfirmCard {
+  width: min(100%, 460px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.2);
+  padding: 18px;
+}
+
+.clSvcConfirmCard p {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
 @media (max-width: 640px) {
   .clSvcSearchWrap {
     width: 100%;

@@ -140,6 +140,8 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [form, setForm] = useState(createEmptyForm(serviceOptions[0]));
   const [formError, setFormError] = useState("");
+  const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const todayKey = getTodayKey();
   const savedCars = useMemo(
     () => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate),
@@ -247,6 +249,46 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     setSelectedBooking(null);
     setForm(createEmptyForm(serviceOptions[0]));
     setFormError("");
+    setShowDownPaymentConfirm(false);
+    setIsSubmittingBooking(false);
+  };
+
+  const submitCustomerBooking = async () => {
+    if (isSubmittingBooking) return;
+    try {
+      setIsSubmittingBooking(true);
+      const matchedService = bookableServices.find((service) => service.name === form.service);
+      const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
+      const preferredDetailerPayload = buildPreferredDetailerPayload(form, preferredDetailerOptions);
+      await createBooking({
+        customer: currentUser?.name || "Customer",
+        customerEmail: currentUser?.email || "",
+        date: form.date,
+        time: form.time,
+        vehicle: form.vehicle,
+        carSize: form.carSize,
+        plate: form.plate,
+        service: form.service,
+        promoId: form.promoId,
+        rewardId: form.rewardId,
+        originalAmount: Number(resolvedPrice || 0),
+        assigned: "",
+        customerRequested: true,
+        bookingSource: "customer",
+        amount: Number(resolvedPrice || 0),
+        status: "Pending Confirmation",
+        issueNote: "",
+        issueTypes: [],
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
+        ...preferredDetailerPayload,
+      });
+      setPage(1);
+      closeModal();
+    } catch (error) {
+      setFormError(error.message || "Failed to create booking.");
+      setShowDownPaymentConfirm(false);
+      setIsSubmittingBooking(false);
+    }
   };
 
   return (
@@ -351,6 +393,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setFormError("");
+                  setShowDownPaymentConfirm(false);
 
                   if (form.date && form.date < todayKey) {
                     setFormError("Please select today or a future date for your booking.");
@@ -361,37 +404,12 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     return;
                   }
 
-                  try {
-                    const matchedService = bookableServices.find((service) => service.name === form.service);
-                    const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
-                    const preferredDetailerPayload = buildPreferredDetailerPayload(form, preferredDetailerOptions);
-                    await createBooking({
-                      customer: currentUser?.name || "Customer",
-                      customerEmail: currentUser?.email || "",
-                      date: form.date,
-                      time: form.time,
-                      vehicle: form.vehicle,
-                      carSize: form.carSize,
-                      plate: form.plate,
-                      service: form.service,
-                      promoId: form.promoId,
-                      rewardId: form.rewardId,
-                      originalAmount: Number(resolvedPrice || 0),
-                      assigned: "",
-                      customerRequested: true,
-                      bookingSource: "customer",
-                      amount: Number(resolvedPrice || 0),
-                      status: "Pending Confirmation",
-                      issueNote: "",
-                      issueTypes: [],
-                      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
-                      ...preferredDetailerPayload,
-                    });
-                    setPage(1);
-                    closeModal();
-                  } catch (error) {
-                    setFormError(error.message || "Failed to create booking.");
+                  if (requiresDownPayment(selectedService || form.service)) {
+                    setShowDownPaymentConfirm(true);
+                    return;
                   }
+
+                  await submitCustomerBooking();
                 }}
               >
                 <div className="clBookModalTitle">New Booking</div>
@@ -514,7 +532,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       <option value="">No preference</option>
                       {preferredDetailerOptions.map((option) => (
                         <option key={option.id} value={option.id}>
-                          {option.name}
+                          {option.label}
                         </option>
                       ))}
                     </select>
@@ -567,11 +585,30 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <button className="clBookTextBtn" type="button" onClick={closeModal}>
                     Cancel
                   </button>
-                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || !serviceOptions.length}>
-                    Submit Booking
+                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || isSubmittingBooking || !serviceOptions.length}>
+                    {isSubmittingBooking ? "Submitting..." : "Submit Booking"}
                   </button>
                 </div>
               </form>
+            )}
+
+            {modal === "add" && showDownPaymentConfirm && (
+              <div className="clBookConfirmOverlay" onClick={() => setShowDownPaymentConfirm(false)}>
+                <div className="clBookConfirmCard" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+                  <div className="clBookModalTitle">Down Payment Policy</div>
+                  <p>
+                    Down payment is required to secure your slot. The down payment is non-refundable and must be paid within 24 hours after booking. Bookings without submitted down-payment proof within 24 hours will be automatically cancelled.
+                  </p>
+                  <div className="clBookModalActions">
+                    <button className="clBookTextBtn" type="button" onClick={() => setShowDownPaymentConfirm(false)} disabled={isSubmittingBooking}>
+                      Cancel
+                    </button>
+                    <button className="clBookPrimaryBtn" type="button" onClick={submitCustomerBooking} disabled={isSubmittingBooking}>
+                      {isSubmittingBooking ? "Submitting..." : "I am willing to pay the DP"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {modal === "add" && !serviceOptions.length && (

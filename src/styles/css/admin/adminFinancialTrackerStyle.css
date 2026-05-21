@@ -353,6 +353,35 @@
   overflow-wrap: anywhere;
 }
 
+.finDetailerTable th {
+  padding: 12px 10px;
+}
+
+.finDetailerTable td {
+  padding: 14px 10px;
+  line-height: 1.4;
+}
+
+.finDetailerTable tbody tr:nth-child(odd) td {
+  background: #fff;
+}
+
+.finDetailerTable tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.finDetailerTable tbody tr:hover td {
+  background: #f1f5f9;
+}
+
+.finActionCell {
+  min-width: 190px;
+}
+
+.finActionCell .finMiniBtn {
+  margin: 3px;
+}
+
 .finTable tbody tr:last-child td {
   border-bottom: none;
 }

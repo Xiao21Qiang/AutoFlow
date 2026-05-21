@@ -44,6 +44,7 @@ export function exportTabularPdf({ title, subtitle = "", sections = [] }) {
   if (!printWindow) return;
 
   const sectionHtml = sections.map(renderTable).join("");
+  const generatedAt = new Date().toLocaleString();
 
   printWindow.document.open();
   printWindow.document.write(`
@@ -72,6 +73,12 @@ export function exportTabularPdf({ title, subtitle = "", sections = [] }) {
             margin: 0 0 20px;
             color: #475569;
             font-size: 13px;
+          }
+
+          .generated {
+            margin: -12px 0 20px;
+            color: #64748b;
+            font-size: 11px;
           }
 
           .section {
@@ -119,6 +126,7 @@ export function exportTabularPdf({ title, subtitle = "", sections = [] }) {
       <body>
         <h1>${escapeHtml(title || "Report")}</h1>
         ${subtitle ? `<p class="subtitle">${escapeHtml(subtitle)}</p>` : ""}
+        <p class="generated">Generated ${escapeHtml(generatedAt)}</p>
         ${sectionHtml}
       </body>
     </html>

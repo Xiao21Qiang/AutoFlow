@@ -28,6 +28,10 @@ export function getPreferredDetailerOptions(users = []) {
   return (Array.isArray(users) ? users : [])
     .filter((user) => String(user?.userType || "").trim().toLowerCase() === "staff")
     .filter((user) => isDetailerRole(user?.role))
+    .filter((user) => {
+      const status = String(user?.status || "active").trim().toLowerCase();
+      return user?.isActive !== false && !["inactive", "disabled", "deactivated"].includes(status);
+    })
     .map((user) => {
       const name = String(
         user?.name || `${String(user?.first || "").trim()} ${String(user?.last || "").trim()}`.trim() || user?.email || ""
@@ -36,7 +40,7 @@ export function getPreferredDetailerOptions(users = []) {
       return {
         id,
         name,
-        label: name,
+        label: `${name} — ${String(user?.role || "").trim()}`,
         role: String(user?.role || "").trim(),
       };
     })

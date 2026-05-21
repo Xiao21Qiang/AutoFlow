@@ -18,6 +18,11 @@ import {
   isPaidStatus,
 } from "../../utils/paymentStages";
 import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
+import {
+  checkPaymentReference,
+  getReferenceCheckMessage,
+  getReferenceCheckUnavailableReason,
+} from "../../utils/paymentReferenceChecker";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
@@ -70,6 +75,11 @@ const CLASS_NAMES = {
     amountGrid: "payAmountGrid",
     hint: "payStageHint",
     proofName: "payProofName",
+    referenceChecker: "payReferenceChecker",
+    referenceCheckerTop: "payReferenceCheckerTop",
+    checkerBtn: "payReferenceCheckBtn",
+    checkerBadge: "payReferenceBadge",
+    checkerMeta: "payReferenceMeta",
   },
   staff: {
     wrap: "stPayWrap",
@@ -108,6 +118,11 @@ const CLASS_NAMES = {
     amountGrid: "stPayAmountGrid",
     hint: "stPayStageHint",
     proofName: "stPayProofName",
+    referenceChecker: "stPayReferenceChecker",
+    referenceCheckerTop: "stPayReferenceCheckerTop",
+    checkerBtn: "stPayReferenceCheckBtn",
+    checkerBadge: "stPayReferenceBadge",
+    checkerMeta: "stPayReferenceMeta",
   },
 };
 
@@ -155,6 +170,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const [form, setForm] = useState(getPaymentFormDefaults());
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [referenceChecks, setReferenceChecks] = useState({});
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -184,6 +200,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const openPayment = (payment) => {
     setSelectedPayment(payment);
     setForm(getPaymentFormDefaults(payment));
+    setReferenceChecks({});
   };
 
   const exportPdf = () =>
@@ -226,6 +243,54 @@ export default function PaymentTrackingView({ role = "admin" }) {
         {src && <div className={classes.proofWrap}><img className={classes.proof} src={src} alt={`${label} proof`} /></div>}
         {fileName && <div className={classes.proofName}>{fileName}</div>}
       </>
+    );
+  };
+
+  const runReferenceCheck = async (stageKey, payload) => {
+    setReferenceChecks((prev) => ({
+      ...prev,
+      [stageKey]: { status: "checking", message: "Reading payment proof..." },
+    }));
+    const result = await checkPaymentReference(payload);
+    setReferenceChecks((prev) => ({ ...prev, [stageKey]: result }));
+  };
+
+  const renderReferenceChecker = (stageKey, { method, reference, proofImage }) => {
+    const unavailableReason = getReferenceCheckUnavailableReason({ method, reference, proofImage });
+    const result = referenceChecks[stageKey] || (unavailableReason
+      ? { status: unavailableReason, message: getReferenceCheckMessage(unavailableReason) }
+      : null);
+    const status = result?.status || "ready";
+    const isTerminalNotice = ["cash", "no-proof", "no-reference"].includes(status);
+    const canRun = !unavailableReason && status !== "checking";
+
+    return (
+      <div className={classes.referenceChecker}>
+        <div className={classes.referenceCheckerTop}>
+          <div>
+            <strong>Reference Number Checker</strong>
+            <span>Compare the submitted reference with the uploaded proof image.</span>
+          </div>
+          <button
+            className={classes.checkerBtn}
+            type="button"
+            onClick={() => runReferenceCheck(stageKey, { method, reference, proofImage })}
+            disabled={!canRun}
+          >
+            {status === "checking" ? "Checking..." : "Check Reference"}
+          </button>
+        </div>
+        {result ? (
+          <div className={`${classes.checkerBadge} ${status}`}>
+            {result.message}
+          </div>
+        ) : (
+          <div className={`${classes.checkerBadge} ready`}>Ready to check proof image text.</div>
+        )}
+        {!isTerminalNotice && result?.detectedText ? (
+          <div className={classes.checkerMeta}>Detected text reviewed locally in this browser.</div>
+        ) : null}
+      </div>
     );
   };
 
@@ -387,6 +452,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   "Down payment",
                   { noProofRequired: String(selectedPayment.downPaymentMethod || selectedPayment.method || "").trim().toLowerCase() === "cash" }
                 )}
+                {renderReferenceChecker("downPayment", {
+                  method: selectedPayment.downPaymentMethod || selectedPayment.method,
+                  reference: selectedPayment.downPaymentReference || selectedPayment.reference,
+                  proofImage: selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
+                })}
               </div>
 
               <div className={classes.section}>
@@ -419,6 +489,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   "Full payment",
                   { noProofRequired: String(selectedPayment.finalPaymentMethod || "").trim().toLowerCase() === "cash" }
                 )}
+                {renderReferenceChecker("finalPayment", {
+                  method: selectedPayment.finalPaymentMethod,
+                  reference: selectedPayment.finalPaymentReference,
+                  proofImage: selectedPayment.finalPaymentProofUrl,
+                })}
               </div>
 
               <div className={classes.modalActions}>

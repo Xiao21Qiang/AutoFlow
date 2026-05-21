@@ -9,6 +9,8 @@ export const STAFF_ROLE_OPTIONS = [
   "Marketing",
 ];
 
+export const EMPLOYEE_STAFF_ROLE_OPTIONS = STAFF_ROLE_OPTIONS.filter((role) => role !== "Admin");
+
 export const DETAILER_ROLE_OPTIONS = [
   "Junior Detailer",
   "Senior Detailer",

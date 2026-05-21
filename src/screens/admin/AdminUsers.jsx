@@ -5,6 +5,7 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import {
+  EMPLOYEE_STAFF_ROLE_OPTIONS,
   STAFF_ROLE_OPTIONS,
   getStaffRoleLabel,
   isValidStaffRole,
@@ -22,7 +23,53 @@ const ROLE_OPTIONS_BY_USER_TYPE = {
   Customer: ["New", "Returning"],
 };
 
-const EMPLOYEE_ROLE_OPTIONS = ROLE_OPTIONS_BY_USER_TYPE.Staff;
+const EMPLOYEE_ROLE_OPTIONS = EMPLOYEE_STAFF_ROLE_OPTIONS;
+const EMPLOYEE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+function sanitizeEmployeeNameInput(value) {
+  return String(value || "")
+    .replace(/[^\p{L}\s'.-]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .slice(0, 48);
+}
+
+function normalizeEmployeeName(value) {
+  return sanitizeEmployeeNameInput(value).trim().replace(/\s+/g, " ");
+}
+
+function getPasswordChecks(password) {
+  const value = String(password || "");
+  return [
+    { key: "length", label: "At least 8 characters", met: value.length >= 8 },
+    { key: "uppercase", label: "At least 1 uppercase letter", met: /[A-Z]/.test(value) },
+    { key: "lowercase", label: "At least 1 lowercase letter", met: /[a-z]/.test(value) },
+    { key: "number", label: "At least 1 number", met: /\d/.test(value) },
+    { key: "special", label: "At least 1 special character", met: /[^A-Za-z0-9]/.test(value) },
+  ];
+}
+
+function validateEmployeeForm(form) {
+  const name = normalizeEmployeeName(form.name);
+  const email = String(form.email || "").trim().toLowerCase();
+  const phone = String(form.phone || "").replace(/\D/g, "").slice(0, 11);
+  const role = String(form.role || "").trim();
+  const password = String(form.password || "");
+  const passwordChecks = getPasswordChecks(password);
+
+  if (!name) return { error: "Full name is required." };
+  if (name.length > 48) return { error: "Full name must be 48 characters or less." };
+  if (!/^[\p{L}\s'.-]+$/u.test(name)) return { error: "Full name can only contain letters, spaces, hyphens, apostrophes, and periods." };
+  if (!email) return { error: "Email is required." };
+  if (!EMPLOYEE_EMAIL_REGEX.test(email)) return { error: "Enter a valid email address." };
+  if (!phone) return { error: "Contact number is required." };
+  if (!/^09\d{9}$/.test(phone)) return { error: "Contact number must be 11 digits and start with 09." };
+  if (!EMPLOYEE_ROLE_OPTIONS.includes(role)) return { error: "Select a valid staff role. Admin cannot be created from this form." };
+  if (!password) return { error: "Password is required." };
+  const failedPasswordCheck = passwordChecks.find((check) => !check.met);
+  if (failedPasswordCheck) return { error: failedPasswordCheck.label + "." };
+
+  return { error: "", payload: { name, email, phone, role, password } };
+}
 
 function normalizeUserType(user) {
   const normalizedUserType = String(user?.userType || "").trim().toLowerCase();
@@ -90,6 +137,7 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
   const [employeeForm, setEmployeeForm] = useState(() => createEmployeeForm());
+  const [employeeError, setEmployeeError] = useState("");
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const canManageStaff = canPerformAction(currentUser, ACTION_KEYS.usersManageStaff);
@@ -131,6 +179,7 @@ export default function AdminUsers() {
     setModal(null);
     setSelectedUser(null);
     setEmployeeForm(createEmployeeForm());
+    setEmployeeError("");
   };
 
   const showToast = (type, message) => {
@@ -241,10 +290,13 @@ export default function AdminUsers() {
             {modal === "employee" && (
               <form className="usersEditForm" onSubmit={(e) => {
                 e.preventDefault();
-                if (!isValidStaffRole(employeeForm.role)) {
-                  showToast("error", "Select a valid staff role before creating this employee.");
+                const validation = validateEmployeeForm(employeeForm);
+                if (validation.error) {
+                  setEmployeeError(validation.error);
+                  showToast("error", validation.error);
                   return;
                 }
+                setEmployeeError("");
                 setSecurityConfirm({
                   mode: "currentPassword",
                   title: "Create Employee Account",
@@ -252,11 +304,7 @@ export default function AdminUsers() {
                   onConfirm: async ({ secret }) => {
                     try {
                       await createEmployeeAccount({
-                        ...employeeForm,
-                        name: employeeForm.name.trim(),
-                        email: employeeForm.email.trim(),
-                        phone: employeeForm.phone.trim(),
-                        password: employeeForm.password,
+                        ...validation.payload,
                         currentPassword: secret,
                       });
                       setSecurityConfirm(null);
@@ -271,16 +319,22 @@ export default function AdminUsers() {
               }}>
                 <div className="usersModalTitle">Add Employee Account</div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Full Name</span><input value={employeeForm.name} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
-                  <label className="usersField"><span>Email</span><input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, email: e.target.value }))} required /></label>
+                  <label className="usersField"><span>Full Name</span><input maxLength={48} value={employeeForm.name} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, name: sanitizeEmployeeNameInput(e.target.value) })); }} required /></label>
+                  <label className="usersField"><span>Email</span><input type="email" value={employeeForm.email} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() })); }} required /></label>
                 </div>
                 <div className="usersFieldGrid usersFieldGridEven">
-                  <label className="usersField"><span>Contact Number</span><input value={employeeForm.phone} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, phone: e.target.value }))} required /></label>
+                  <label className="usersField"><span>Contact Number</span><input inputMode="numeric" maxLength={11} value={employeeForm.phone} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) })); }} required /></label>
                   <label className="usersField"><span>Role</span><select value={employeeForm.role} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, role: e.target.value }))} required>{EMPLOYEE_ROLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
                 </div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Password</span><input type="password" value={employeeForm.password} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="Minimum 8 characters" required /></label>
+                  <label className="usersField"><span>Password</span><input type="password" value={employeeForm.password} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, password: e.target.value })); }} placeholder="Minimum 8 characters" required /></label>
                 </div>
+                <div className="usersPasswordChecklist">
+                  {getPasswordChecks(employeeForm.password).map((check) => (
+                    <span key={check.key} className={check.met ? "met" : ""}>{check.label}</span>
+                  ))}
+                </div>
+                {employeeError ? <div className="usersFieldError">{employeeError}</div> : null}
                 <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersPrimaryBtn" type="submit">Create Employee</button></div>
               </form>
             )}
