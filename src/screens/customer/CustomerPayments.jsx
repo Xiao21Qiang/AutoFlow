@@ -14,6 +14,7 @@ import {
   getRemainingBalance,
   normalizeStageStatus,
 } from "../../utils/paymentStages";
+import { checkPaymentReference } from "../../utils/paymentReferenceChecker";
 
 const SALES_TAX_RATE = 0.12;
 
@@ -176,6 +177,7 @@ export default function CustomerPayments() {
     proofFileName: "",
   });
   const [proofError, setProofError] = useState("");
+  const [proofSubmitting, setProofSubmitting] = useState(false);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -208,6 +210,7 @@ export default function CustomerPayments() {
     setProofMode("downPayment");
     setProofForm({ reference: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
+    setProofSubmitting(false);
   };
 
   const openProofModal = (payment, mode) => {
@@ -428,7 +431,12 @@ export default function CustomerPayments() {
                     )}
                     {(selectedPayment.downPaymentReference || selectedPayment.reference) && <div><strong>Reference:</strong> {selectedPayment.downPaymentReference || selectedPayment.reference}</div>}
                     {selectedPayment.rewardId && <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"} ({selectedPayment.rewardValue || selectedPayment.rewardType || "-"})</div>}
-                    {selectedPayment.proofSubmittedAt && <div><strong>Proof Submitted:</strong> {formatDate(selectedPayment.proofSubmittedAt)}</div>}
+                    {(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt) && (
+                      <div><strong>Down Payment Proof Submitted:</strong> {formatDateTime(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt)}</div>
+                    )}
+                    {selectedPayment.finalPaymentProofSubmittedAt && (
+                      <div><strong>Remaining Balance Proof Submitted:</strong> {formatDateTime(selectedPayment.finalPaymentProofSubmittedAt)}</div>
+                    )}
                   </div>
 
                   {(selectedPayment.downPaymentProofUrl || selectedPayment.proofImage) && (
@@ -459,7 +467,7 @@ export default function CustomerPayments() {
                     return;
                   }
                   if (!reference) {
-                    setProofError("Please enter a reference number.");
+                    setProofError("Reference number is required for this payment method.");
                     return;
                   }
                   if (reference.length > 80) {
@@ -467,8 +475,28 @@ export default function CustomerPayments() {
                     return;
                   }
                   if (!isCashMethod && !proofForm.proofImage) {
-                    setProofError(`Please upload a ${isFinalPaymentMode ? "final payment" : "down payment"} proof image.`);
+                    setProofError("Proof of payment is required for this payment method.");
                     return;
+                  }
+                  if (!isCashMethod) {
+                    setProofSubmitting(true);
+                    setProofError("Checking proof reference...");
+                    const referenceCheck = await checkPaymentReference({
+                      method: proofForm.method,
+                      reference,
+                      proofImage: proofForm.proofImage,
+                    });
+                    if (referenceCheck.status === "unreadable") {
+                      setProofSubmitting(false);
+                      setProofError("Validation error: Unable to read the proof of payment. Please upload a clearer image.");
+                      return;
+                    }
+                    if (referenceCheck.status !== "matched") {
+                      setProofSubmitting(false);
+                      setProofError("Validation error: Reference number does not match the uploaded proof of payment.");
+                      return;
+                    }
+                    setProofError("");
                   }
                   const proofPayload = isFinalPaymentMode
                     ? {
@@ -477,6 +505,7 @@ export default function CustomerPayments() {
                         finalPaymentReference: reference,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
+                        finalPaymentReferenceCheckStatus: isCashMethod ? "cash_not_required" : "matched",
                       }
                     : {
                         downPaymentStatus: "For Verification",
@@ -484,12 +513,15 @@ export default function CustomerPayments() {
                         downPaymentReference: reference,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
+                        downPaymentReferenceCheckStatus: isCashMethod ? "cash_not_required" : "matched",
                       };
                   try {
+                    if (isCashMethod) setProofSubmitting(true);
                     await submitPaymentProof(selectedPayment, proofPayload);
                     closeModal();
                   } catch (error) {
                     setProofError(error.message || "Failed to submit payment proof.");
+                    setProofSubmitting(false);
                   }
                 }}
               >
@@ -544,7 +576,10 @@ export default function CustomerPayments() {
                   <span>Reference Number</span>
                   <input
                     value={proofForm.reference}
-                    onChange={(e) => setProofForm((prev) => ({ ...prev, reference: e.target.value }))}
+                    onChange={(e) => {
+                      setProofError("");
+                      setProofForm((prev) => ({ ...prev, reference: e.target.value }));
+                    }}
                     required
                   />
                 </label>
@@ -566,6 +601,7 @@ export default function CustomerPayments() {
                           proofImage: compressedImage,
                           proofFileName: file.name,
                         }));
+                        setProofError("");
                       } catch (_error) {
                         setProofError("Failed to process the selected image.");
                       }
@@ -585,11 +621,11 @@ export default function CustomerPayments() {
                 {proofError ? <div className="clPayFieldError">{proofError}</div> : null}
 
                 <div className="clPayModalActions">
-                  <button className="clPayTextBtn" type="button" onClick={closeModal}>
+                  <button className="clPayTextBtn" type="button" onClick={closeModal} disabled={proofSubmitting}>
                     Cancel
                   </button>
-                  <button className="clPayPrimaryBtn" type="submit">
-                    {proofMode === "finalPayment" ? "Submit Balance Proof" : "Submit"}
+                  <button className="clPayPrimaryBtn" type="submit" disabled={proofSubmitting}>
+                    {proofSubmitting ? "Checking proof reference..." : proofMode === "finalPayment" ? "Submit Balance Proof" : "Submit"}
                   </button>
                 </div>
               </form>

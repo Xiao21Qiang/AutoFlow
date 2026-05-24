@@ -187,6 +187,15 @@
 
 .auditId { font-weight: 950; }
 
+.auditActionDetail {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .auditTime {
   color: #374151;
   font-weight: 900;

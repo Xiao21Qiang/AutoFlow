@@ -18,11 +18,6 @@ import {
   isPaidStatus,
 } from "../../utils/paymentStages";
 import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
-import {
-  checkPaymentReference,
-  getReferenceCheckMessage,
-  getReferenceCheckUnavailableReason,
-} from "../../utils/paymentReferenceChecker";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
@@ -132,6 +127,18 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return String(dateStr || "");
+  return d.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatCurrency(value) {
   return `₱ ${Number(value || 0).toLocaleString()}`;
 }
@@ -170,7 +177,6 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const [form, setForm] = useState(getPaymentFormDefaults());
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
-  const [referenceChecks, setReferenceChecks] = useState({});
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -200,7 +206,6 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const openPayment = (payment) => {
     setSelectedPayment(payment);
     setForm(getPaymentFormDefaults(payment));
-    setReferenceChecks({});
   };
 
   const exportPdf = () =>
@@ -246,49 +251,39 @@ export default function PaymentTrackingView({ role = "admin" }) {
     );
   };
 
-  const runReferenceCheck = async (stageKey, payload) => {
-    setReferenceChecks((prev) => ({
-      ...prev,
-      [stageKey]: { status: "checking", message: getReferenceCheckMessage("checking") },
-    }));
-    const result = await checkPaymentReference(payload);
-    setReferenceChecks((prev) => ({ ...prev, [stageKey]: result }));
+  const getReferenceValidationDisplay = ({ method, reference, proofImage, status }) => {
+    const normalizedMethod = String(method || "").trim().toLowerCase();
+    if (normalizedMethod === "cash" || status === "cash_not_required") {
+      return { status: "cash", message: "Cash payment - reference check not required." };
+    }
+    if (!String(proofImage || "").trim()) {
+      return { status: "no-proof", message: "No payment proof available for reference checking." };
+    }
+    if (!String(reference || "").trim()) {
+      return { status: "no-reference", message: "No reference number provided by customer." };
+    }
+    if (status === "matched") {
+      return { status: "matched", message: "Reference matched during customer submission." };
+    }
+    return { status: "legacy-not-checked", message: "Reference validation not available for legacy records." };
   };
 
-  const renderReferenceChecker = (stageKey, { method, reference, proofImage }) => {
-    const unavailableReason = getReferenceCheckUnavailableReason({ method, reference, proofImage });
-    const result = referenceChecks[stageKey] || (unavailableReason
-      ? { status: unavailableReason, message: getReferenceCheckMessage(unavailableReason) }
-      : null);
-    const status = result?.status || "ready";
-    const isTerminalNotice = ["cash", "no-proof", "no-reference"].includes(status);
-    const canRun = !unavailableReason && status !== "checking";
+  const renderReferenceValidation = ({ method, reference, proofImage, status, checkedAt }) => {
+    const result = getReferenceValidationDisplay({ method, reference, proofImage, status });
 
     return (
       <div className={classes.referenceChecker}>
         <div className={classes.referenceCheckerTop}>
           <div>
-            <strong>Reference Number Checker</strong>
-            <span>Compare the submitted reference with the uploaded proof image.</span>
+            <strong>Reference Validation</strong>
+            <span>Validation happens when the customer submits proof.</span>
           </div>
-          <button
-            className={classes.checkerBtn}
-            type="button"
-            onClick={() => runReferenceCheck(stageKey, { method, reference, proofImage })}
-            disabled={!canRun}
-          >
-            {status === "checking" ? "Checking reference..." : "Check Reference"}
-          </button>
         </div>
-        {result ? (
-          <div className={`${classes.checkerBadge} ${status}`}>
-            {result.message}
-          </div>
-        ) : (
-          <div className={`${classes.checkerBadge} ready`}>Ready to check proof image text.</div>
-        )}
-        {!isTerminalNotice && result?.detectedText ? (
-          <div className={classes.checkerMeta}>Detected text reviewed locally in this browser.</div>
+        <div className={`${classes.checkerBadge} ${result.status}`}>
+          {result.message}
+        </div>
+        {checkedAt ? (
+          <div className={classes.checkerMeta}>Checked on {formatDateTime(checkedAt)}</div>
         ) : null}
       </div>
     );
@@ -442,6 +437,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <input value={formatSubmittedValue(form.downPaymentReference)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
+                    <span>Proof Submitted</span>
+                    <input value={selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt ? formatDateTime(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt) : "Not submitted"} readOnly disabled />
+                  </label>
+                  <label className={classes.field}>
                     <span>Notes</span>
                     <textarea rows="3" value={form.downPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentNotes: event.target.value }))} disabled={finalPaymentLocked} />
                   </label>
@@ -452,10 +451,12 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   "Down payment",
                   { noProofRequired: String(selectedPayment.downPaymentMethod || selectedPayment.method || "").trim().toLowerCase() === "cash" }
                 )}
-                {renderReferenceChecker("downPayment", {
+                {renderReferenceValidation({
                   method: selectedPayment.downPaymentMethod || selectedPayment.method,
                   reference: selectedPayment.downPaymentReference || selectedPayment.reference,
                   proofImage: selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
+                  status: selectedPayment.downPaymentReferenceCheckStatus,
+                  checkedAt: selectedPayment.downPaymentReferenceCheckedAt,
                 })}
               </div>
 
@@ -479,6 +480,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <input value={formatSubmittedValue(form.finalPaymentReference)} readOnly disabled />
                   </label>
                   <label className={classes.field}>
+                    <span>Proof Submitted</span>
+                    <input value={selectedPayment.finalPaymentProofSubmittedAt ? formatDateTime(selectedPayment.finalPaymentProofSubmittedAt) : "Not submitted"} readOnly disabled />
+                  </label>
+                  <label className={classes.field}>
                     <span>Notes</span>
                     <textarea rows="3" value={form.finalPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentNotes: event.target.value }))} disabled={!finalPaymentReviewable || finalPaymentLocked} />
                   </label>
@@ -489,10 +494,12 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   "Full payment",
                   { noProofRequired: String(selectedPayment.finalPaymentMethod || "").trim().toLowerCase() === "cash" }
                 )}
-                {renderReferenceChecker("finalPayment", {
+                {renderReferenceValidation({
                   method: selectedPayment.finalPaymentMethod,
                   reference: selectedPayment.finalPaymentReference,
                   proofImage: selectedPayment.finalPaymentProofUrl,
+                  status: selectedPayment.finalPaymentReferenceCheckStatus,
+                  checkedAt: selectedPayment.finalPaymentReferenceCheckedAt,
                 })}
               </div>
 

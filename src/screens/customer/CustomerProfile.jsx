@@ -79,6 +79,13 @@ function createEmptyCar() {
   return { brand: "", vehicle: "", size: "", plate: "" };
 }
 
+function getAuditDetail(log) {
+  const meta = log?.meta || {};
+  if (meta.message) return String(meta.message);
+  if (meta.proofSubmittedAtDisplay) return `Submitted on ${meta.proofSubmittedAtDisplay}`;
+  return "";
+}
+
 export default function CustomerProfile({ session }) {
   const { currentUser, auditLogs, updateProfile, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
   const initial = useMemo(
@@ -527,6 +534,7 @@ export default function CustomerProfile({ session }) {
                     {personalAuditLogs.map((log, index) => (
                       <div key={`${log.id || "activity"}-${index}`} className="clActivityItem">
                         <div className="clActivityAction">{log.action || "Account activity"}</div>
+                        {getAuditDetail(log) ? <div className="clActivityDetail">{getAuditDetail(log)}</div> : null}
                         <div className="clActivityMeta">
                           <span>{log.targetId || "Profile"}</span>
                           <span>{log.ts || "Recent"}</span>

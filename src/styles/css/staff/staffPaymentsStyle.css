@@ -497,7 +497,8 @@
 .stPayReferenceBadge.no-reference,
 .stPayReferenceBadge.ready,
 .stPayReferenceBadge.checking,
-.stPayReferenceBadge.cash {
+.stPayReferenceBadge.cash,
+.stPayReferenceBadge.legacy-not-checked {
   background: #f8fafc;
   color: #475569;
   border: 1px solid #e2e8f0;

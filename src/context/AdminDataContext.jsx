@@ -487,7 +487,6 @@ export function AdminDataProvider({ children, session }) {
         body: JSON.stringify({
           ...payload,
           status: "For Verification",
-          proofSubmittedAt: new Date().toISOString(),
           auditUser,
         }),
       }),

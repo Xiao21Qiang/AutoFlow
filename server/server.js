@@ -2615,6 +2615,49 @@ async function recordAudit(userId, action, targetId, meta) {
   });
 }
 
+function formatAuditDateTime(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Submission time not recorded";
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function buildPaymentProofAuditMeta(payment = {}, stage, submittedAt, details = {}) {
+  const stageLabel = stage === "finalPayment" ? "Full Payment / Remaining Balance" : "Down Payment";
+  const method = details.method || "";
+  const reference = details.reference || "";
+  const proofFileName = details.proofFileName || "";
+  const referenceValidationResult = details.referenceValidationResult || "";
+  const referenceValidationLabel = referenceValidationResult === "matched"
+    ? "Reference matched"
+    : referenceValidationResult === "cash_not_required"
+      ? "Cash payment - reference check not required"
+      : referenceValidationResult || "Reference validation not available";
+  const submittedAtDisplay = formatAuditDateTime(submittedAt);
+  const actionText = stage === "finalPayment" ? "full-payment/remaining-balance" : "down-payment";
+
+  return {
+    type: "payment-proof-submitted",
+    paymentStage: stageLabel,
+    bookingId: payment.bookingId || "",
+    customer: payment.customer || "",
+    customerEmail: payment.customerEmail || "",
+    proofSubmittedAt: submittedAt instanceof Date ? submittedAt.toISOString() : "",
+    proofSubmittedAtDisplay: submittedAtDisplay,
+    method,
+    reference,
+    proofFileName,
+    referenceValidationResult,
+    message: `Customer submitted ${actionText} proof for Booking ${payment.bookingId || payment.id || ""} on ${submittedAtDisplay}. Method: ${method || "-"}. Reference: ${reference || "-"}. Proof file: ${proofFileName || "-"}. Validation: ${referenceValidationLabel}.`,
+  };
+}
+
 function addDownPaymentDeadline(createdAt = new Date()) {
   const base = createdAt instanceof Date && !Number.isNaN(createdAt.getTime()) ? createdAt : new Date();
   return new Date(base.getTime() + DOWN_PAYMENT_DEADLINE_MS);
@@ -3104,6 +3147,8 @@ function normalizePaymentStageFields(payment = {}) {
     downPaymentProofUrl: source.downPaymentProofUrl || "",
     downPaymentProofName: source.downPaymentProofName || "",
     downPaymentProofSubmittedAt: source.downPaymentProofSubmittedAt || null,
+    downPaymentReferenceCheckStatus: source.downPaymentReferenceCheckStatus || "",
+    downPaymentReferenceCheckedAt: source.downPaymentReferenceCheckedAt || null,
     downPaymentVerifiedAt: source.downPaymentVerifiedAt || null,
     downPaymentVerifiedBy: source.downPaymentVerifiedBy || "",
     downPaymentNotes: source.downPaymentNotes || "",
@@ -3122,6 +3167,9 @@ function normalizePaymentStageFields(payment = {}) {
     finalPaymentReference: source.finalPaymentReference || source.reference || "",
     finalPaymentProofUrl: source.finalPaymentProofUrl || source.proofImage || "",
     finalPaymentProofName: source.finalPaymentProofName || source.proofFileName || "",
+    finalPaymentProofSubmittedAt: source.finalPaymentProofSubmittedAt || null,
+    finalPaymentReferenceCheckStatus: source.finalPaymentReferenceCheckStatus || "",
+    finalPaymentReferenceCheckedAt: source.finalPaymentReferenceCheckedAt || null,
     finalPaymentVerifiedAt: source.finalPaymentVerifiedAt || (isPaidStatus(source.status) ? source.reviewedAt || null : null),
     finalPaymentVerifiedBy: source.finalPaymentVerifiedBy || (isPaidStatus(source.status) ? source.reviewedBy || "" : ""),
     finalPaymentNotes: source.finalPaymentNotes || source.notes || "",
@@ -3139,6 +3187,8 @@ function getPaymentStageFields(payment = {}) {
     downPaymentProofUrl: normalized.downPaymentProofUrl,
     downPaymentProofName: normalized.downPaymentProofName,
     downPaymentProofSubmittedAt: normalized.downPaymentProofSubmittedAt,
+    downPaymentReferenceCheckStatus: normalized.downPaymentReferenceCheckStatus,
+    downPaymentReferenceCheckedAt: normalized.downPaymentReferenceCheckedAt,
     downPaymentVerifiedAt: normalized.downPaymentVerifiedAt,
     downPaymentVerifiedBy: normalized.downPaymentVerifiedBy,
     downPaymentNotes: normalized.downPaymentNotes,
@@ -3157,6 +3207,9 @@ function getPaymentStageFields(payment = {}) {
     finalPaymentReference: normalized.finalPaymentReference,
     finalPaymentProofUrl: normalized.finalPaymentProofUrl,
     finalPaymentProofName: normalized.finalPaymentProofName,
+    finalPaymentProofSubmittedAt: normalized.finalPaymentProofSubmittedAt,
+    finalPaymentReferenceCheckStatus: normalized.finalPaymentReferenceCheckStatus,
+    finalPaymentReferenceCheckedAt: normalized.finalPaymentReferenceCheckedAt,
     finalPaymentVerifiedAt: normalized.finalPaymentVerifiedAt,
     finalPaymentVerifiedBy: normalized.finalPaymentVerifiedBy,
     finalPaymentNotes: normalized.finalPaymentNotes,
@@ -4460,7 +4513,14 @@ function isCustomerScopedAuditLog(log) {
   return getAuditCustomerScopeValues(log).length > 0;
 }
 
+function isPaymentProofSubmissionAuditLog(log) {
+  if (log?.meta?.type === "payment-proof-submitted") return true;
+  const action = String(log?.action || "").trim().toLowerCase();
+  return (action === "full payment proof submitted" || action === "remaining balance proof submitted") && Boolean(log?.meta?.proofSubmittedAt);
+}
+
 function isAdminVisibleAuditLog(log, actorTypeLookup) {
+  if (isPaymentProofSubmissionAuditLog(log)) return true;
   const actorType = getAuditActorType(log, actorTypeLookup);
   if (actorType === "admin" || actorType === "staff") return true;
   if (actorType === "system") {
@@ -6321,6 +6381,12 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Down payment proof image is required." });
         return;
       }
+      // OCR matching is performed in the customer's browser with Tesseract.js before this request.
+      // The backend still enforces required non-cash proof/reference fields and requires the client validation marker.
+      if (downPaymentProofRequired && String(req.body.downPaymentReferenceCheckStatus || "").trim() !== "matched") {
+        res.status(400).json({ message: "Reference validation is required before submitting down payment proof." });
+        return;
+      }
     }
     if (isCustomerFinalPaymentSubmission) {
       const currentDownPaymentStatus = normalizePaymentStageStatus(
@@ -6361,6 +6427,12 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       }
       if (finalPaymentProofRequired && !String(req.body.finalPaymentProofUrl || "").trim()) {
         res.status(400).json({ message: "Final payment proof image is required." });
+        return;
+      }
+      // OCR matching is performed in the customer's browser with Tesseract.js before this request.
+      // The backend still enforces required non-cash proof/reference fields and requires the client validation marker.
+      if (finalPaymentProofRequired && String(req.body.finalPaymentReferenceCheckStatus || "").trim() !== "matched") {
+        res.status(400).json({ message: "Reference validation is required before submitting final payment proof." });
         return;
       }
     }
@@ -6458,6 +6530,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const customerSubmittedFinalPaymentIsCash = String(customerSubmittedFinalPaymentMethod || "").trim().toLowerCase() === "cash";
     const preservedReviewerDownPaymentMethod = normalizePaymentMethodLabel(existingPayment.downPaymentMethod || existingPayment.method || "");
     const preservedReviewerFinalPaymentMethod = normalizePaymentMethodLabel(existingPayment.finalPaymentMethod || existingPayment.method || "");
+    const proofSubmissionServerDate = isCustomerSubmittingOwnPayment && (isCustomerDownPaymentSubmission || isCustomerFinalPaymentSubmission)
+      ? new Date()
+      : null;
+    const proofSubmissionIso = proofSubmissionServerDate ? proofSubmissionServerDate.toISOString() : "";
     const reviewFields =
       actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
         ? {
@@ -6498,6 +6574,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentReference: String(req.body.finalPaymentReference || "").trim().slice(0, 80),
           finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofUrl || ""),
           finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofName || ""),
+          finalPaymentProofSubmittedAt: proofSubmissionServerDate,
+          finalPaymentReferenceCheckStatus: customerSubmittedFinalPaymentIsCash ? "cash_not_required" : "matched",
+          finalPaymentReferenceCheckedAt: proofSubmissionServerDate,
           finalPaymentNotes: existingPayment.finalPaymentNotes || "",
           auditUser: actorEmail,
           ...rewardPricing,
@@ -6509,14 +6588,16 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           notes: existingPayment.notes || "",
           proofImage: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.proofImage || ""),
           proofFileName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.proofFileName || ""),
-          proofSubmittedAt: req.body.proofSubmittedAt || new Date().toISOString(),
+          proofSubmittedAt: proofSubmissionIso,
           status: "For Verification",
           downPaymentStatus: "For Verification",
           downPaymentMethod: customerSubmittedDownPaymentMethod,
           downPaymentReference: String(req.body.downPaymentReference || req.body.reference || "").trim().slice(0, 80),
           downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || ""),
           downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || ""),
-          downPaymentProofSubmittedAt: existingPayment.downPaymentProofSubmittedAt || new Date(),
+          downPaymentProofSubmittedAt: proofSubmissionServerDate,
+          downPaymentReferenceCheckStatus: customerSubmittedDownPaymentIsCash ? "cash_not_required" : "matched",
+          downPaymentReferenceCheckedAt: proofSubmissionServerDate,
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
           finalPaymentMethod: existingPayment.finalPaymentMethod || "",
@@ -6596,11 +6677,29 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       stagedNextPayload,
       { new: true }
     );
+    const proofAuditStage = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission
+      ? "finalPayment"
+      : isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission
+        ? "downPayment"
+        : "";
+    const proofAuditAction = proofAuditStage === "finalPayment"
+      ? "Full Payment Proof Submitted"
+      : proofAuditStage === "downPayment"
+        ? "Down Payment Proof Submitted"
+        : "";
+    const proofAuditMeta = proofAuditStage
+      ? buildPaymentProofAuditMeta(payment, proofAuditStage, proofSubmissionServerDate, {
+          method: proofAuditStage === "finalPayment" ? payment.finalPaymentMethod : payment.downPaymentMethod,
+          reference: proofAuditStage === "finalPayment" ? payment.finalPaymentReference : payment.downPaymentReference,
+          proofFileName: proofAuditStage === "finalPayment" ? payment.finalPaymentProofName : payment.downPaymentProofName,
+          referenceValidationResult: proofAuditStage === "finalPayment" ? payment.finalPaymentReferenceCheckStatus : payment.downPaymentReferenceCheckStatus,
+        })
+      : null;
     await recordAudit(
       req.authUser?.email || req.body.auditUser,
-      getPaymentAuditAction(existingPayment, stagedNextPayload),
+      proofAuditAction || getPaymentAuditAction(existingPayment, stagedNextPayload),
       req.params.id,
-      {
+      proofAuditMeta || {
         status: payment?.status || req.body.status || "",
         method: payment?.method || req.body.method || "",
         bookingId: payment?.bookingId || existingPayment?.bookingId || "",

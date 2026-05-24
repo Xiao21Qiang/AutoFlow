@@ -7,6 +7,13 @@ import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
+function getAuditDetail(log) {
+  const meta = log?.meta || {};
+  if (meta.message) return String(meta.message);
+  if (meta.proofSubmittedAtDisplay) return `Submitted on ${meta.proofSubmittedAtDisplay}`;
+  return "";
+}
+
 export default function AdminAuditLogs() {
   const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs, currentUser } = useAdminData();
   const [query, setQuery] = useState("");
@@ -23,7 +30,7 @@ export default function AdminAuditLogs() {
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
     return sourceLogs.filter((l) => {
-      const matchesQuery = !q || `${l.id} ${l.userId} ${l.action} ${l.ts}`.toLowerCase().includes(q);
+      const matchesQuery = !q || `${l.id} ${l.userId} ${l.action} ${l.ts} ${getAuditDetail(l)}`.toLowerCase().includes(q);
       const matchesUser = !filters.userId || l.userId === filters.userId;
       const matchesAction = !filters.action || l.action === filters.action;
       return matchesQuery && matchesUser && matchesAction;
@@ -65,11 +72,12 @@ export default function AdminAuditLogs() {
       subtitle: "Filtered audit trail exported in tabular format.",
       sections: [
         {
-          columns: ["Audit ID", "User ID", "Action", "Target ID", "Timestamp"],
+          columns: ["Audit ID", "User ID", "Action", "Details", "Target ID", "Timestamp"],
           rows: filtered.map((log) => [
             log.id || "-",
             log.userId || "-",
             log.action || "-",
+            getAuditDetail(log) || "-",
             log.targetId || "-",
             log.ts || "-",
           ]),
@@ -156,7 +164,10 @@ export default function AdminAuditLogs() {
                 </span>
                 <span className="auditId">{r.id}</span>
                 <span>{r.userId}</span>
-                <span>{r.action}</span>
+                <span>
+                  <span>{r.action}</span>
+                  {getAuditDetail(r) ? <span className="auditActionDetail">{getAuditDetail(r)}</span> : null}
+                </span>
                 <span className="auditTime">{r.ts}</span>
               </button>
             );
