@@ -251,7 +251,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
     );
   };
 
-  const getReferenceValidationDisplay = ({ method, reference, proofImage, status }) => {
+  const getReferenceValidationDisplay = ({ method, reference, proofImage, status, advisoryStatus }) => {
     const normalizedMethod = String(method || "").trim().toLowerCase();
     if (normalizedMethod === "cash" || status === "cash_not_required") {
       return { status: "cash", message: "Cash payment - reference check not required." };
@@ -262,21 +262,21 @@ export default function PaymentTrackingView({ role = "admin" }) {
     if (!String(reference || "").trim()) {
       return { status: "no-reference", message: "No reference number provided by customer." };
     }
-    if (status === "matched") {
-      return { status: "matched", message: "Reference matched during customer submission." };
+    if (advisoryStatus === "matched_advisory" || status === "submitted") {
+      return { status: "submitted", message: "Submitted with customer-side OCR advisory metadata." };
     }
     return { status: "legacy-not-checked", message: "Reference validation not available for legacy records." };
   };
 
-  const renderReferenceValidation = ({ method, reference, proofImage, status, checkedAt }) => {
-    const result = getReferenceValidationDisplay({ method, reference, proofImage, status });
+  const renderReferenceValidation = ({ method, reference, proofImage, status, advisoryStatus, checkedAt }) => {
+    const result = getReferenceValidationDisplay({ method, reference, proofImage, status, advisoryStatus });
 
     return (
       <div className={classes.referenceChecker}>
         <div className={classes.referenceCheckerTop}>
           <div>
             <strong>Reference Validation</strong>
-            <span>Validation happens when the customer submits proof.</span>
+            <span>Browser OCR is advisory. Admin or authorized staff review is authoritative.</span>
           </div>
         </div>
         <div className={`${classes.checkerBadge} ${result.status}`}>
@@ -456,6 +456,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   reference: selectedPayment.downPaymentReference || selectedPayment.reference,
                   proofImage: selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
                   status: selectedPayment.downPaymentReferenceCheckStatus,
+                  advisoryStatus: selectedPayment.downPaymentOcrAdvisoryStatus,
                   checkedAt: selectedPayment.downPaymentReferenceCheckedAt,
                 })}
               </div>
@@ -499,6 +500,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   reference: selectedPayment.finalPaymentReference,
                   proofImage: selectedPayment.finalPaymentProofUrl,
                   status: selectedPayment.finalPaymentReferenceCheckStatus,
+                  advisoryStatus: selectedPayment.finalPaymentOcrAdvisoryStatus,
                   checkedAt: selectedPayment.finalPaymentReferenceCheckedAt,
                 })}
               </div>

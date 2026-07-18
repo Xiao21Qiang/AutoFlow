@@ -39,7 +39,18 @@ function createExpenseForm() {
 }
 
 export default function AdminFinancialTracker() {
-  const { expenses, commissions, payments, users, createExpense, currentUser, generateFinancialInterpretation } = useAdminData();
+  const {
+    expenses,
+    commissions,
+    payments,
+    users,
+    createExpense,
+    updateExpense,
+    archiveExpense,
+    restoreExpense,
+    currentUser,
+    generateFinancialInterpretation,
+  } = useAdminData();
   const [expenseQuery, setExpenseQuery] = useState("");
   const [expenseType, setExpenseType] = useState("All types");
   const [expensePage, setExpensePage] = useState(1);
@@ -54,14 +65,18 @@ export default function AdminFinancialTracker() {
   const [aiInterpretation, setAiInterpretation] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [aiMessage, setAiMessage] = useState("");
+  const [showArchivedExpenses, setShowArchivedExpenses] = useState(false);
+  const [editingExpenseId, setEditingExpenseId] = useState("");
   const canCreateExpense = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
+  const activeExpenses = useMemo(() => expenses.filter((item) => item.archived !== true), [expenses]);
+  const visibleExpenseSource = showArchivedExpenses ? expenses : activeExpenses;
 
   const paidPayments = useMemo(
     () => payments.filter((item) => getRecognizedRevenue(item) > 0),
     [payments]
   );
   const totalRevenue = useMemo(() => paidPayments.reduce((sum, item) => sum + getRecognizedRevenue(item), 0), [paidPayments]);
-  const totalExpenses = useMemo(() => expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0), [expenses]);
+  const totalExpenses = useMemo(() => activeExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0), [activeExpenses]);
   const totalCommissions = useMemo(() => commissions.reduce((sum, item) => sum + Number(item.earned || 0), 0), [commissions]);
   const staffOptions = useMemo(
     () =>
@@ -73,14 +88,14 @@ export default function AdminFinancialTracker() {
   );
 
   const filteredExpenses = useMemo(() => {
-    return expenses.filter((item) => {
+    return visibleExpenseSource.filter((item) => {
       const matchesText = `${item.description} ${item.note} ${item.category} ${item.paidBy}`.toLowerCase().includes(expenseQuery.toLowerCase());
       const matchesType = expenseType === "All types" || item.category === expenseType;
       const matchesFrom = !dateFrom || item.date >= dateFrom;
       const matchesTo = !dateTo || item.date <= dateTo;
       return matchesText && matchesType && matchesFrom && matchesTo;
     });
-  }, [expenses, expenseQuery, expenseType, dateFrom, dateTo]);
+  }, [visibleExpenseSource, expenseQuery, expenseType, dateFrom, dateTo]);
   const expensePageSize = 5;
   const expenseTotalPages = useMemo(
     () => Math.max(1, Math.ceil(filteredExpenses.length / expensePageSize)),
@@ -237,7 +252,22 @@ export default function AdminFinancialTracker() {
   };
 
   const openExpenseModal = () => {
+    setEditingExpenseId("");
     setExpenseForm(createExpenseForm());
+    setFormError("");
+    setModal("expense");
+  };
+
+  const openEditExpenseModal = (expense) => {
+    setEditingExpenseId(expense.id || "");
+    setExpenseForm({
+      date: expense.date || "",
+      description: expense.description || "",
+      note: expense.note || "",
+      category: expense.category || "Materials",
+      amount: String(expense.amount || ""),
+      paidBy: expense.paidBy || "",
+    });
     setFormError("");
     setModal("expense");
   };
@@ -317,13 +347,18 @@ export default function AdminFinancialTracker() {
       message: "Enter the special PIN before saving this expense.",
       onConfirm: async () => {
         try {
-      await createExpense({
+      const payload = {
         ...expenseForm,
         description: expenseForm.description.trim(),
         note: expenseForm.note.trim(),
         paidBy: expenseForm.paidBy.trim(),
         amount: Number(expenseForm.amount || 0),
-      });
+      };
+      if (editingExpenseId) {
+        await updateExpense(editingExpenseId, payload);
+      } else {
+        await createExpense(payload);
+      }
       setModal(null);
       setFormError("");
           setSecurityConfirm(null);
@@ -347,6 +382,9 @@ export default function AdminFinancialTracker() {
 
         <div className="finTopActions">
           <button className="finExportBtn" type="button" onClick={exportPdf}>Export as PDF</button>
+          <button className="finGhostBtn" type="button" onClick={() => setShowArchivedExpenses((value) => !value)}>
+            {showArchivedExpenses ? "Hide Archived" : "Show Archived"}
+          </button>
           {canCreateExpense && <button className="finPrimaryBtn" type="button" onClick={openExpenseModal}>+ Add Expense</button>}
         </div>
       </div>
@@ -388,8 +426,23 @@ export default function AdminFinancialTracker() {
                     <td><div className="finMainText">{item.description}</div>{item.note && <div className="finSubText">{item.note}</div>}</td>
                     <td><span className={`finTag ${CATEGORY_COLORS[item.category] || "violet"}`}>{item.category}</span></td>
                     <td className="finExpenseAmount">{peso(item.amount)}</td>
-                    <td>{item.paidBy}</td>
-                    <td><div className="finActionRow"><button className="finTinyEdit" type="button">Saved</button></div></td>
+                    <td>{item.paidBy}{item.archived ? <div className="finSubText">Archived</div> : null}</td>
+                    <td>
+                      <div className="finActionRow">
+                        {canCreateExpense ? (
+                          <>
+                            <button className="finTinyEdit" type="button" onClick={() => openEditExpenseModal(item)}>Edit</button>
+                            {item.archived ? (
+                              <button className="finTinyEdit" type="button" onClick={() => restoreExpense(item.id)}>Restore</button>
+                            ) : (
+                              <button className="finTinyEdit" type="button" onClick={() => archiveExpense(item.id)}>Archive</button>
+                            )}
+                          </>
+                        ) : (
+                          <button className="finTinyEdit" type="button" disabled>Read only</button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -499,7 +552,7 @@ export default function AdminFinancialTracker() {
           <div className="finModalCard" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <button className="finModalClose" type="button" onClick={closeModal}>x</button>
             <div className="finModalHeader">
-              <div className="finModalTitle">Add Expense</div>
+              <div className="finModalTitle">{editingExpenseId ? "Edit Expense" : "Add Expense"}</div>
               <div className="finModalSub">Record a new business expense for the tracker.</div>
             </div>
 
@@ -539,7 +592,7 @@ export default function AdminFinancialTracker() {
             <div className="finModalActions">
               <button className="finGhostBtn" type="button" onClick={closeModal} disabled={saving}>Cancel</button>
               <button className="finPrimaryBtn" type="button" onClick={handleExpenseSave} disabled={saving}>
-                {saving ? "Saving..." : "Save Expense"}
+                {saving ? "Saving..." : editingExpenseId ? "Update Expense" : "Save Expense"}
               </button>
             </div>
           </div>

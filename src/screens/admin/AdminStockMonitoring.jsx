@@ -12,9 +12,9 @@ import icoFilter from "../../styles/icons/filter.png";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Tools"];
 const STOCK_LEGEND = [
-  { tone: "danger", label: "Critical", range: "0% - 25%", note: "Needs restock soon" },
-  { tone: "warning", label: "Low", range: "26% - 60%", note: "Watch usage level" },
-  { tone: "healthy", label: "Healthy", range: "61% - 100%", note: "Stock level is good" },
+  { tone: "danger", label: "Critical", range: "At or below half reorder level", note: "Needs restock soon" },
+  { tone: "warning", label: "Low", range: "At or below reorder level", note: "Watch usage level" },
+  { tone: "healthy", label: "Healthy", range: "Above reorder level", note: "Stock level is good" },
 ];
 
 function clampNumber(value) {
@@ -27,9 +27,10 @@ function getConfiguredMaxStock(value) {
   return maxStock > 0 ? maxStock : 0;
 }
 
-function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
+function validateStockLimit({ currentStock, maxStock, reorderLevel = null, qtyToAdd = null }) {
   const nextCurrentStock = clampNumber(currentStock);
   const nextMaxStock = clampNumber(maxStock);
+  const nextReorderLevel = reorderLevel === null || reorderLevel === "" ? null : clampNumber(reorderLevel);
   const configuredMaxStock = getConfiguredMaxStock(nextMaxStock);
 
   if (nextCurrentStock < 0) {
@@ -38,6 +39,12 @@ function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
 
   if (nextMaxStock < 0) {
     return "Max stock quantity cannot be negative.";
+  }
+  if (nextReorderLevel !== null && nextReorderLevel < 0) {
+    return "Reorder level cannot be negative.";
+  }
+  if (configuredMaxStock && nextReorderLevel !== null && nextReorderLevel > configuredMaxStock) {
+    return `Reorder level cannot exceed the max stock quantity of ${configuredMaxStock}.`;
   }
 
   if (qtyToAdd !== null) {
@@ -90,9 +97,9 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const [modal, setModal] = useState(null);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
-  const [editForm, setEditForm] = useState({ name: "", category: "", currentStock: "", maxStock: "", pricePerUnit: "" });
+  const [editForm, setEditForm] = useState({ name: "", category: "", currentStock: "", maxStock: "", reorderLevel: "", pricePerUnit: "" });
   const [restockForm, setRestockForm] = useState({ date: formatDateInput(), itemName: "", currentStock: "", qtyToAdd: "", restockedBy: "Admin", costPerUnit: "", supplier: "", notes: "" });
-  const [addForm, setAddForm] = useState({ name: "", category: "Coating", currentStock: "0", maxStock: "0", pricePerUnit: "0" });
+  const [addForm, setAddForm] = useState({ name: "", category: "Coating", currentStock: "0", maxStock: "0", reorderLevel: "0", pricePerUnit: "0" });
 
   const selectedItem = stockMonitoring.find((item) => item.id === selectedItemId) || null;
   const filtered = useMemo(() => {
@@ -146,16 +153,18 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const handleEditSubmit = async (event) => {
     event.preventDefault();
     try {
+      const nextReorderLevel = editForm.reorderLevel === "" ? selectedItem.reorderLevel : editForm.reorderLevel;
       const validationMessage = validateStockLimit({
         currentStock: editForm.currentStock,
         maxStock: editForm.maxStock,
+        reorderLevel: nextReorderLevel,
       });
       if (validationMessage) {
         showToast("error", validationMessage);
         return;
       }
 
-      await updateStockMonitoringItem(selectedItem.id, { ...selectedItem, name: editForm.name.trim(), category: editForm.category, currentStock: clampNumber(editForm.currentStock), maxStock: clampNumber(editForm.maxStock), pricePerUnit: clampNumber(editForm.pricePerUnit) });
+      await updateStockMonitoringItem(selectedItem.id, { ...selectedItem, name: editForm.name.trim(), category: editForm.category, currentStock: clampNumber(editForm.currentStock), maxStock: clampNumber(editForm.maxStock), reorderLevel: clampNumber(nextReorderLevel), pricePerUnit: clampNumber(editForm.pricePerUnit) });
       showToast("success", "Stock item updated.");
       setModal(null);
     } catch (error) {
@@ -187,7 +196,16 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const handleAddSubmit = async (event) => {
     event.preventDefault();
     try {
-      await createStockMonitoringItem({ name: addForm.name.trim(), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] });
+      const validationMessage = validateStockLimit({
+        currentStock: addForm.currentStock,
+        maxStock: addForm.maxStock,
+        reorderLevel: addForm.reorderLevel,
+      });
+      if (validationMessage) {
+        showToast("error", validationMessage);
+        return;
+      }
+      await createStockMonitoringItem({ name: addForm.name.trim(), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), reorderLevel: clampNumber(addForm.reorderLevel), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] });
       setPage(1);
       showToast("success", "Stock item added.");
       setModal(null);
@@ -211,11 +229,47 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
 
       <div className="invPagerRow"><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button><span className="invPagerNum">{safePage}</span><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>
 
-      {modal === "edit" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleEditSubmit}><div className="invModalTitle">Edit Stock Monitoring Item</div><label className="invField"><span>Item Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={editForm.category} onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={editForm.currentStock} onChange={(e) => setEditForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={editForm.maxStock} onChange={(e) => setEditForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Unit Cost (P)</span><input type="number" value={editForm.pricePerUnit} onChange={(e) => setEditForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Item</button></div></form></div></div>}
+      {modal === "edit" && selectedItem && (
+        <div className="invModalOverlay">
+          <div className="invModalCard">
+            <button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button>
+            <form onSubmit={handleEditSubmit}>
+              <div className="invModalTitle">Edit Stock Monitoring Item</div>
+              <label className="invField"><span>Item Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+              <label className="invField"><span>Category</span><select value={editForm.category} onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+              <div className="invFieldGrid">
+                <label className="invField"><span>Current Stock (Qty)</span><input type="number" min="0" value={editForm.currentStock} onChange={(e) => setEditForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label>
+                <label className="invField"><span>Max Stock (Qty)</span><input type="number" min="0" value={editForm.maxStock} onChange={(e) => setEditForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label>
+                <label className="invField"><span>Reorder Level</span><input type="number" min="0" value={editForm.reorderLevel} onChange={(e) => setEditForm((prev) => ({ ...prev, reorderLevel: e.target.value }))} /></label>
+              </div>
+              <label className="invField"><span>Unit Cost (P)</span><input type="number" min="0" value={editForm.pricePerUnit} onChange={(e) => setEditForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label>
+              <div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Item</button></div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {modal === "restock" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleRestockSubmit}><div className="invModalTitle">Restock Item</div><label className="invField"><span>Date</span><input type="date" value={restockForm.date} readOnly /></label><label className="invField"><span>Quantity to Add</span><input type="number" value={restockForm.qtyToAdd} onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))} /></label><label className="invField"><span>Unit Cost</span><input type="number" value={restockForm.costPerUnit} onChange={(e) => setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Restock</button></div></form></div></div>}
 
-      {modal === "add" && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleAddSubmit}><div className="invModalTitle invModalTitleAdd">Add Item</div><label className="invField"><span>Item Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label><label className="invField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><div className="invFieldGrid"><label className="invField"><span>Current Stock (Qty)</span><input type="number" value={addForm.currentStock} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label><label className="invField"><span>Max Stock (Qty)</span><input type="number" value={addForm.maxStock} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label></div><label className="invField"><span>Price Per Unit (P)</span><input type="number" value={addForm.pricePerUnit} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label><div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Add Item</button></div></form></div></div>}
+      {modal === "add" && (
+        <div className="invModalOverlay">
+          <div className="invModalCard">
+            <button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button>
+            <form onSubmit={handleAddSubmit}>
+              <div className="invModalTitle invModalTitleAdd">Add Item</div>
+              <label className="invField"><span>Item Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+              <label className="invField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+              <div className="invFieldGrid">
+                <label className="invField"><span>Current Stock (Qty)</span><input type="number" min="0" value={addForm.currentStock} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label>
+                <label className="invField"><span>Max Stock (Qty)</span><input type="number" min="0" value={addForm.maxStock} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label>
+                <label className="invField"><span>Reorder Level</span><input type="number" min="0" value={addForm.reorderLevel} onChange={(e) => setAddForm((prev) => ({ ...prev, reorderLevel: e.target.value }))} /></label>
+              </div>
+              <label className="invField"><span>Price Per Unit (P)</span><input type="number" min="0" value={addForm.pricePerUnit} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label>
+              <div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Add Item</button></div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {modal === "delete" && selectedItem && <div className="invModalOverlay"><div className="invModalCard deleteMode"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><div className="invModalTitle">Delete Stock Monitoring Item</div><p className="usersConfirmText">Delete {selectedItem.name}? This action cannot be undone.</p><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Stock Item", message: "Enter the special PIN before deleting this stock item.", onConfirm: async ({ secret }) => { try { await deleteStockMonitoringItem(selectedItem.id, { specialPin: secret }); setSecurityConfirm(null); setPage(1); showToast("success", "Stock item deleted."); setModal(null); } catch (error) { showToast("error", error.message || "Could not delete stock item."); throw error; } } })}>Delete</button></div></div></div>}
 

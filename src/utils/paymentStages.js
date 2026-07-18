@@ -1,7 +1,7 @@
 import { getOutstandingBalance as getAuthoritativeOutstandingBalance, getRecognizedRevenue, normalizePaymentStatus } from "./businessMetrics";
 
 export const PAYMENT_STATUS_OPTIONS = ["Pending", "For Verification", "Paid", "Rejected"];
-export const PAYMENT_METHOD_OPTIONS = ["Cash", "E-Wallet", "Bank Transfer", "Online Transfer"];
+export const PAYMENT_METHOD_OPTIONS = ["Cash", "GCash", "Maya", "Bank Transfer", "E-Wallet", "Online Transfer"];
 
 export function isPaidStatus(status) {
   return normalizePaymentStatus(status, "") === "Paid";
@@ -36,10 +36,12 @@ export function isDownPaymentSatisfied(payment = {}) {
 
 export function hasCustomerFinalPaymentSubmission(payment = {}) {
   const finalStatus = normalizeStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+  const method = String(payment.finalPaymentMethod || payment.method || "").trim();
   return (
     finalStatus === "For Verification" &&
-    Boolean(String(payment.finalPaymentMethod || "").trim()) &&
+    Boolean(method) &&
     Boolean(
+      method.toLowerCase() === "cash" ||
       String(payment.finalPaymentReference || "").trim() ||
       String(payment.finalPaymentProofUrl || "").trim() ||
       String(payment.finalPaymentProofName || "").trim()

@@ -12,9 +12,9 @@ import icoFilter from "../../styles/icons/filter.png";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Tools"];
 const STOCK_LEGEND = [
-  { tone: "danger", label: "Critical", range: "0% - 25%", note: "Needs restock soon" },
-  { tone: "warning", label: "Low", range: "26% - 60%", note: "Watch usage level" },
-  { tone: "healthy", label: "Healthy", range: "61% - 100%", note: "Stock level is good" },
+  { tone: "danger", label: "Critical", range: "At or below half reorder level", note: "Needs restock soon" },
+  { tone: "warning", label: "Low", range: "At or below reorder level", note: "Watch usage level" },
+  { tone: "healthy", label: "Healthy", range: "Above reorder level", note: "Stock level is good" },
 ];
 
 function clampNumber(value) {
@@ -27,9 +27,10 @@ function getConfiguredMaxStock(value) {
   return maxStock > 0 ? maxStock : 0;
 }
 
-function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
+function validateStockLimit({ currentStock, maxStock, reorderLevel = null, qtyToAdd = null }) {
   const nextCurrentStock = clampNumber(currentStock);
   const nextMaxStock = clampNumber(maxStock);
+  const nextReorderLevel = reorderLevel === null || reorderLevel === "" ? null : clampNumber(reorderLevel);
   const configuredMaxStock = getConfiguredMaxStock(nextMaxStock);
 
   if (nextCurrentStock < 0) {
@@ -38,6 +39,12 @@ function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
 
   if (nextMaxStock < 0) {
     return "Max stock quantity cannot be negative.";
+  }
+  if (nextReorderLevel !== null && nextReorderLevel < 0) {
+    return "Reorder level cannot be negative.";
+  }
+  if (configuredMaxStock && nextReorderLevel !== null && nextReorderLevel > configuredMaxStock) {
+    return `Reorder level cannot exceed the max stock quantity of ${configuredMaxStock}.`;
   }
 
   if (qtyToAdd !== null) {
@@ -102,6 +109,7 @@ export default function StaffStockMonitoring() {
     category: "",
     currentStock: "",
     maxStock: "",
+    reorderLevel: "",
     pricePerUnit: "",
   });
   const [restockForm, setRestockForm] = useState({
@@ -119,6 +127,7 @@ export default function StaffStockMonitoring() {
     category: "Coating",
     currentStock: "0",
     maxStock: "0",
+    reorderLevel: "0",
     pricePerUnit: "0",
   });
 
@@ -163,6 +172,7 @@ export default function StaffStockMonitoring() {
       category: item.category,
       currentStock: String(item.currentStock),
       maxStock: String(item.maxStock),
+      reorderLevel: String(item.reorderLevel ?? ""),
       pricePerUnit: String(item.pricePerUnit),
     });
     setModal("edit");
@@ -195,6 +205,7 @@ export default function StaffStockMonitoring() {
       category: "Coating",
       currentStock: "0",
       maxStock: "0",
+      reorderLevel: "0",
       pricePerUnit: "0",
     });
     setModal("add");
@@ -212,6 +223,7 @@ export default function StaffStockMonitoring() {
       const validationMessage = validateStockLimit({
         currentStock: editForm.currentStock,
         maxStock: editForm.maxStock,
+        reorderLevel: editForm.reorderLevel,
       });
       if (validationMessage) {
         showToast("error", validationMessage);
@@ -224,6 +236,7 @@ export default function StaffStockMonitoring() {
         category: editForm.category,
         currentStock: clampNumber(editForm.currentStock),
         maxStock: clampNumber(editForm.maxStock),
+        reorderLevel: clampNumber(editForm.reorderLevel),
         pricePerUnit: clampNumber(editForm.pricePerUnit),
       });
       showToast("success", "Stock item updated.");
@@ -236,11 +249,21 @@ export default function StaffStockMonitoring() {
   const handleAddSubmit = async (event) => {
     event.preventDefault();
     try {
+      const validationMessage = validateStockLimit({
+        currentStock: addForm.currentStock,
+        maxStock: addForm.maxStock,
+        reorderLevel: addForm.reorderLevel,
+      });
+      if (validationMessage) {
+        showToast("error", validationMessage);
+        return;
+      }
       await createStockMonitoringItem({
         name: addForm.name.trim(),
         category: addForm.category,
         currentStock: clampNumber(addForm.currentStock),
         maxStock: clampNumber(addForm.maxStock),
+        reorderLevel: clampNumber(addForm.reorderLevel),
         pricePerUnit: clampNumber(addForm.pricePerUnit),
         lastRestocked: formatDateInput(),
         restockHistory: [],
@@ -510,6 +533,17 @@ export default function StaffStockMonitoring() {
                       required
                     />
                   </label>
+
+                  <label className="stInvField">
+                    <span>Reorder Level</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editForm.reorderLevel}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
+                      required
+                    />
+                  </label>
                 </div>
 
                 <label className="stInvField">
@@ -594,6 +628,17 @@ export default function StaffStockMonitoring() {
                       min="0"
                       value={addForm.maxStock}
                       onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))}
+                      required
+                    />
+                  </label>
+
+                  <label className="stInvField">
+                    <span>Reorder Level</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={addForm.reorderLevel}
+                      onChange={(e) => setAddForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
                       required
                     />
                   </label>

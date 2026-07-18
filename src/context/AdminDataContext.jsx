@@ -23,6 +23,12 @@ const INITIAL_DATA = {
   settings: {
     requiredDownPaymentAmount: 0,
   },
+  financialReport: {
+    totals: {},
+    payments: [],
+    expenses: [],
+    commissions: [],
+  },
   summary: {},
 };
 
@@ -480,7 +486,6 @@ export function AdminDataProvider({ children, session }) {
         body: JSON.stringify({ ...payload, auditUser }),
       }),
     updatePayment: (id, payload) => mutate("/api/admin/payments/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
-    markPaymentPaid: (payment) => mutate("/api/admin/payments/" + payment.id, { method: "PUT", body: JSON.stringify({ ...payment, status: "Paid", auditUser }) }),
     submitPaymentProof: (payment, payload) =>
       mutate("/api/admin/payments/" + payment.id, {
         method: "PUT",
@@ -523,6 +528,10 @@ export function AdminDataProvider({ children, session }) {
         body: JSON.stringify({ auditUser }),
       }),
     createExpense: (payload) => mutate("/api/admin/expenses", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateExpense: (id, payload) => mutate("/api/admin/expenses/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    archiveExpense: (id) => mutate("/api/admin/expenses/" + id + "/archive", { method: "PATCH", body: JSON.stringify({ auditUser }) }),
+    restoreExpense: (id) => mutate("/api/admin/expenses/" + id + "/restore", { method: "PATCH", body: JSON.stringify({ auditUser }) }),
+    deleteExpense: (id) => mutate("/api/admin/expenses/" + id, { method: "DELETE", body: JSON.stringify({ confirm: "delete", auditUser }) }),
     createCommission: (payload) => mutate("/api/admin/commissions", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateCommission: (id, payload) => mutate("/api/admin/commissions/" + id, { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     createReward: (payload) => mutate("/api/admin/rewards", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),

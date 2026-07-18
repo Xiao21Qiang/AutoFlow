@@ -63,7 +63,7 @@ function getTodayKey() {
 
 function formatBookingTime(value) {
   const time = String(value || "").trim();
-  return time || "Pending Assignment";
+  return time || "No time selected";
 }
 
 function requiresDownPayment(service) {
@@ -399,11 +399,6 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     setFormError("Please select today or a future date for your booking.");
                     return;
                   }
-                  if (!form.time) {
-                    setFormError("Please choose an available time slot for your selected service.");
-                    return;
-                  }
-
                   if (requiresDownPayment(selectedService || form.service)) {
                     setShowDownPaymentConfirm(true);
                     return;
@@ -498,9 +493,8 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.time}
                       onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
                       disabled={!selectedService}
-                      required
                     >
-                      <option value="">{selectedService ? "Select time" : "Select a service first"}</option>
+                      <option value="">{selectedService ? "No time selected" : "Select a service first"}</option>
                       {timeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}

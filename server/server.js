@@ -28,9 +28,12 @@ const {
 } = require("./models");
 const bookingDomain = require("./domain/bookingStatus");
 const paymentDomain = require("./domain/payments");
+const paymentMethodsDomain = require("./domain/paymentMethods");
 const stockDomain = require("./domain/stock");
 const scheduleDomain = require("./domain/schedule");
 const commissionDomain = require("./domain/commission");
+const expenseDomain = require("./domain/expenses");
+const invoiceDomain = require("./domain/invoices");
 const { buildBusinessSummary } = require("./domain/summaries");
 
 const app = express();
@@ -2554,6 +2557,69 @@ function normalizeCustomerCars(cars) {
     });
 }
 
+function normalizePlateNumber(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
+}
+
+function getCustomerCarKey(car = {}) {
+  return [
+    String(car.vehicle || car.model || "").trim().toLowerCase(),
+    normalizePlateNumber(car.plate),
+  ].join("::");
+}
+
+function validateVehicleSnapshotFields({ vehicle = "", carSize = "", plate = "" } = {}) {
+  if (!String(vehicle || "").trim()) throwValidationError("Vehicle model is required.");
+  if (!String(carSize || "").trim()) throwValidationError("Car size is required.");
+  if (!normalizePlateNumber(plate)) throwValidationError("Plate number is required.");
+}
+
+async function resolveBookingCustomerForRequest(req, { isCustomerRequested = false } = {}) {
+  if (isCustomerRequested) {
+    const customer = await User.findOne({ id: req.authUser?.id }).lean();
+    if (!customer || normalizeUserType(customer.userType, customer.role) !== "customer" || !isActiveAccount(customer)) {
+      throwValidationError("Active customer account is required.", 403);
+    }
+    return customer;
+  }
+
+  const email = String(req.body.customerEmail || "").trim().toLowerCase();
+  if (!email) return null;
+
+  const customer = await User.findOne({ email }).lean();
+  if (!customer || normalizeUserType(customer.userType, customer.role) !== "customer" || !isActiveAccount(customer)) {
+    throwValidationError("Please choose an active registered customer.");
+  }
+  return customer;
+}
+
+async function validateVehicleOwnershipForBooking({ req, customer = null, isCustomerRequested = false }) {
+  const vehicle = String(req.body.vehicle || "").trim();
+  const carSize = String(req.body.carSize || "").trim();
+  const plate = normalizePlateNumber(req.body.plate);
+  validateVehicleSnapshotFields({ vehicle, carSize, plate });
+
+  const owner = customer || (isCustomerRequested ? await User.findOne({ id: req.authUser?.id }).lean() : null);
+  const ownerCars = normalizeCustomerCars(owner?.cars || []);
+  const submittedKey = getCustomerCarKey({ vehicle, plate });
+
+  if (ownerCars.length && !ownerCars.some((car) => getCustomerCarKey(car) === submittedKey)) {
+    throwValidationError("Selected vehicle does not belong to the customer.");
+  }
+
+  const conflictingOwner = await User.findOne({
+    id: { $ne: owner?.id || req.authUser?.id || "" },
+    userType: /^customer$/i,
+    status: { $nin: ["inactive", "deactivated", "deleted"] },
+    "cars.plate": plate,
+  }).lean();
+  if (conflictingOwner) {
+    throwValidationError("Selected vehicle belongs to another customer.");
+  }
+
+  return { vehicle, carSize, plate };
+}
+
 function getVehicleCache(key) {
   const cached = vehicleReferenceCache.get(key);
   if (!cached) return null;
@@ -2865,6 +2931,60 @@ function formatAuditDateTime(value = new Date()) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function sanitizePaymentReference(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^\p{L}\p{N}\s._:-]/gu, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
+}
+
+function sanitizeProofFileName(value) {
+  return path.basename(String(value || "").trim()).replace(/[^\w .()_-]/g, "").slice(0, 120);
+}
+
+function sanitizeOcrAdvisoryStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (normalized === "matched") return "matched_advisory";
+  if (normalized === "not matched") return "not_matched_advisory";
+  if (normalized === "unreadable") return "unreadable_advisory";
+  if (normalized === "no proof") return "no_proof_advisory";
+  if (normalized === "no reference") return "no_reference_advisory";
+  return "";
+}
+
+function sanitizeOcrAdvisoryText(value) {
+  return String(value || "")
+    .replace(/[^\p{L}\p{N}\s.,:;#/_-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+}
+
+function validateProofImageInput(proofImage, proofFileName, required) {
+  const image = String(proofImage || "").trim();
+  const fileName = sanitizeProofFileName(proofFileName);
+  if (!required) return { proofImage: "", proofFileName: "" };
+  if (!image) {
+    const error = new Error("Proof of payment is required for this payment method.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (/\.\.|[<>]/.test(image) || /\.\./.test(fileName)) {
+    const error = new Error("Payment proof metadata is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const isSupportedDataUri = /^data:image\/(png|jpe?g|webp);base64,/i.test(image);
+  const isStoredOrRemoteImage = /^https?:\/\/[^<>\s]+$/i.test(image) || /^\/?uploads\/[^<>\s]+$/i.test(image);
+  if (!isSupportedDataUri && !isStoredOrRemoteImage) {
+    const error = new Error("Payment proof must be a supported image file.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return { proofImage: image, proofFileName: fileName };
 }
 
 function buildPaymentProofAuditMeta(payment = {}, stage, submittedAt, details = {}) {
@@ -3347,8 +3467,14 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     downPaymentProofSubmittedAt: source.downPaymentProofSubmittedAt || null,
     downPaymentReferenceCheckStatus: source.downPaymentReferenceCheckStatus || "",
     downPaymentReferenceCheckedAt: source.downPaymentReferenceCheckedAt || null,
+    downPaymentOcrAdvisoryStatus: source.downPaymentOcrAdvisoryStatus || "",
+    downPaymentOcrAdvisoryText: source.downPaymentOcrAdvisoryText || "",
+    downPaymentReviewStatus: source.downPaymentReviewStatus || "",
     downPaymentVerifiedAt: source.downPaymentVerifiedAt || null,
     downPaymentVerifiedBy: source.downPaymentVerifiedBy || "",
+    downPaymentRejectedAt: source.downPaymentRejectedAt || null,
+    downPaymentRejectedBy: source.downPaymentRejectedBy || "",
+    downPaymentRejectionReason: source.downPaymentRejectionReason || "",
     downPaymentNotes: source.downPaymentNotes || "",
     downPaymentDueAt: source.downPaymentDueAt || null,
     downPaymentReminderSentAt: source.downPaymentReminderSentAt || null,
@@ -3364,8 +3490,14 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     finalPaymentProofSubmittedAt: source.finalPaymentProofSubmittedAt || null,
     finalPaymentReferenceCheckStatus: source.finalPaymentReferenceCheckStatus || "",
     finalPaymentReferenceCheckedAt: source.finalPaymentReferenceCheckedAt || null,
+    finalPaymentOcrAdvisoryStatus: source.finalPaymentOcrAdvisoryStatus || "",
+    finalPaymentOcrAdvisoryText: source.finalPaymentOcrAdvisoryText || "",
+    finalPaymentReviewStatus: source.finalPaymentReviewStatus || "",
     finalPaymentVerifiedAt: source.finalPaymentVerifiedAt || (isPaidStatus(source.status) ? source.reviewedAt || null : null),
     finalPaymentVerifiedBy: source.finalPaymentVerifiedBy || (isPaidStatus(source.status) ? source.reviewedBy || "" : ""),
+    finalPaymentRejectedAt: source.finalPaymentRejectedAt || null,
+    finalPaymentRejectedBy: source.finalPaymentRejectedBy || "",
+    finalPaymentRejectionReason: source.finalPaymentRejectionReason || "",
     finalPaymentNotes: source.finalPaymentNotes || source.notes || "",
   };
 }
@@ -3383,8 +3515,14 @@ function getPaymentStageFields(payment = {}) {
     downPaymentProofSubmittedAt: normalized.downPaymentProofSubmittedAt,
     downPaymentReferenceCheckStatus: normalized.downPaymentReferenceCheckStatus,
     downPaymentReferenceCheckedAt: normalized.downPaymentReferenceCheckedAt,
+    downPaymentOcrAdvisoryStatus: normalized.downPaymentOcrAdvisoryStatus,
+    downPaymentOcrAdvisoryText: normalized.downPaymentOcrAdvisoryText,
+    downPaymentReviewStatus: normalized.downPaymentReviewStatus,
     downPaymentVerifiedAt: normalized.downPaymentVerifiedAt,
     downPaymentVerifiedBy: normalized.downPaymentVerifiedBy,
+    downPaymentRejectedAt: normalized.downPaymentRejectedAt,
+    downPaymentRejectedBy: normalized.downPaymentRejectedBy,
+    downPaymentRejectionReason: normalized.downPaymentRejectionReason,
     downPaymentNotes: normalized.downPaymentNotes,
     downPaymentDueAt: normalized.downPaymentDueAt,
     downPaymentReminderSentAt: normalized.downPaymentReminderSentAt,
@@ -3404,8 +3542,14 @@ function getPaymentStageFields(payment = {}) {
     finalPaymentProofSubmittedAt: normalized.finalPaymentProofSubmittedAt,
     finalPaymentReferenceCheckStatus: normalized.finalPaymentReferenceCheckStatus,
     finalPaymentReferenceCheckedAt: normalized.finalPaymentReferenceCheckedAt,
+    finalPaymentOcrAdvisoryStatus: normalized.finalPaymentOcrAdvisoryStatus,
+    finalPaymentOcrAdvisoryText: normalized.finalPaymentOcrAdvisoryText,
+    finalPaymentReviewStatus: normalized.finalPaymentReviewStatus,
     finalPaymentVerifiedAt: normalized.finalPaymentVerifiedAt,
     finalPaymentVerifiedBy: normalized.finalPaymentVerifiedBy,
+    finalPaymentRejectedAt: normalized.finalPaymentRejectedAt,
+    finalPaymentRejectedBy: normalized.finalPaymentRejectedBy,
+    finalPaymentRejectionReason: normalized.finalPaymentRejectionReason,
     finalPaymentNotes: normalized.finalPaymentNotes,
   };
 }
@@ -3428,15 +3572,110 @@ function isDownPaymentSatisfiedForFinalReview(payment = {}) {
 
 function hasCustomerFinalPaymentSubmission(payment = {}) {
   const finalStatus = normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+  const method = normalizePaymentMethodLabel(payment.finalPaymentMethod || payment.method || "");
   return (
     finalStatus === "For Verification" &&
-    Boolean(String(payment.finalPaymentMethod || "").trim()) &&
-    Boolean(String(payment.finalPaymentReference || "").trim() || String(payment.finalPaymentProofUrl || "").trim() || String(payment.finalPaymentProofName || "").trim())
+    Boolean(method) &&
+    (
+      isCashPaymentMethod(method) ||
+      Boolean(String(payment.finalPaymentReference || "").trim()) ||
+      Boolean(String(payment.finalPaymentProofUrl || "").trim()) ||
+      Boolean(String(payment.finalPaymentProofName || "").trim())
+    )
   );
 }
 
 function canReviewFinalPaymentStage(payment = {}) {
   return isDownPaymentSatisfiedForFinalReview(payment) && hasCustomerFinalPaymentSubmission(payment);
+}
+
+function getPaymentStageSnapshot(payment = {}, stage = "finalPayment") {
+  if (stage === "downPayment") {
+    const method = normalizePaymentMethodLabel(payment.downPaymentMethod || payment.method || "");
+    return {
+      status: normalizePaymentStageStatus(payment.downPaymentStatus, payment.downPaymentRequired === false ? "Not Required" : "Pending"),
+      method,
+      reference: payment.downPaymentReference || payment.reference || "",
+      proofUrl: payment.downPaymentProofUrl || payment.proofImage || "",
+      proofName: payment.downPaymentProofName || payment.proofFileName || "",
+      amount: Math.max(0, Number(payment.downPaymentAmount || 0) || 0),
+    };
+  }
+
+  const method = normalizePaymentMethodLabel(payment.finalPaymentMethod || payment.method || "");
+  return {
+    status: normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "Pending"),
+    method,
+    reference: payment.finalPaymentReference || payment.reference || "",
+    proofUrl: payment.finalPaymentProofUrl || payment.proofImage || "",
+    proofName: payment.finalPaymentProofName || payment.proofFileName || "",
+    amount: paymentDomain.getOutstandingBalance({
+      ...payment,
+      finalPaymentStatus: "Pending",
+      status: "Pending",
+    }),
+  };
+}
+
+function validateStageReadyForReview(payment = {}, stage = "finalPayment", nextStatus = "") {
+  const snapshot = getPaymentStageSnapshot(payment, stage);
+  const next = normalizePaymentStageStatus(nextStatus, "");
+  const current = snapshot.status;
+  if (!next || next === current) return;
+
+  if (!["Paid", "Rejected"].includes(next)) {
+    const error = new Error("Unsupported payment review status.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (current === "Paid") {
+    const error = new Error("This payment stage is already verified.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (current === "Rejected") {
+    const error = new Error("Rejected payment stages require customer resubmission before review.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (stage === "finalPayment" && !isDownPaymentSatisfiedForFinalReview(payment)) {
+    const error = new Error("Down payment must be verified before reviewing the final payment.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (next === "Paid" && current !== "For Verification") {
+    const error = new Error("Only submitted payment proof can be verified.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (next === "Rejected" && current !== "For Verification") {
+    const error = new Error("Only submitted payment proof can be rejected.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!snapshot.method) {
+    const error = new Error("Payment method is required before review.");
+    error.statusCode = 400;
+    throw error;
+  }
+  assertSupportedPaymentMethod(snapshot.method, "Payment method");
+  if (!isCashPaymentMethod(snapshot.method)) {
+    if (!String(snapshot.reference || "").trim()) {
+      const error = new Error("Reference number is required before review.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!String(snapshot.proofUrl || snapshot.proofName || "").trim()) {
+      const error = new Error("Proof of payment is required before review.");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+  if (snapshot.amount <= 0) {
+    const error = new Error("Payment stage amount must be greater than zero before review.");
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 function getVerifiedRevenueForPayment(payment = {}) {
@@ -3613,6 +3852,25 @@ async function validateScheduledRequirements({ booking, payment, bookingId = "" 
   });
 }
 
+async function validateScheduleDetails({ booking, bookingId = "" }) {
+  const date = String(booking.date || "").trim();
+  const time = String(booking.time || "").trim();
+  const placeSlot = Number(booking.placeSlot || 0);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidScheduleTime(time) || !PLACE_SLOT_OPTIONS.includes(placeSlot)) {
+    throwValidationError("A valid time and place slot are required before scheduling.");
+  }
+
+  await validateShopHours({ time, service: booking.service });
+  await validateBookingSlotAvailability({
+    bookingId,
+    date,
+    time,
+    service: booking.service,
+    placeSlot,
+  });
+}
+
 async function validateBookingCompletion({ previousBooking, nextBooking, payment, bookingId = "" }) {
   const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
 
@@ -3667,7 +3925,12 @@ async function validateBookingLifecycleTransition({ previousBooking, nextBooking
     (statusChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus)) ||
     (scheduleChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus));
 
-  if (needsScheduleGate) {
+  if (needsScheduleGate && nextStatus === "Scheduled") {
+    await validateScheduleDetails({
+      booking: nextBooking,
+      bookingId: previousBooking.id,
+    });
+  } else if (needsScheduleGate) {
     await validateScheduledRequirements({
       booking: nextBooking,
       payment,
@@ -3816,26 +4079,38 @@ function buildClaimCode() {
 }
 
 function normalizePaymentMethodLabel(method) {
-  const normalized = String(method || "").trim();
-  if (!normalized) return "";
+  return paymentMethodsDomain.normalizePaymentMethodLabel(method, "");
+}
 
-  const lowered = normalized.toLowerCase();
-  if (lowered === "gcash" || lowered === "e-wallet" || lowered === "ewallet") {
-    return "E-Wallet";
-  }
+function assertSupportedPaymentMethod(method, label = "Payment method") {
+  return paymentMethodsDomain.assertSupportedPaymentMethod(method, label);
+}
 
-  return normalized;
+function isCashPaymentMethod(method) {
+  return paymentMethodsDomain.isCashPaymentMethod(method);
 }
 
 async function migratePaymentMethods() {
-  await Payment.updateMany(
-    {
-      method: {
-        $in: ["GCash", "gcash", "Gcash", "Ewallet", "ewallet", "e-wallet"],
-      },
-    },
-    { $set: { method: "E-Wallet" } }
-  );
+  const payments = await Payment.find({
+    $or: [
+      { method: { $nin: ["", ...paymentMethodsDomain.CANONICAL_PAYMENT_METHODS] } },
+      { downPaymentMethod: { $nin: ["", ...paymentMethodsDomain.CANONICAL_PAYMENT_METHODS] } },
+      { finalPaymentMethod: { $nin: ["", ...paymentMethodsDomain.CANONICAL_PAYMENT_METHODS] } },
+    ],
+  });
+
+  for (const payment of payments) {
+    let changed = false;
+    for (const field of ["method", "downPaymentMethod", "finalPaymentMethod"]) {
+      const current = String(payment[field] || "").trim();
+      const normalized = normalizePaymentMethodLabel(current);
+      if (current && normalized && current !== normalized) {
+        payment[field] = normalized;
+        changed = true;
+      }
+    }
+    if (changed) await payment.save();
+  }
 }
 
 async function ensureBookingCommission(booking, auditUser) {
@@ -4585,6 +4860,7 @@ async function loadBootstrapData() {
     return {
       ...normalizedPayment,
       recognizedRevenueEvents: paymentDomain.getVerifiedRevenueEventsForPayment(normalizedPayment, booking),
+      invoice: invoiceDomain.buildInvoiceDto(normalizedPayment, booking),
     };
   });
   const normalizedStockMonitoring = stockMonitoring.map((item) => {
@@ -4633,6 +4909,11 @@ async function loadBootstrapData() {
     customerRewards: customerRewards.map((reward) => hydrateCustomerReward(reward, normalizedPayments)),
     settings: getSafeSecuritySettings(securitySetting),
     alerts,
+    financialReport: invoiceDomain.buildFinancialReportDto({
+      payments: normalizedPayments,
+      expenses,
+      commissions,
+    }),
     summary: {
       bookingsToday: businessSummary.bookingsToday,
       inProgressCount: businessSummary.inProgressCount,
@@ -5646,9 +5927,17 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     const bookingCustomerEmail = isCustomerRequested
       ? String(req.authUser?.email || "").trim().toLowerCase()
       : String(req.body.customerEmail || "").trim().toLowerCase();
-    const bookingCustomerName = isCustomerRequested
-      ? (req.authUser?.name || req.body.customer || "")
-      : (req.body.customer || "");
+    const resolvedCustomer = await resolveBookingCustomerForRequest(req, { isCustomerRequested });
+    const bookingCustomerName = resolvedCustomer
+      ? (resolvedCustomer.name || `${resolvedCustomer.first || ""} ${resolvedCustomer.last || ""}`.trim())
+      : isCustomerRequested
+        ? (req.authUser?.name || req.body.customer || "")
+        : (req.body.customer || "");
+    const vehicleSnapshot = await validateVehicleOwnershipForBooking({
+      req,
+      customer: resolvedCustomer,
+      isCustomerRequested,
+    });
 
     if (isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
@@ -5660,11 +5949,6 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     }
 
     await ensureBookableService(req.body.service);
-
-    if (isCustomerRequested && !bookingTime) {
-      res.status(400).json({ message: "Please choose an available time slot for your selected service." });
-      return;
-    }
 
     if (bookingTime && isCustomerRequested) {
       await validateShopHours({ time: bookingTime, service: req.body.service });
@@ -5710,18 +5994,18 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       id: createId("B"),
       customer: bookingCustomerName,
       customerEmail: bookingCustomerEmail,
-      customerId: isCustomerRequested ? req.authUser?.id || "" : String(req.body.customerId || ""),
+      customerId: isCustomerRequested ? req.authUser?.id || "" : String(resolvedCustomer?.id || req.body.customerId || ""),
       bookingSource: isCustomerRequested ? "customer" : (req.body.bookingSource || actorType),
       customerRequested: isCustomerRequested,
       createdByUserType: toDisplayUserType(actorType),
-      vehicle: String(req.body.vehicle || "").trim(),
-      carSize: String(req.body.carSize || "").trim(),
-      plate: String(req.body.plate || "").trim().toUpperCase(),
+      vehicle: vehicleSnapshot.vehicle,
+      carSize: vehicleSnapshot.carSize,
+      plate: vehicleSnapshot.plate,
       service: String(req.body.service || "").trim(),
       assigned: isCustomerRequested ? "" : String(req.body.assigned || "").trim(),
       ...preferredDetailerFields,
       date: bookingDate,
-      time: bookingTime || "Pending Assignment",
+      time: bookingTime,
       status: "Pending",
       placeSlot: canCreateWithPlaceSlot && bookingTime ? bookingPlaceSlot : 0,
       ...pricing,
@@ -5896,6 +6180,37 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       });
     }
 
+    const isCustomerOriginBooking = existingBooking.customerRequested === true || String(existingBooking.bookingSource || "").trim().toLowerCase() === "customer";
+    if (isCustomerOriginBooking) {
+      const lockedCustomerFields = [
+        "customer",
+        "customerEmail",
+        "customerId",
+        "vehicle",
+        "carSize",
+        "plate",
+        "service",
+        "promoId",
+        "promoTitle",
+        "promoDiscountPercent",
+        "promoDiscountAmount",
+        "rewardId",
+        "rewardName",
+        "rewardType",
+        "rewardValue",
+        "rewardClaimCode",
+        "rewardDiscountAmount",
+      ];
+      const changedLockedField = lockedCustomerFields.find((field) => {
+        if (!Object.prototype.hasOwnProperty.call(req.body, field)) return false;
+        return String(req.body[field] ?? "") !== String(existingBooking[field] ?? "");
+      });
+      if (changedLockedField) {
+        res.status(403).json({ message: "Customer-origin booking fields are locked for this workflow." });
+        return;
+      }
+    }
+
     const requestedService = String(req.body.service || "").trim();
     if (requestedService && requestedService !== String(existingBooking.service || "").trim()) {
       await ensureBookableService(requestedService);
@@ -5980,7 +6295,9 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       await validateShopHours({ time: nextTime, service: req.body.service || existingBooking.service });
     }
 
-    const nextPromoId = String(req.body.promoId || "").trim();
+    const nextPromoId = Object.prototype.hasOwnProperty.call(req.body, "promoId")
+      ? String(req.body.promoId || "").trim()
+      : String(existingBooking.promoId || "").trim();
     const previousPromoId = String(existingBooking.promoId || "").trim();
     const promoResolution =
       nextPromoId && nextPromoId === previousPromoId
@@ -6197,6 +6514,15 @@ app.patch("/api/admin/bookings/:id/reassign-detailer", requireRoles("admin", "st
       return;
     }
 
+    const existingCommission = await Commission.findOne({
+      bookingId: booking.id,
+      status: { $nin: ["Voided", "Cancelled"] },
+    }).lean();
+    if (isCompletedStatus(booking.status) && existingCommission && Number(existingCommission.earned || 0) > 0) {
+      res.status(400).json({ message: "Completed bookings with earned commission cannot be silently reassigned." });
+      return;
+    }
+
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     await requireSpecialCredentialForRequest(req, {
       mode: "pin",
@@ -6211,7 +6537,11 @@ app.patch("/api/admin/bookings/:id/reassign-detailer", requireRoles("admin", "st
     }
 
     const detailer = await User.findOne({
-      name: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" },
+      $or: [
+        { id: requestedDetailer },
+        { email: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" } },
+        { name: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" } },
+      ],
     }).lean();
 
     if (!isActiveDetailerUser(detailer)) {
@@ -6636,6 +6966,22 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       "finalPaymentNotes",
     ].some(hasBodyField);
     const isCustomerDownPaymentSubmission = actorType === "customer" && !isCustomerFinalPaymentSubmission;
+    const administrativeCustomerFieldAttempt = actorType === "customer" && [
+      "matched",
+      "verified",
+      "approved",
+      "isVerified",
+      "reviewedAt",
+      "reviewedBy",
+      "downPaymentVerifiedAt",
+      "downPaymentVerifiedBy",
+      "finalPaymentVerifiedAt",
+      "finalPaymentVerifiedBy",
+      "downPaymentReviewStatus",
+      "finalPaymentReviewStatus",
+      "amountPaid",
+      "remainingBalance",
+    ].some((field) => Object.prototype.hasOwnProperty.call(req.body, field));
     for (const field of ["status", "downPaymentStatus", "finalPaymentStatus"]) {
       if (
         Object.prototype.hasOwnProperty.call(req.body, field) &&
@@ -6657,11 +7003,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       res.status(403).json({ message: "Customers cannot mark payments as paid." });
       return;
     }
-    if (
-      actorType === "customer" &&
-      ["amountPaid", "remainingBalance", "downPaymentVerifiedAt", "downPaymentVerifiedBy", "finalPaymentVerifiedAt", "finalPaymentVerifiedBy"]
-        .some((field) => Object.prototype.hasOwnProperty.call(req.body, field))
-    ) {
+    if (administrativeCustomerFieldAttempt) {
       res.status(403).json({ message: "Customers cannot update payment verification fields." });
       return;
     }
@@ -6702,9 +7044,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Down payment method is required." });
         return;
       }
-      const submittedDownPaymentMethod = normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || "");
-      const downPaymentProofRequired = String(submittedDownPaymentMethod || "").trim().toLowerCase() !== "cash";
-      if (!String(req.body.downPaymentReference || req.body.reference || "").trim()) {
+      const submittedDownPaymentMethod = assertSupportedPaymentMethod(req.body.downPaymentMethod || req.body.method || "", "Down payment method");
+      const downPaymentProofRequired = !isCashPaymentMethod(submittedDownPaymentMethod);
+      if (downPaymentProofRequired && !String(req.body.downPaymentReference || req.body.reference || "").trim()) {
         res.status(400).json({ message: "Reference number is required." });
         return;
       }
@@ -6712,16 +7054,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Reference number must be 80 characters or less." });
         return;
       }
-      if (downPaymentProofRequired && !String(req.body.downPaymentProofUrl || req.body.proofImage || "").trim()) {
-        res.status(400).json({ message: "Down payment proof image is required." });
-        return;
-      }
-      // OCR matching is performed in the customer's browser with Tesseract.js before this request.
-      // The backend still enforces required non-cash proof/reference fields and requires the client validation marker.
-      if (downPaymentProofRequired && String(req.body.downPaymentReferenceCheckStatus || "").trim() !== "matched") {
-        res.status(400).json({ message: "Reference validation is required before submitting down payment proof." });
-        return;
-      }
+      validateProofImageInput(req.body.downPaymentProofUrl || req.body.proofImage || "", req.body.downPaymentProofName || req.body.proofFileName || "", downPaymentProofRequired);
     }
     if (isCustomerFinalPaymentSubmission) {
       const currentDownPaymentStatus = normalizePaymentStageStatus(
@@ -6750,9 +7083,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Final payment method is required." });
         return;
       }
-      const submittedFinalPaymentMethod = normalizePaymentMethodLabel(req.body.finalPaymentMethod || "");
-      const finalPaymentProofRequired = String(submittedFinalPaymentMethod || "").trim().toLowerCase() !== "cash";
-      if (!String(req.body.finalPaymentReference || "").trim()) {
+      const submittedFinalPaymentMethod = assertSupportedPaymentMethod(req.body.finalPaymentMethod || "", "Final payment method");
+      const finalPaymentProofRequired = !isCashPaymentMethod(submittedFinalPaymentMethod);
+      if (finalPaymentProofRequired && !String(req.body.finalPaymentReference || "").trim()) {
         res.status(400).json({ message: "Reference number is required." });
         return;
       }
@@ -6760,16 +7093,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Reference number must be 80 characters or less." });
         return;
       }
-      if (finalPaymentProofRequired && !String(req.body.finalPaymentProofUrl || "").trim()) {
-        res.status(400).json({ message: "Final payment proof image is required." });
-        return;
-      }
-      // OCR matching is performed in the customer's browser with Tesseract.js before this request.
-      // The backend still enforces required non-cash proof/reference fields and requires the client validation marker.
-      if (finalPaymentProofRequired && String(req.body.finalPaymentReferenceCheckStatus || "").trim() !== "matched") {
-        res.status(400).json({ message: "Reference validation is required before submitting final payment proof." });
-        return;
-      }
+      validateProofImageInput(req.body.finalPaymentProofUrl || "", req.body.finalPaymentProofName || "", finalPaymentProofRequired);
     }
     if (
       actorType === "customer" &&
@@ -6811,9 +7135,41 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       return;
     }
 
+    const requestedTotalAmount = getPaymentTotalAmount({
+      ...existingPayment,
+      totalAmount: req.body.totalAmount ?? existingPayment.totalAmount,
+      finalAmount: req.body.finalAmount ?? existingPayment.finalAmount,
+      amount: req.body.amount ?? existingPayment.amount,
+    });
+    for (const field of ["amount", "originalAmount", "finalAmount", "totalAmount", "downPaymentAmount", "amountPaid", "remainingBalance"]) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        const numericValue = Number(req.body[field]);
+        if (!Number.isFinite(numericValue) || numericValue < 0) {
+          res.status(400).json({ message: "Payment amounts cannot be negative." });
+          return;
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "downPaymentAmount") && Number(req.body.downPaymentAmount || 0) > requestedTotalAmount) {
+      res.status(400).json({ message: "Down payment amount cannot exceed the payment total." });
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "amountPaid") && Number(req.body.amountPaid || 0) > requestedTotalAmount) {
+      res.status(400).json({ message: "Verified amount cannot exceed the payment total." });
+      return;
+    }
+
     const isMarkingPaid = isPaidStatus(nextStatus) && !isPaidStatus(existingPayment.status);
     const isMarkingDownPaymentPaid = nextDownPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.downPaymentStatus, "") !== "Paid";
     const isMarkingFinalPaymentPaid = nextFinalPaymentStatus === "Paid" && normalizePaymentStageStatus(existingPayment.finalPaymentStatus, "") !== "Paid";
+    const isRejectingDownPayment = isPaymentReviewer && nextDownPaymentStatus === "Rejected" && normalizePaymentStageStatus(existingPayment.downPaymentStatus, "") !== "Rejected";
+    const isRejectingFinalPayment = isPaymentReviewer && nextFinalPaymentStatus === "Rejected" && normalizePaymentStageStatus(existingPayment.finalPaymentStatus, "") !== "Rejected";
+    if (isPaymentReviewer && (isMarkingDownPaymentPaid || isRejectingDownPayment)) {
+      validateStageReadyForReview(existingPayment, "downPayment", nextDownPaymentStatus);
+    }
+    if (isPaymentReviewer && (isMarkingFinalPaymentPaid || isRejectingFinalPayment || isMarkingPaid)) {
+      validateStageReadyForReview(existingPayment, "finalPayment", isMarkingPaid ? "Paid" : nextFinalPaymentStatus);
+    }
     if (isPaymentReviewer && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
       await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin", actionKey: ACTION_KEYS.paymentVerify });
 
@@ -6863,6 +7219,18 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const customerSubmittedDownPaymentIsCash = String(customerSubmittedDownPaymentMethod || "").trim().toLowerCase() === "cash";
     const customerSubmittedFinalPaymentMethod = normalizePaymentMethodLabel(req.body.finalPaymentMethod || existingPayment.finalPaymentMethod || "");
     const customerSubmittedFinalPaymentIsCash = String(customerSubmittedFinalPaymentMethod || "").trim().toLowerCase() === "cash";
+    const sanitizedDownPaymentProof = validateProofImageInput(
+      req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || existingPayment.proofImage || "",
+      req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || existingPayment.proofFileName || "",
+      isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission && !customerSubmittedDownPaymentIsCash
+    );
+    const sanitizedFinalPaymentProof = validateProofImageInput(
+      req.body.finalPaymentProofUrl || existingPayment.finalPaymentProofUrl || "",
+      req.body.finalPaymentProofName || existingPayment.finalPaymentProofName || "",
+      isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission && !customerSubmittedFinalPaymentIsCash
+    );
+    const downPaymentOcrAdvisoryStatus = sanitizeOcrAdvisoryStatus(req.body.downPaymentOcrAdvisoryStatus || req.body.downPaymentReferenceCheckStatus || req.body.referenceValidationResult || "");
+    const finalPaymentOcrAdvisoryStatus = sanitizeOcrAdvisoryStatus(req.body.finalPaymentOcrAdvisoryStatus || req.body.finalPaymentReferenceCheckStatus || req.body.referenceValidationResult || "");
     const preservedReviewerDownPaymentMethod = normalizePaymentMethodLabel(existingPayment.downPaymentMethod || existingPayment.method || "");
     const preservedReviewerFinalPaymentMethod = normalizePaymentMethodLabel(existingPayment.finalPaymentMethod || existingPayment.method || "");
     const proofSubmissionServerDate = isCustomerSubmittingOwnPayment && (isCustomerDownPaymentSubmission || isCustomerFinalPaymentSubmission)
@@ -6882,10 +7250,24 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           ...(isMarkingDownPaymentPaid ? {
             downPaymentVerifiedAt: existingPayment.downPaymentVerifiedAt || new Date(),
             downPaymentVerifiedBy: existingPayment.downPaymentVerifiedBy || verifier,
+            downPaymentReviewStatus: "Verified",
+          } : {}),
+          ...(isRejectingDownPayment ? {
+            downPaymentRejectedAt: new Date(),
+            downPaymentRejectedBy: verifier,
+            downPaymentRejectionReason: String(req.body.downPaymentRejectionReason || req.body.rejectionReason || req.body.downPaymentNotes || req.body.notes || "").trim().slice(0, 240),
+            downPaymentReviewStatus: "Rejected",
           } : {}),
           ...(isMarkingFinalPaymentPaid || isMarkingPaid ? {
             finalPaymentVerifiedAt: existingPayment.finalPaymentVerifiedAt || new Date(),
             finalPaymentVerifiedBy: existingPayment.finalPaymentVerifiedBy || verifier,
+            finalPaymentReviewStatus: "Verified",
+          } : {}),
+          ...(isRejectingFinalPayment ? {
+            finalPaymentRejectedAt: new Date(),
+            finalPaymentRejectedBy: verifier,
+            finalPaymentRejectionReason: String(req.body.finalPaymentRejectionReason || req.body.rejectionReason || req.body.finalPaymentNotes || req.body.notes || "").trim().slice(0, 240),
+            finalPaymentReviewStatus: "Rejected",
           } : {}),
         }
       : {};
@@ -6906,12 +7288,15 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: "For Verification",
           finalPaymentMethod: customerSubmittedFinalPaymentMethod,
-          finalPaymentReference: String(req.body.finalPaymentReference || "").trim().slice(0, 80),
-          finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofUrl || ""),
-          finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : (req.body.finalPaymentProofName || ""),
+          finalPaymentReference: customerSubmittedFinalPaymentIsCash ? "" : sanitizePaymentReference(req.body.finalPaymentReference || ""),
+          finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : sanitizedFinalPaymentProof.proofImage,
+          finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : sanitizedFinalPaymentProof.proofFileName,
           finalPaymentProofSubmittedAt: proofSubmissionServerDate,
-          finalPaymentReferenceCheckStatus: customerSubmittedFinalPaymentIsCash ? "cash_not_required" : "matched",
+          finalPaymentReferenceCheckStatus: customerSubmittedFinalPaymentIsCash ? "cash_not_required" : "submitted",
           finalPaymentReferenceCheckedAt: proofSubmissionServerDate,
+          finalPaymentOcrAdvisoryStatus,
+          finalPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(req.body.finalPaymentOcrAdvisoryText || req.body.detectedText || ""),
+          finalPaymentReviewStatus: "Submitted",
           finalPaymentNotes: existingPayment.finalPaymentNotes || "",
           auditUser: actorEmail,
           ...rewardPricing,
@@ -6921,18 +7306,21 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           method: existingPayment.method || "",
           reference: existingPayment.reference || "",
           notes: existingPayment.notes || "",
-          proofImage: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.proofImage || ""),
-          proofFileName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.proofFileName || ""),
+          proofImage: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofImage,
+          proofFileName: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofFileName,
           proofSubmittedAt: proofSubmissionIso,
           status: "For Verification",
           downPaymentStatus: "For Verification",
           downPaymentMethod: customerSubmittedDownPaymentMethod,
-          downPaymentReference: String(req.body.downPaymentReference || req.body.reference || "").trim().slice(0, 80),
-          downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofUrl || req.body.proofImage || existingPayment.downPaymentProofUrl || ""),
-          downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : (req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || ""),
+          downPaymentReference: customerSubmittedDownPaymentIsCash ? "" : sanitizePaymentReference(req.body.downPaymentReference || req.body.reference || ""),
+          downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofImage,
+          downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofFileName,
           downPaymentProofSubmittedAt: proofSubmissionServerDate,
-          downPaymentReferenceCheckStatus: customerSubmittedDownPaymentIsCash ? "cash_not_required" : "matched",
+          downPaymentReferenceCheckStatus: customerSubmittedDownPaymentIsCash ? "cash_not_required" : "submitted",
           downPaymentReferenceCheckedAt: proofSubmissionServerDate,
+          downPaymentOcrAdvisoryStatus,
+          downPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(req.body.downPaymentOcrAdvisoryText || req.body.detectedText || ""),
+          downPaymentReviewStatus: "Submitted",
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
           finalPaymentMethod: existingPayment.finalPaymentMethod || "",
@@ -7759,21 +8147,114 @@ app.post("/api/admin/rewards/generate", requireRoles("admin", "staff"), requireA
 
 app.post("/api/admin/expenses", requireAdminUser, async (req, res, next) => {
   try {
+    const payload = expenseDomain.normalizeExpensePayload(req.body);
+    const validationMessage = expenseDomain.validateExpensePayload(payload);
+    if (validationMessage) {
+      res.status(400).json({ message: validationMessage });
+      return;
+    }
     const expense = await Expense.create({
       id: createId("E"),
-      date: req.body.date || new Date().toISOString().slice(0, 10),
-      description: req.body.description || "",
-      note: req.body.note || "",
-      category: req.body.category === "Stock Monitoring" ? "Supplies" : (req.body.category || "Materials"),
-      amount: Number(req.body.amount || 0),
-      paidBy: req.body.paidBy || "",
+      ...payload,
+      archived: false,
     });
-    await recordAudit(req.body.auditUser, "Created expense", expense.id, {
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Created expense", expense.id, {
       category: expense.category,
       amount: expense.amount,
       description: expense.description,
     });
     res.status(201).json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/admin/expenses/:id", requireAdminUser, async (req, res, next) => {
+  try {
+    const existingExpense = await Expense.findOne({ id: req.params.id });
+    if (!existingExpense) {
+      res.status(404).json({ message: "Expense not found." });
+      return;
+    }
+    const payload = expenseDomain.normalizeExpensePayload(req.body, existingExpense);
+    const validationMessage = expenseDomain.validateExpensePayload(payload);
+    if (validationMessage) {
+      res.status(400).json({ message: validationMessage });
+      return;
+    }
+    Object.assign(existingExpense, payload);
+    await existingExpense.save();
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Edited expense", existingExpense.id, {
+      category: existingExpense.category,
+      amount: existingExpense.amount,
+      description: existingExpense.description,
+    });
+    res.json(existingExpense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/expenses/:id/archive", requireAdminUser, async (req, res, next) => {
+  try {
+    const expense = await Expense.findOne({ id: req.params.id });
+    if (!expense) {
+      res.status(404).json({ message: "Expense not found." });
+      return;
+    }
+    expense.archived = true;
+    expense.archivedAt = new Date().toISOString();
+    expense.archivedBy = req.authUser?.email || req.body.auditUser || "";
+    await expense.save();
+    await recordAudit(expense.archivedBy, "Archived expense", expense.id, {
+      category: expense.category,
+      amount: expense.amount,
+    });
+    res.json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/expenses/:id/restore", requireAdminUser, async (req, res, next) => {
+  try {
+    const expense = await Expense.findOne({ id: req.params.id });
+    if (!expense) {
+      res.status(404).json({ message: "Expense not found." });
+      return;
+    }
+    expense.archived = false;
+    expense.archivedAt = "";
+    expense.archivedBy = "";
+    await expense.save();
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Restored expense", expense.id, {
+      category: expense.category,
+      amount: expense.amount,
+    });
+    res.json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin/expenses/:id", requireAdminUser, async (req, res, next) => {
+  try {
+    const confirmed = String(req.body.confirm || req.query.confirm || "").trim().toLowerCase();
+    if (confirmed !== "delete") {
+      res.status(400).json({ message: "Type delete to confirm expense deletion." });
+      return;
+    }
+    const expense = await Expense.findOneAndDelete({ id: req.params.id });
+    if (!expense) {
+      res.status(404).json({ message: "Expense not found." });
+      return;
+    }
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Deleted expense", expense.id, {
+      category: expense.category,
+      amount: expense.amount,
+      description: expense.description,
+    });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

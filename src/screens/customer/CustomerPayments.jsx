@@ -88,6 +88,24 @@ function getCustomerProofAction(payment = {}) {
 }
 
 function getInvoiceBreakdown(payment) {
+  if (payment?.invoice) {
+    return {
+      originalTotal: Number(payment.invoice.originalServiceAmount || 0),
+      promoDiscount: Number(payment.invoice.promoDiscountAmount || 0),
+      rewardDiscount: Number(payment.invoice.rewardDiscountAmount || 0),
+      originalSubtotal: 0,
+      promoDiscountSubtotal: 0,
+      rewardDiscountSubtotal: 0,
+      totalDiscount: Number(payment.invoice.discountAmount || 0),
+      subtotal: Number(payment.subtotalAfterDiscount || 0),
+      tax: Number(payment.taxAmount || 0),
+      total: Number(payment.invoice.finalAmountDue || 0),
+      verifiedDownPayment: Number(payment.invoice.verifiedDownPayment || 0),
+      verifiedFinalPayment: Number(payment.invoice.verifiedFinalPayment || 0),
+      totalVerifiedPaid: Number(payment.invoice.totalVerifiedPaid || 0),
+      outstandingBalance: Number(payment.invoice.outstandingBalance || 0),
+    };
+  }
   const total = Number(payment?.amount || 0);
   const originalTotal = Number(payment?.originalAmount || total);
   const promoDiscount = Number(payment?.promoDiscountAmount || 0);
@@ -466,7 +484,7 @@ export default function CustomerPayments() {
                     setProofError(`Please select a ${isFinalPaymentMode ? "final payment" : "down payment"} method.`);
                     return;
                   }
-                  if (!reference) {
+                  if (!isCashMethod && !reference) {
                     setProofError("Reference number is required for this payment method.");
                     return;
                   }
@@ -498,22 +516,23 @@ export default function CustomerPayments() {
                     }
                     setProofError("");
                   }
+                  const ocrStatus = isCashMethod ? "cash_not_required" : "matched";
                   const proofPayload = isFinalPaymentMode
                     ? {
                         finalPaymentStatus: "For Verification",
                         finalPaymentMethod: proofForm.method,
-                        finalPaymentReference: reference,
+                        finalPaymentReference: isCashMethod ? "" : reference,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        finalPaymentReferenceCheckStatus: isCashMethod ? "cash_not_required" : "matched",
+                        finalPaymentOcrAdvisoryStatus: ocrStatus,
                       }
                     : {
                         downPaymentStatus: "For Verification",
                         downPaymentMethod: proofForm.method,
-                        downPaymentReference: reference,
+                        downPaymentReference: isCashMethod ? "" : reference,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        downPaymentReferenceCheckStatus: isCashMethod ? "cash_not_required" : "matched",
+                        downPaymentOcrAdvisoryStatus: ocrStatus,
                       };
                   try {
                     if (isCashMethod) setProofSubmitting(true);
@@ -580,7 +599,7 @@ export default function CustomerPayments() {
                       setProofError("");
                       setProofForm((prev) => ({ ...prev, reference: e.target.value }));
                     }}
-                    required
+                    required={!isCashPaymentMethod(proofForm.method)}
                   />
                 </label>
 
