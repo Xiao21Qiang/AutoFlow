@@ -12,11 +12,12 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-async function loadTrackingRecord(bookingId) {
-  return await apiRequest(`/api/tracking/${encodeURIComponent(bookingId)}`);
+async function loadTrackingRecord(bookingId, publicToken) {
+  const encodedValue = encodeURIComponent(bookingId);
+  return await apiRequest(publicToken ? `/api/public/tracking/${encodedValue}` : `/api/tracking/${encodedValue}`);
 }
 
-export default function CustomerTrackingView() {
+export default function CustomerTrackingView({ publicToken = false }) {
   const { bookingId } = useParams();
   const normalizedBookingId = String(bookingId || "").trim();
   const [record, setRecord] = useState(null);
@@ -33,7 +34,7 @@ export default function CustomerTrackingView() {
           throw new Error("Tracking record not found.");
         }
 
-        const payload = await loadTrackingRecord(normalizedBookingId);
+        const payload = await loadTrackingRecord(normalizedBookingId, publicToken);
         if (!ignore) {
           setRecord(payload);
           setError("");
@@ -53,7 +54,7 @@ export default function CustomerTrackingView() {
     return () => {
       ignore = true;
     };
-  }, [normalizedBookingId]);
+  }, [normalizedBookingId, publicToken]);
 
   const timeline = useMemo(() => {
     const status = String(record?.status || "").toLowerCase();

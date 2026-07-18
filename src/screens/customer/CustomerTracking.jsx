@@ -26,20 +26,26 @@ function resolvePublicClientUrl() {
   return `${window.location.protocol}//${window.location.host}`;
 }
 
-function buildTrackingUrl(bookingId) {
-  const safeId = encodeURIComponent(String(bookingId || "").trim());
+function buildTrackingUrl(bookingOrToken) {
+  const safeToken = encodeURIComponent(String(bookingOrToken?.trackingAccessToken || bookingOrToken || "").trim());
   const publicClientUrl = resolvePublicClientUrl();
 
-  if (!safeId || !publicClientUrl) {
+  if (!safeToken || !publicClientUrl) {
     return "";
   }
 
-  return `${publicClientUrl}/tracking/${safeId}`;
+  return `${publicClientUrl}/tracking-token/${safeToken}`;
 }
 
-function buildWarrantyUrl(bookingId) {
-  const trackingUrl = buildTrackingUrl(bookingId);
-  return trackingUrl ? `${trackingUrl}/warranty` : "";
+function buildWarrantyUrl(bookingOrToken) {
+  const safeToken = encodeURIComponent(String(bookingOrToken?.warrantyAccessToken || bookingOrToken || "").trim());
+  const publicClientUrl = resolvePublicClientUrl();
+
+  if (!safeToken || !publicClientUrl) {
+    return "";
+  }
+
+  return `${publicClientUrl}/warranty-token/${safeToken}`;
 }
 
 const statusMeta = (status) => {
@@ -106,11 +112,11 @@ export default function CustomerTracking() {
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
 
-  const qrValue = selectedRow ? buildTrackingUrl(selectedRow.id) : "";
+  const qrValue = selectedRow ? buildTrackingUrl(selectedRow) : "";
   const qrImageUrl = selectedRow
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(qrValue)}`
     : "";
-  const warrantyQrValue = selectedRow?.warrantyReleased ? buildWarrantyUrl(selectedRow.id) : "";
+  const warrantyQrValue = selectedRow?.warrantyReleased ? buildWarrantyUrl(selectedRow) : "";
   const warrantyQrImageUrl = warrantyQrValue
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(warrantyQrValue)}`
     : "";

@@ -40,10 +40,10 @@ const signupOtpStore = new Map();
 const passwordChangeOtpStore = new Map();
 const PASSWORD_PREFIX = "scrypt$";
 const SECURITY_SETTING_ID = "autoflow-security";
-const DEFAULT_SPECIAL_PIN = "2468";
-const DEFAULT_SPECIAL_PASSWORD = "Autoflow@2026";
-const DEFAULT_STAFF_SPECIAL_PIN = "1357";
-const DEFAULT_STAFF_SPECIAL_PASSWORD = "Staff@2026";
+const DEFAULT_SPECIAL_PIN = String(process.env.DEFAULT_ADMIN_SPECIAL_PIN || crypto.randomInt(100000, 999999)).trim();
+const DEFAULT_SPECIAL_PASSWORD = String(process.env.DEFAULT_ADMIN_SPECIAL_PASSWORD || crypto.randomBytes(24).toString("base64url")).trim();
+const DEFAULT_STAFF_SPECIAL_PIN = String(process.env.DEFAULT_STAFF_SPECIAL_PIN || crypto.randomInt(100000, 999999)).trim();
+const DEFAULT_STAFF_SPECIAL_PASSWORD = String(process.env.DEFAULT_STAFF_SPECIAL_PASSWORD || crypto.randomBytes(24).toString("base64url")).trim();
 const DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT = 0;
 const SPECIAL_CREDENTIAL_HASH_ROUNDS = 12;
 const ADMIN_SEED_EMAIL = String(process.env.ADMIN_SEED_EMAIL || "").trim().toLowerCase();
@@ -228,6 +228,15 @@ async function authenticateApi(req, res, next) {
 
 function requireAdminUser(req, res, next) {
   if (normalizeUserType(req.authUser?.userType, req.authUser?.role) !== "admin") {
+    recordAudit(req.authUser?.email || req.authUser?.id || "system", "Unauthorized admin route attempt", req.originalUrl || req.path || "", {
+      actorId: req.authUser?.id || "",
+      actorName: req.authUser?.name || req.authUser?.email || "",
+      actorRole: req.authUser?.role || "",
+      targetType: "Route",
+      result: "denied",
+    }).catch((error) => {
+      console.error("[audit] Failed to record unauthorized admin route attempt", error);
+    });
     res.status(403).json({ message: "Admin access required." });
     return;
   }
@@ -248,6 +257,77 @@ function requireRoles(...allowedRoles) {
 
 function createId(prefix) {
   return prefix + "-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+}
+
+const QR_TOKEN_VERSION = 1;
+const QR_TOKEN_PURPOSES = {
+  tracking: "tracking",
+  warranty: "warranty",
+};
+
+function signQrTokenPayload(encodedPayload) {
+  return crypto
+    .createHmac("sha256", getJwtSecret())
+    .update(encodedPayload)
+    .digest("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function getBookingAccessVersion(booking = {}, purpose) {
+  const field = purpose === QR_TOKEN_PURPOSES.warranty ? "warrantyAccessVersion" : "trackingAccessVersion";
+  return Math.max(1, Number(booking?.[field] || 1));
+}
+
+function isBookingAccessRevoked(booking = {}, purpose) {
+  const field = purpose === QR_TOKEN_PURPOSES.warranty ? "warrantyAccessRevoked" : "trackingAccessRevoked";
+  return Boolean(booking?.[field]);
+}
+
+function createBookingAccessToken(booking = {}, purpose) {
+  const normalizedPurpose = purpose === QR_TOKEN_PURPOSES.warranty ? QR_TOKEN_PURPOSES.warranty : QR_TOKEN_PURPOSES.tracking;
+  const payload = {
+    v: QR_TOKEN_VERSION,
+    bid: String(booking?.id || "").trim(),
+    pur: normalizedPurpose,
+    av: getBookingAccessVersion(booking, normalizedPurpose),
+  };
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = signQrTokenPayload(encodedPayload);
+  return `aft_${QR_TOKEN_VERSION}.${encodedPayload}.${signature}`;
+}
+
+function parseBookingAccessToken(token, expectedPurpose) {
+  const [prefix, encodedPayload, signature] = String(token || "").trim().split(".");
+  if (prefix !== `aft_${QR_TOKEN_VERSION}` || !encodedPayload || !signature) return null;
+
+  const expectedSignature = signQrTokenPayload(encodedPayload);
+  const provided = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return null;
+
+  try {
+    const payload = JSON.parse(base64UrlDecode(encodedPayload));
+    if (Number(payload.v) !== QR_TOKEN_VERSION) return null;
+    if (String(payload.pur || "") !== expectedPurpose) return null;
+    if (!String(payload.bid || "").trim()) return null;
+    return {
+      bookingId: String(payload.bid || "").trim(),
+      purpose: String(payload.pur || ""),
+      accessVersion: Math.max(1, Number(payload.av || 1)),
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function appendBookingAccessLinks(booking = {}) {
+  return {
+    ...booking,
+    trackingAccessToken: createBookingAccessToken(booking, QR_TOKEN_PURPOSES.tracking),
+    warrantyAccessToken: createBookingAccessToken(booking, QR_TOKEN_PURPOSES.warranty),
+  };
 }
 
 function ensureUserDocumentId(user, prefix = "USR") {
@@ -1656,6 +1736,7 @@ const ACTION_KEYS = {
   bookingCreate: "booking.create",
   bookingUpdate: "booking.update",
   bookingDelete: "booking.delete",
+  bookingAccessTokenManage: "booking.accessTokenManage",
   bookingReassignDetailer: "booking.reassignDetailer",
   detailerReassign: "detailer.reassign",
   bookingUpdateStatus: "booking.updateStatus",
@@ -1693,7 +1774,6 @@ const ROLE_MODULES = {
   "general manager": [
     MODULE_KEYS.dashboard,
     MODULE_KEYS.analytics,
-    MODULE_KEYS.auditLogs,
     MODULE_KEYS.bookings,
     MODULE_KEYS.services,
     MODULE_KEYS.serviceTracking,
@@ -1701,8 +1781,6 @@ const ROLE_MODULES = {
     MODULE_KEYS.paymentTracking,
     MODULE_KEYS.financialTracker,
     MODULE_KEYS.engagement,
-    MODULE_KEYS.userManagement,
-    MODULE_KEYS.detailerManagement,
     MODULE_KEYS.profile,
   ],
   "sales manager": [
@@ -1766,19 +1844,11 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.trackingUpdateWarranty,
     ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
-    ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
-    ACTION_KEYS.usersViewStaff,
     ACTION_KEYS.commissionViewAll,
-    ACTION_KEYS.commissionMarkPaid,
-    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.commissionPrint,
-    ACTION_KEYS.commissionExport,
-    ACTION_KEYS.auditViewOperational,
-    ACTION_KEYS.servicesManage,
   ],
   "sales manager": [
     ACTION_KEYS.bookingView,
@@ -1789,8 +1859,6 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.paymentView,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
-    ACTION_KEYS.servicesManage,
   ],
   "sales associate": [
     ACTION_KEYS.bookingView,
@@ -1830,7 +1898,6 @@ const ROLE_ACTIONS = {
   ],
   marketing: [
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
   ],
 };
 
@@ -1869,6 +1936,7 @@ function canPerformAction(user, actionKey) {
 function requiresAdminSpecialCredential(actionKey) {
   return [
     ACTION_KEYS.bookingDelete,
+    ACTION_KEYS.bookingAccessTokenManage,
     ACTION_KEYS.paymentOverride,
     ACTION_KEYS.settingsManageSecurity,
     ACTION_KEYS.settingsManageDownPayment,
@@ -1963,7 +2031,14 @@ function canViewBooking(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const userType = normalizeUserType(user?.userType, user?.role);
   if (userType === "customer") {
-    return String(booking?.customerEmail || "").trim().toLowerCase() === String(user?.email || "").trim().toLowerCase();
+    const bookingEmail = String(booking?.customerEmail || "").trim().toLowerCase();
+    const actorEmail = String(user?.email || "").trim().toLowerCase();
+    const bookingCustomerId = String(booking?.customerId || "").trim();
+    const actorId = String(user?.id || "").trim();
+    return Boolean(
+      (bookingEmail && actorEmail && bookingEmail === actorEmail) ||
+      (bookingCustomerId && actorId && bookingCustomerId === actorId)
+    );
   }
   if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
   const role = getEffectiveRole(user);
@@ -1987,13 +2062,11 @@ function canViewCommission(user, commission) {
 }
 
 function canManageCommission(user) {
-  if (isAdmin(user)) return true;
-  return getEffectiveRole(user) === "general manager" && canPerformAction(user, ACTION_KEYS.commissionMarkPaid);
+  return isAdmin(user);
 }
 
 function canReassignDetailer(user) {
-  if (isAdmin(user)) return true;
-  return getEffectiveRole(user) === "general manager" && canPerformAction(user, ACTION_KEYS.detailerReassign);
+  return isAdmin(user);
 }
 
 function canUpdatePlaceSlot(user, booking, users = []) {
@@ -2269,7 +2342,117 @@ function sanitizeUser(user) {
   if (!user) return user;
   const serializedUser = typeof user.toObject === "function" ? user.toObject() : { ...user };
   delete serializedUser.password;
+  delete serializedUser.adminSpecialPinHash;
+  delete serializedUser.adminSpecialPasswordHash;
+  delete serializedUser.staffSpecialPinHash;
+  delete serializedUser.staffSpecialPasswordHash;
   return serializedUser;
+}
+
+function isActiveAccount(user = {}) {
+  return String(user.status || "active").trim().toLowerCase() === "active";
+}
+
+async function countActiveAdmins(excludeUserId = "") {
+  const users = await User.find().lean();
+  return users.filter((user) => {
+    if (excludeUserId && String(user.id || "") === String(excludeUserId)) return false;
+    return normalizeUserType(user.userType, user.role) === "admin" && isActiveAccount(user);
+  }).length;
+}
+
+function getUserIdentityValues(user = {}) {
+  return {
+    id: String(user.id || "").trim(),
+    email: String(user.email || "").trim().toLowerCase(),
+    name: String(user.name || `${user.first || ""} ${user.last || ""}`.trim()).trim(),
+  };
+}
+
+async function countProtectedUserRelationships(user = {}) {
+  const identity = getUserIdentityValues(user);
+  const detailerNamePattern = identity.name ? new RegExp(`^${escapeRegExp(identity.name)}$`, "i") : null;
+  const emailPattern = identity.email ? new RegExp(`^${escapeRegExp(identity.email)}$`, "i") : null;
+  const bookingCustomerOr = [
+    identity.id ? { customerId: identity.id } : null,
+    identity.email ? { customerEmail: identity.email } : null,
+    identity.name ? { customer: detailerNamePattern } : null,
+    identity.name ? { assigned: detailerNamePattern } : null,
+    identity.id ? { preferredDetailerId: identity.id } : null,
+    identity.name ? { preferredDetailerName: detailerNamePattern } : null,
+  ].filter(Boolean);
+  const paymentOr = [
+    identity.email ? { customerEmail: identity.email } : null,
+    identity.name ? { customer: detailerNamePattern } : null,
+  ].filter(Boolean);
+  const reviewOr = [
+    identity.email ? { customerEmail: identity.email } : null,
+    identity.name ? { customer: detailerNamePattern } : null,
+  ].filter(Boolean);
+  const rewardOr = [
+    identity.id ? { customerId: identity.id } : null,
+    identity.email ? { customerEmail: identity.email } : null,
+    identity.name ? { customerName: detailerNamePattern } : null,
+  ].filter(Boolean);
+  const commissionOr = [
+    identity.name ? { worker: detailerNamePattern } : null,
+    identity.email ? { worker: emailPattern } : null,
+  ].filter(Boolean);
+  const auditOr = [
+    identity.id ? { targetId: identity.id } : null,
+    identity.email ? { userId: identity.email } : null,
+    identity.name ? { userId: detailerNamePattern } : null,
+  ].filter(Boolean);
+
+  const [
+    bookingCount,
+    paymentCount,
+    reviewCount,
+    rewardCount,
+    commissionCount,
+    auditCount,
+  ] = await Promise.all([
+    bookingCustomerOr.length ? Booking.countDocuments({ $or: bookingCustomerOr }) : 0,
+    paymentOr.length ? Payment.countDocuments({ $or: paymentOr }) : 0,
+    reviewOr.length ? Review.countDocuments({ $or: reviewOr }) : 0,
+    rewardOr.length ? CustomerReward.countDocuments({ $or: rewardOr }) : 0,
+    commissionOr.length ? Commission.countDocuments({ $or: commissionOr }) : 0,
+    auditOr.length ? AuditLog.countDocuments({ $or: auditOr }) : 0,
+  ]);
+
+  return {
+    bookings: bookingCount,
+    payments: paymentCount,
+    reviews: reviewCount,
+    rewards: rewardCount,
+    savedVehicles: Array.isArray(user.cars) ? user.cars.length : 0,
+    trackingWarranty: bookingCount,
+    detailerAssignments: bookingCount,
+    commissions: commissionCount,
+    auditLogs: auditCount,
+    total:
+      bookingCount +
+      paymentCount +
+      reviewCount +
+      rewardCount +
+      (Array.isArray(user.cars) ? user.cars.length : 0) +
+      commissionCount +
+      auditCount,
+  };
+}
+
+async function requireAdminSpecialCredentialWithAudit(req, actionKey, targetId) {
+  try {
+    await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin", actionKey });
+  } catch (error) {
+    await recordAudit(req.authUser?.email || req.body?.auditUser, "Failed special credential verification", targetId, {
+      targetType: "User",
+      actionKey,
+      result: "denied",
+      reason: error.statusCode === 401 ? "invalid credential" : "forbidden credential scope",
+    });
+    throw error;
+  }
 }
 
 function sanitizePreferredDetailerUser(user) {
@@ -2284,6 +2467,59 @@ function sanitizePreferredDetailerUser(user) {
     status: user.status || "active",
     isActive: true,
   };
+}
+
+function buildTrackingDto(booking = {}) {
+  return {
+    id: booking.id,
+    vehicle: booking.vehicle,
+    carSize: booking.carSize || "",
+    plate: booking.plate || "",
+    service: booking.service,
+    assigned: booking.assigned || "",
+    date: booking.date,
+    time: booking.time || "",
+    status: booking.status,
+    issueNote: booking.issueNote || "",
+    issueTypes: booking.issueTypes || [],
+    issueMarkers: booking.issueMarkers || [],
+    updatedAt: booking.updatedAt,
+  };
+}
+
+function buildWarrantyDto(booking = {}) {
+  const released = isCompletedStatus(booking.status) && Boolean(booking.warrantyReleased);
+  if (!released) {
+    return {
+      id: booking.id,
+      status: booking.status,
+      warrantyReleased: false,
+      message: "Warranty document will be available once released by staff/admin.",
+    };
+  }
+
+  return {
+    id: booking.id,
+    vehicle: booking.vehicle,
+    carSize: booking.carSize || "",
+    plate: booking.plate || "",
+    service: booking.service,
+    assigned: booking.assigned || "",
+    date: booking.date,
+    time: booking.time || "",
+    status: booking.status,
+    warrantyChecklist: booking.warrantyChecklist || "",
+    warrantyChecklistItems: booking.warrantyChecklistItems || [],
+    warrantyCoveragePackage: booking.warrantyCoveragePackage || "",
+    warrantyAcknowledgement: booking.warrantyAcknowledgement || {},
+    warrantyReleased: true,
+    warrantyReleasedAt: booking.warrantyReleasedAt || "",
+    updatedAt: booking.updatedAt,
+  };
+}
+
+function rejectInvalidPublicAccess(res) {
+  res.status(404).json({ message: "Public access record not found." });
 }
 
 function normalizeCustomerCars(cars) {
@@ -4400,7 +4636,7 @@ async function loadBootstrapData() {
   }
 
   return {
-    bookings,
+    bookings: bookings.map((booking) => appendBookingAccessLinks(booking)),
     services: services.map((service) => hydrateService(service)),
     stockMonitoring,
     payments: normalizedPayments,
@@ -4548,24 +4784,39 @@ function filterBootstrapDataForRole(data, authUser = {}) {
 
   if (userType === "customer") {
     const customerAuditScope = buildCustomerAuditScope(authUser, ownUser);
+    const scopedBookings = data.bookings.filter((booking) => canViewBooking(scopedUser, booking, data.users));
+    const visibleBookingIds = new Set(scopedBookings.map((booking) => String(booking.id || "")));
+    const customerName = String(scopedUser.name || ownUser?.name || "").trim().toLowerCase();
     const safePreferredDetailers = data.users
       .filter((user) => isActiveDetailerUser(user))
       .map((user) => sanitizePreferredDetailerUser(user));
 
     return {
       ...data,
-      bookings: data.bookings.filter((booking) => String(booking.customerEmail || "").trim().toLowerCase() === email),
-      payments: data.payments.filter((payment) => String(payment.customerEmail || "").trim().toLowerCase() === email),
+      bookings: scopedBookings,
+      payments: data.payments.filter((payment) => {
+        const paymentEmail = String(payment.customerEmail || "").trim().toLowerCase();
+        return (email && paymentEmail === email) || visibleBookingIds.has(String(payment.bookingId || ""));
+      }),
       users: [...(ownUser ? [ownUser] : []), ...safePreferredDetailers],
       stockMonitoring: [],
       auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
       archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
+      reviews: data.reviews.filter((review) => {
+        const reviewEmail = String(review.customerEmail || "").trim().toLowerCase();
+        const reviewCustomer = String(review.customer || "").trim().toLowerCase();
+        return (email && reviewEmail === email) || (customerName && reviewCustomer === customerName);
+      }),
       quoteRequests: [],
       expenses: [],
       commissions: [],
       promos: data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
       rewards: data.rewards.filter((reward) => reward.active !== false),
-      customerRewards: data.customerRewards.filter((reward) => String(reward.customerEmail || "").trim().toLowerCase() === email),
+      customerRewards: data.customerRewards.filter((reward) => {
+        const rewardEmail = String(reward.customerEmail || "").trim().toLowerCase();
+        const rewardCustomerId = String(reward.customerId || "").trim();
+        return (email && rewardEmail === email) || (scopedUser.id && rewardCustomerId === String(scopedUser.id));
+      }),
       alerts: [],
     };
   }
@@ -4585,14 +4836,13 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       canSeeFinancials;
     const scopedCommissions = canSeeCommissions
       ? data.commissions.filter((commission) => {
-          if (canViewCommission(scopedUser, commission)) return true;
-          return staffRole === "senior detailer" && visibleBookingIds.has(String(commission.bookingId || ""));
+          return canViewCommission(scopedUser, commission);
         })
       : [];
     const scopedAuditLogs = data.auditLogs.filter((log) => {
+      if (!hasModule(MODULE_KEYS.auditLogs)) return false;
       const action = String(log.action || "").trim().toLowerCase();
       const userId = String(log.userId || "").trim().toLowerCase();
-      if (staffRole === "general manager") return !["updated security controls", "updated required down payment amount"].includes(action);
       if (staffRole === "inventory clerk") return action.includes("stock") || action.includes("inventory") || action.includes("consumable");
       if (staffRole === "marketing") return action.includes("promo") || action.includes("reward") || action.includes("review") || action.includes("engagement");
       if (staffRole === "sales associate") return userId === email;
@@ -4984,52 +5234,75 @@ app.post("/api/admin/analytics/interpretation", requireRoles("admin", "staff"), 
 app.post("/api/ai/financial/interpret", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.financialTracker), handleFinancialAiInterpret);
 app.post("/api/admin/financials/interpretation", requireRoles("admin", "staff"), requireModule(MODULE_KEYS.financialTracker), handleFinancialAiInterpret);
 
-app.get("/api/tracking/:id/warranty", async (req, res, next) => {
+app.get("/api/public/tracking/:token", async (req, res, next) => {
   try {
-    const booking = await Booking.findOne({ id: req.params.id }).lean();
-
-    if (!booking) {
-      res.status(404).json({ message: "Tracking record not found." });
+    const parsedToken = parseBookingAccessToken(req.params.token, QR_TOKEN_PURPOSES.tracking);
+    if (!parsedToken) {
+      rejectInvalidPublicAccess(res);
       return;
     }
 
-    const released = isCompletedStatus(booking.status) && Boolean(booking.warrantyReleased);
-    if (!released) {
-      res.json({
-        id: booking.id,
-        status: booking.status,
-        warrantyReleased: false,
-        message: "Warranty document will be available once released by staff/admin.",
-      });
+    const booking = await Booking.findOne({ id: parsedToken.bookingId }).lean();
+    if (
+      !booking ||
+      isBookingAccessRevoked(booking, QR_TOKEN_PURPOSES.tracking) ||
+      getBookingAccessVersion(booking, QR_TOKEN_PURPOSES.tracking) !== parsedToken.accessVersion
+    ) {
+      rejectInvalidPublicAccess(res);
       return;
     }
 
-    res.json({
-      id: booking.id,
-      customer: booking.customer,
-      vehicle: booking.vehicle,
-      carSize: booking.carSize || "",
-      plate: booking.plate || "",
-      service: booking.service,
-      assigned: booking.assigned || "",
-      date: booking.date,
-      time: booking.time || "",
-      status: booking.status,
-      warrantyChecklist: booking.warrantyChecklist || "",
-      warrantyChecklistItems: booking.warrantyChecklistItems || [],
-      warrantyCoveragePackage: booking.warrantyCoveragePackage || "",
-      warrantyAcknowledgement: booking.warrantyAcknowledgement || {},
-      warrantyReleased: true,
-      warrantyReleasedAt: booking.warrantyReleasedAt || "",
-      warrantyQrCode: booking.warrantyQrCode || "",
-      updatedAt: booking.updatedAt,
-    });
+    res.json(buildTrackingDto(booking));
   } catch (error) {
     next(error);
   }
 });
 
-app.get("/api/tracking/:id", async (req, res, next) => {
+app.get("/api/public/warranty/:token", async (req, res, next) => {
+  try {
+    const parsedToken = parseBookingAccessToken(req.params.token, QR_TOKEN_PURPOSES.warranty);
+    if (!parsedToken) {
+      rejectInvalidPublicAccess(res);
+      return;
+    }
+
+    const booking = await Booking.findOne({ id: parsedToken.bookingId }).lean();
+    if (
+      !booking ||
+      isBookingAccessRevoked(booking, QR_TOKEN_PURPOSES.warranty) ||
+      getBookingAccessVersion(booking, QR_TOKEN_PURPOSES.warranty) !== parsedToken.accessVersion
+    ) {
+      rejectInvalidPublicAccess(res);
+      return;
+    }
+
+    res.json(buildWarrantyDto(booking));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tracking/:id/warranty", authenticateApi, async (req, res, next) => {
+  try {
+    const booking = await Booking.findOne({ id: req.params.id }).lean();
+    if (!booking) {
+      res.status(404).json({ message: "Tracking record not found." });
+      return;
+    }
+
+    const users = await User.find().lean();
+    if (!canViewBooking(req.authUser, booking, users)) {
+      res.status(403).json({ message: "You do not have permission to view this warranty record." });
+      return;
+    }
+
+    res.json(buildWarrantyDto(booking));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tracking/:id", authenticateApi, async (req, res, next) => {
   try {
     const booking = await Booking.findOne({ id: req.params.id }).lean();
 
@@ -5038,22 +5311,13 @@ app.get("/api/tracking/:id", async (req, res, next) => {
       return;
     }
 
-    res.json({
-      id: booking.id,
-      customer: booking.customer,
-      vehicle: booking.vehicle,
-      carSize: booking.carSize || "",
-      plate: booking.plate || "",
-      service: booking.service,
-      assigned: booking.assigned || "",
-      date: booking.date,
-      time: booking.time || "",
-      status: booking.status,
-      issueNote: booking.issueNote || "",
-      issueTypes: booking.issueTypes || [],
-      issueMarkers: booking.issueMarkers || [],
-      updatedAt: booking.updatedAt,
-    });
+    const users = await User.find().lean();
+    if (!canViewBooking(req.authUser, booking, users)) {
+      res.status(403).json({ message: "You do not have permission to view this tracking record." });
+      return;
+    }
+
+    res.json(buildTrackingDto(booking));
   } catch (error) {
     next(error);
   }
@@ -5070,6 +5334,15 @@ app.post("/api/auth/login", async (req, res, next) => {
     if (!user || !verifyPassword(password, user.password)) {
       await recordAudit(email || "guest", "Failed sign in", email || "LOGIN", { email });
       res.status(401).json({ message: "Invalid email or password." });
+      return;
+    }
+
+    if (!isActiveAccount(user)) {
+      await recordAudit(email || "guest", "Blocked inactive account sign in", user.id, {
+        email,
+        status: user.status || "",
+      });
+      res.status(403).json({ message: "This account is inactive." });
       return;
     }
 
@@ -6008,6 +6281,83 @@ app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) =
   }
 });
 
+app.patch("/api/admin/bookings/:id/public-access/:purpose", requireAdminUser, async (req, res, next) => {
+  try {
+    const purpose = String(req.params.purpose || "").trim().toLowerCase();
+    if (!Object.values(QR_TOKEN_PURPOSES).includes(purpose)) {
+      res.status(400).json({ message: "Unsupported public access purpose." });
+      return;
+    }
+
+    const operation = String(req.body.action || req.body.operation || "rotate").trim().toLowerCase();
+    if (!["rotate", "revoke", "restore"].includes(operation)) {
+      res.status(400).json({ message: "Unsupported public access action." });
+      return;
+    }
+
+    const booking = await Booking.findOne({ id: req.params.id });
+    if (!booking) {
+      res.status(404).json({ message: "Booking not found." });
+      return;
+    }
+
+    await requireAdminSpecialCredentialWithAudit(req, ACTION_KEYS.bookingAccessTokenManage, booking.id);
+
+    const versionField = purpose === QR_TOKEN_PURPOSES.warranty ? "warrantyAccessVersion" : "trackingAccessVersion";
+    const revokedField = purpose === QR_TOKEN_PURPOSES.warranty ? "warrantyAccessRevoked" : "trackingAccessRevoked";
+    const rotatedAtField = purpose === QR_TOKEN_PURPOSES.warranty ? "warrantyAccessRotatedAt" : "trackingAccessRotatedAt";
+    const previousState = {
+      accessVersion: Math.max(1, Number(booking[versionField] || 1)),
+      revoked: Boolean(booking[revokedField]),
+    };
+
+    if (operation === "rotate") {
+      booking[versionField] = previousState.accessVersion + 1;
+      booking[revokedField] = false;
+      booking[rotatedAtField] = new Date().toISOString();
+    } else if (operation === "revoke") {
+      booking[revokedField] = true;
+    } else {
+      booking[revokedField] = false;
+    }
+
+    await booking.save();
+    const savedBooking = booking.toObject ? booking.toObject() : booking;
+    const newState = {
+      accessVersion: getBookingAccessVersion(savedBooking, purpose),
+      revoked: isBookingAccessRevoked(savedBooking, purpose),
+      rotatedAt: savedBooking[rotatedAtField] || "",
+    };
+    const eventName =
+      operation === "rotate"
+        ? `Rotated ${purpose} access token`
+        : operation === "revoke"
+          ? `Revoked ${purpose} access token`
+          : `Restored ${purpose} access token`;
+    await recordAudit(req.authUser?.email || req.body.auditUser, eventName, booking.id, {
+      actorId: req.authUser?.id || "",
+      actorName: req.authUser?.name || req.authUser?.email || "",
+      actorRole: req.authUser?.role || "",
+      targetType: "Booking",
+      purpose,
+      previousState,
+      newState,
+      result: "allowed",
+    });
+
+    res.json({
+      id: booking.id,
+      purpose,
+      accessVersion: newState.accessVersion,
+      revoked: newState.revoked,
+      rotatedAt: newState.rotatedAt,
+      accessToken: newState.revoked ? "" : createBookingAccessToken(savedBooking, purpose),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
   try {
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
@@ -6906,13 +7256,48 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       return;
     }
     const isRoleUpdate = actorType === "admin" && (requestedUserType !== existingUserType || requestedSubtype !== existingSubtype);
-    if (isRoleUpdate) {
-      await requireSpecialCredentialForRequest(req, { mode: "password", scope: "admin" });
+    const existingStatus = String(existingUser.status || "active").trim().toLowerCase();
+    const requestedStatus = Object.prototype.hasOwnProperty.call(req.body, "status")
+      ? String(req.body.status || "").trim().toLowerCase()
+      : existingStatus;
+    const isStatusUpdate = actorType === "admin" && requestedStatus !== existingStatus;
+    const isDeactivatingActiveAdmin =
+      existingUserType === "admin" &&
+      existingStatus === "active" &&
+      requestedStatus !== "active";
+    const isRemovingActiveAdminRole =
+      existingUserType === "admin" &&
+      existingStatus === "active" &&
+      requestedUserType !== "admin";
+
+    if (actorType === "admin" && (isRoleUpdate || isStatusUpdate)) {
+      await requireAdminSpecialCredentialWithAudit(req, ACTION_KEYS.usersPromote, req.params.id);
+    }
+    if (isSelfUpdate && actorType === "admin" && (isDeactivatingActiveAdmin || isRemovingActiveAdminRole)) {
+      await recordAudit(req.authUser?.email || req.body.auditUser, "Blocked self-deactivation", req.params.id, {
+        targetType: "User",
+        previousState: { userType: existingUser.userType, role: existingUser.role, status: existingUser.status },
+        requestedState: { userType: req.body.userType || existingUser.userType, role: req.body.role || existingUser.role, status: req.body.status || existingUser.status },
+        result: "denied",
+      });
+      res.status(403).json({ message: "Admins cannot deactivate or remove their own admin access here." });
+      return;
+    }
+    if ((isDeactivatingActiveAdmin || isRemovingActiveAdminRole) && (await countActiveAdmins(req.params.id)) < 1) {
+      await recordAudit(req.authUser?.email || req.body.auditUser, "Blocked last active admin change", req.params.id, {
+        targetType: "User",
+        previousState: { userType: existingUser.userType, role: existingUser.role, status: existingUser.status },
+        requestedState: { userType: req.body.userType || existingUser.userType, role: req.body.role || existingUser.role, status: req.body.status || existingUser.status },
+        result: "denied",
+      });
+      res.status(403).json({ message: "At least one active Admin account must remain." });
+      return;
     }
 
     const nextUserType = actorType === "admin"
       ? toDisplayUserType(req.body.userType, req.body.role)
       : existingUser.userType;
+    const normalizedRequestedStatus = requestedStatus === "active" ? "active" : "deactivated";
     const payload = actorType === "admin"
       ? {
           ...req.body,
@@ -6921,6 +7306,10 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
             ? normalizeStaffRoleForSave(req.body.role || USER_TYPE_DEFAULT_ROLE[nextUserType.toLowerCase()])
             : toDisplaySubtype(nextUserType, req.body.role),
           name: req.body.name || (String(req.body.first || "") + " " + String(req.body.last || "")).trim(),
+          status: normalizedRequestedStatus,
+          ...(isStatusUpdate && normalizedRequestedStatus !== "active"
+            ? { deactivatedAt: new Date().toISOString(), deactivatedBy: req.authUser?.email || "" }
+            : {}),
         }
       : {
           first: req.body.first ?? existingUser.first,
@@ -6954,8 +7343,23 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
 
     const user = await User.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
     await recordAudit(req.authUser?.email || req.body.auditUser, getUserAuditAction(existingUser, payload), req.params.id, {
+      actorId: req.authUser?.id || "",
+      actorName: req.authUser?.name || req.authUser?.email || "",
+      actorRole: req.authUser?.role || "",
+      targetType: "User",
       email: payload.email,
       status: payload.status,
+      previousState: {
+        userType: existingUser.userType,
+        role: existingUser.role,
+        status: existingUser.status,
+      },
+      newState: {
+        userType: user.userType,
+        role: user.role,
+        status: user.status,
+      },
+      result: "allowed",
     });
     res.json(sanitizeUser(user));
   } catch (error) {
@@ -6965,9 +7369,68 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
 
 app.delete("/api/admin/users/:id", requireAdminUser, async (req, res, next) => {
   try {
-    await User.findOneAndDelete({ id: req.params.id });
-    await recordAudit(req.query.auditUser, "Deleted user", req.params.id);
-    res.status(204).end();
+    const targetUser = await User.findOne({ id: req.params.id });
+    if (!targetUser) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+
+    await requireAdminSpecialCredentialWithAudit(req, ACTION_KEYS.usersDelete, req.params.id);
+
+    const actorEmail = req.authUser?.email || req.body?.auditUser || req.query?.auditUser || "";
+    const targetType = normalizeUserType(targetUser.userType, targetUser.role);
+    const targetWasActiveAdmin = targetType === "admin" && isActiveAccount(targetUser);
+    if (String(req.authUser?.id || "") === String(targetUser.id || "")) {
+      await recordAudit(actorEmail, "Blocked self-delete", targetUser.id, {
+        targetType: "User",
+        targetRole: targetUser.role,
+        result: "denied",
+      });
+      res.status(403).json({ message: "Admins cannot delete or deactivate their own account here." });
+      return;
+    }
+    if (targetWasActiveAdmin && (await countActiveAdmins(targetUser.id)) < 1) {
+      await recordAudit(actorEmail, "Blocked last active admin deletion", targetUser.id, {
+        targetType: "User",
+        targetRole: targetUser.role,
+        result: "denied",
+      });
+      res.status(403).json({ message: "At least one active Admin account must remain." });
+      return;
+    }
+
+    const relationships = await countProtectedUserRelationships(targetUser);
+    const hardDeleteRequested = req.body?.hardDelete === true || String(req.query?.hardDelete || "").toLowerCase() === "true";
+    if (hardDeleteRequested && relationships.total === 0) {
+      await User.findOneAndDelete({ id: targetUser.id });
+      await recordAudit(actorEmail, "Hard deleted user", targetUser.id, {
+        targetType: "User",
+        targetEmail: targetUser.email,
+        previousState: { status: targetUser.status, userType: targetUser.userType, role: targetUser.role },
+        newState: { deleted: true },
+        result: "allowed",
+      });
+      res.status(204).end();
+      return;
+    }
+
+    const previousState = { status: targetUser.status, userType: targetUser.userType, role: targetUser.role };
+    targetUser.status = "deleted";
+    targetUser.deletedAt = targetUser.deletedAt || new Date().toISOString();
+    targetUser.deletedBy = actorEmail;
+    targetUser.deletionMode = "soft";
+    targetUser.deactivatedAt = targetUser.deactivatedAt || targetUser.deletedAt;
+    targetUser.deactivatedBy = targetUser.deactivatedBy || actorEmail;
+    await targetUser.save();
+    await recordAudit(actorEmail, "Soft deleted user", targetUser.id, {
+      targetType: "User",
+      targetEmail: targetUser.email,
+      previousState,
+      newState: { status: "deleted", deletionMode: "soft" },
+      protectedRelationships: relationships,
+      result: "allowed",
+    });
+    res.json({ id: targetUser.id, status: targetUser.status, deletionMode: targetUser.deletionMode });
   } catch (error) {
     next(error);
   }
@@ -7469,7 +7932,27 @@ async function start() {
   });
 }
 
-start().catch((error) => {
-  console.error("Failed to start server", error);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((error) => {
+    console.error("Failed to start server", error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  ACTION_KEYS,
+  MODULE_KEYS,
+  QR_TOKEN_PURPOSES,
+  appendBookingAccessLinks,
+  buildTrackingDto,
+  buildWarrantyDto,
+  canPerformAction,
+  canViewBooking,
+  createBookingAccessToken,
+  filterBootstrapDataForRole,
+  getBookingAccessVersion,
+  isBookingAccessRevoked,
+  isActiveAccount,
+  parseBookingAccessToken,
+};

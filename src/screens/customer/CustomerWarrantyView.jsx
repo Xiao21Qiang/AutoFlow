@@ -12,7 +12,7 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-export default function CustomerWarrantyView() {
+export default function CustomerWarrantyView({ publicToken = false }) {
   const { bookingId } = useParams();
   const normalizedBookingId = String(bookingId || "").trim();
   const [record, setRecord] = useState(null);
@@ -29,7 +29,8 @@ export default function CustomerWarrantyView() {
           throw new Error("Warranty record not found.");
         }
 
-        const payload = await apiRequest(`/api/tracking/${encodeURIComponent(normalizedBookingId)}/warranty`);
+        const encodedValue = encodeURIComponent(normalizedBookingId);
+        const payload = await apiRequest(publicToken ? `/api/public/warranty/${encodedValue}` : `/api/tracking/${encodedValue}/warranty`);
         if (!ignore) {
           setRecord(payload);
           setError("");
@@ -49,7 +50,7 @@ export default function CustomerWarrantyView() {
     return () => {
       ignore = true;
     };
-  }, [normalizedBookingId]);
+  }, [normalizedBookingId, publicToken]);
 
   const acknowledgement = createWarrantyAcknowledgement(record || {});
   const checklistItems = normalizeWarrantyChecklist(record?.warrantyChecklistItems || []);

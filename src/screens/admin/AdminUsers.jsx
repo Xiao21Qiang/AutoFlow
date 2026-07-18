@@ -344,7 +344,7 @@ export default function AdminUsers() {
                 <div className="usersModalTitle">Confirm Delete</div>
                 <p className="usersConfirmText">Delete this user account? This action cannot be undone.</p>
                 <div className="usersConfirmMeta"><div>{selectedUser.name}</div><div>{selectedUser.email}</div></div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete User", message: "Enter the special PIN before deleting this account.", onConfirm: async () => { await deleteUser(selectedUser.id); setSecurityConfirm(null); showToast("success", "User account deleted."); closeModal(); } })}>Delete</button></div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "password", title: "Delete User", message: "Enter the admin special password before deleting this account.", onConfirm: async ({ secret }) => { await deleteUser(selectedUser.id, { specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account deleted."); closeModal(); } })}>Delete</button></div>
               </div>
             )}
           </div>

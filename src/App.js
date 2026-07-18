@@ -21,6 +21,8 @@ function App() {
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["staff"]}><StaffMain /></ProtectedRoute>} />
         <Route path="/client" element={<ProtectedRoute allowedRoles={["customer"]}><CustomerMain /></ProtectedRoute>} />
         <Route path="/customer" element={<ProtectedRoute allowedRoles={["customer"]}><Navigate to="/client" replace /></ProtectedRoute>} />
+        <Route path="/tracking-token/:bookingId" element={<CustomerTrackingView publicToken />} />
+        <Route path="/warranty-token/:bookingId" element={<CustomerWarrantyView publicToken />} />
         <Route path="/tracking/:bookingId/warranty" element={<CustomerWarrantyView />} />
         <Route path="/tracking/:bookingId" element={<CustomerTrackingView />} />
       </Routes>

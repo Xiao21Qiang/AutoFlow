@@ -20,6 +20,7 @@ const AUTH_RESET_MESSAGES = new Set([
   "Authentication required.",
   "Invalid or expired session.",
   "Session expired. Please log in again.",
+  "This account is inactive.",
 ]);
 
 function buildRequestUrl(path) {
@@ -97,7 +98,7 @@ export async function apiRequest(path, options = {}) {
   }
   if (!response.ok) {
     if (
-      response.status === 401 &&
+      (response.status === 401 || response.status === 403) &&
       AUTH_RESET_MESSAGES.has(String(data.message || "").trim()) &&
       typeof window !== "undefined" &&
       window.localStorage

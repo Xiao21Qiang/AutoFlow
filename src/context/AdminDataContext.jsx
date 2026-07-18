@@ -498,7 +498,11 @@ export function AdminDataProvider({ children, session }) {
         body: JSON.stringify({ requiredDownPaymentAmount, adminSpecialPassword, auditUser }),
       }),
     toggleUserStatus: (user) => mutate("/api/admin/users/" + user.id, { method: "PUT", body: JSON.stringify({ ...user, status: user.status === "active" ? "inactive" : "active", auditUser }) }),
-    deleteUser: (id) => mutate("/api/admin/users/" + id + "?auditUser=" + encodeURIComponent(auditUser), { method: "DELETE" }),
+    deleteUser: (id, payload = {}) =>
+      mutate("/api/admin/users/" + id + "?auditUser=" + encodeURIComponent(auditUser), {
+        method: "DELETE",
+        body: JSON.stringify({ ...payload, auditUser }),
+      }),
     archiveAuditLogs: () =>
       mutate("/api/admin/audit-logs/archive", {
         method: "POST",

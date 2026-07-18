@@ -404,7 +404,7 @@ export default function StaffTracking() {
       warrantyAcknowledgement: editForm.warrantyAcknowledgement,
       warrantyReleased: releaseAllowed,
       warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "",
-      warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "",
+      warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || "") : "",
     };
     setSecurityConfirm({
       mode: "pin",

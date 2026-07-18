@@ -23,6 +23,7 @@ export const ACTION_KEYS = {
   bookingCreate: "booking.create",
   bookingUpdate: "booking.update",
   bookingDelete: "booking.delete",
+  bookingAccessTokenManage: "booking.accessTokenManage",
   bookingReassignDetailer: "booking.reassignDetailer",
   detailerReassign: "detailer.reassign",
   bookingUpdateStatus: "booking.updateStatus",
@@ -72,7 +73,6 @@ const ROLE_MODULES = {
   "general manager": [
     MODULE_KEYS.dashboard,
     MODULE_KEYS.analytics,
-    MODULE_KEYS.auditLogs,
     MODULE_KEYS.bookings,
     MODULE_KEYS.services,
     MODULE_KEYS.serviceTracking,
@@ -80,8 +80,6 @@ const ROLE_MODULES = {
     MODULE_KEYS.paymentTracking,
     MODULE_KEYS.financialTracker,
     MODULE_KEYS.engagement,
-    MODULE_KEYS.userManagement,
-    MODULE_KEYS.detailerManagement,
     MODULE_KEYS.profile,
   ],
   "sales manager": [
@@ -145,19 +143,11 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.trackingUpdateWarranty,
     ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
-    ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
-    ACTION_KEYS.usersViewStaff,
     ACTION_KEYS.commissionViewAll,
-    ACTION_KEYS.commissionMarkPaid,
-    ACTION_KEYS.commissionVoid,
     ACTION_KEYS.commissionPrint,
-    ACTION_KEYS.commissionExport,
-    ACTION_KEYS.auditViewOperational,
-    ACTION_KEYS.servicesManage,
   ],
   "sales manager": [
     ACTION_KEYS.bookingView,
@@ -168,8 +158,6 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.paymentView,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
-    ACTION_KEYS.servicesManage,
   ],
   "sales associate": [
     ACTION_KEYS.bookingView,
@@ -209,7 +197,6 @@ const ROLE_ACTIONS = {
   ],
   marketing: [
     ACTION_KEYS.engagementView,
-    ACTION_KEYS.engagementManage,
   ],
 };
 
@@ -277,6 +264,7 @@ export function canUseStaffSpecialCredentialForAction(user, actionKey) {
 export function requiresAdminSpecialCredential(actionKey) {
   return [
     ACTION_KEYS.bookingDelete,
+    ACTION_KEYS.bookingAccessTokenManage,
     ACTION_KEYS.paymentOverride,
     ACTION_KEYS.settingsManageSecurity,
     ACTION_KEYS.settingsManageDownPayment,

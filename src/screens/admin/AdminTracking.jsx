@@ -373,7 +373,7 @@ export default function AdminTracking() {
       warrantyAcknowledgement: editForm.warrantyAcknowledgement,
       warrantyReleased: releaseAllowed,
       warrantyReleasedAt: releaseAllowed ? (selectedRow.warrantyReleasedAt || new Date().toISOString()) : "",
-      warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || `${selectedRow.id}-WARRANTY`) : "",
+      warrantyQrCode: releaseAllowed ? (selectedRow.warrantyQrCode || "") : "",
     };
     const saveTracking = async (securityPayload = {}, keepModalError = false) => {
       try {
