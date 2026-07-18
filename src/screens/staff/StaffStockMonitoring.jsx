@@ -5,6 +5,7 @@ import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { ACTION_KEYS } from "../../utils/rbac";
+import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -60,13 +61,15 @@ function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
 }
 
 function getStockPercent(item) {
-  if (!item.maxStock) return 0;
-  return Math.max(0, Math.min(100, Math.round((item.currentStock / item.maxStock) * 100)));
+  return getSharedStockPercent(item);
 }
 
-function getStockTone(percent) {
-  if (percent <= 25) return "danger";
-  if (percent <= 60) return "warning";
+function getStockTone(item = null) {
+  const state = item ? getStockState(item) : null;
+  if (state?.key === "out") return "danger";
+  if (state?.key === "critical") return "danger";
+  if (state?.key === "low") return "warning";
+  if (state?.key === "healthy") return "healthy";
   return "healthy";
 }
 
@@ -134,7 +137,7 @@ export default function StaffStockMonitoring() {
           .toLowerCase()
           .includes(q);
       const matchesCategory = !filters.category || item.category === filters.category;
-      const matchesTone = !filters.stockTone || getStockTone(getStockPercent(item)) === filters.stockTone;
+      const matchesTone = !filters.stockTone || getStockTone(item) === filters.stockTone;
       return matchesQuery && matchesCategory && matchesTone;
     });
   }, [stockMonitoring, query, filters]);
@@ -369,7 +372,7 @@ export default function StaffStockMonitoring() {
           <tbody>
             {paged.map((item) => {
               const percent = getStockPercent(item);
-              const tone = getStockTone(percent);
+              const tone = getStockTone(item);
 
               return (
                 <tr key={item.id}>

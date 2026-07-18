@@ -5,6 +5,7 @@ import ToastMessage from "../../components/common/ToastMessage";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -60,13 +61,15 @@ function validateStockLimit({ currentStock, maxStock, qtyToAdd = null }) {
 }
 
 function getStockPercent(item) {
-  if (!item.maxStock) return 0;
-  return Math.max(0, Math.min(100, Math.round((item.currentStock / item.maxStock) * 100)));
+  return getSharedStockPercent(item);
 }
 
-function getStockTone(percent) {
-  if (percent <= 25) return "danger";
-  if (percent <= 60) return "warning";
+function getStockTone(item = null) {
+  const state = item ? getStockState(item) : null;
+  if (state?.key === "out") return "danger";
+  if (state?.key === "critical") return "danger";
+  if (state?.key === "low") return "warning";
+  if (state?.key === "healthy") return "healthy";
   return "healthy";
 }
 
@@ -97,7 +100,7 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
     return stockMonitoring.filter((item) => {
       const matchesQuery = !q || [item.id, item.name, item.category, item.currentStock, item.maxStock, item.lastRestocked].join(" ").toLowerCase().includes(q);
       const matchesCategory = !filters.category || item.category === filters.category;
-      const matchesTone = !filters.stockTone || getStockTone(getStockPercent(item)) === filters.stockTone;
+      const matchesTone = !filters.stockTone || getStockTone(item) === filters.stockTone;
       return matchesQuery && matchesCategory && matchesTone;
     });
   }, [stockMonitoring, query, filters]);
@@ -204,7 +207,7 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
       </div>
 
       <div className="invBoard">
-        <table className="invTable"><thead><tr className="invGuideHeadRow"><th colSpan={8}><div className="invGuidePanel"><div className="invGuideCopy"><div className="invGuideEyebrow">Stock Status Guide</div><div className="invGuideText">Use the indicator color to quickly understand whether an item is critical, low, or still healthy.</div></div><div className="invLegendList">{STOCK_LEGEND.map((item) => (<div key={item.tone} className={`invLegendItem ${item.tone}`}><div className="invLegendBar" aria-hidden="true"><span className={`invLegendBarFill ${item.tone}`} /></div><div className="invLegendMeta"><span className="invLegendLabel">{item.label}</span><span className="invLegendRange">{item.range}</span><span className="invLegendNote">{item.note}</span></div></div>))}</div></div></th></tr><tr><th>Item ID</th><th>Item Name</th><th>Category</th><th>Current Stock (Qty)</th><th>Max Stock (Qty)</th><th>Stocks Percentage</th><th>Last Restocked</th><th>Actions</th></tr></thead><tbody>{paged.map((item) => { const percent = getStockPercent(item); const tone = getStockTone(percent); return <tr key={item.id}><td>{item.id}</td><td>{item.name}</td><td>{item.category}</td><td className={`invStockValue ${tone}`}>{item.currentStock}</td><td>{item.maxStock}</td><td><div className="invPercentCell"><div className="invPercentTrack"><div className={`invPercentFill ${tone}`} style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td><td>{item.lastRestocked}</td><td><div className="invActionStack"><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setEditForm({ name: item.name, category: item.category, currentStock: String(item.currentStock), maxStock: String(item.maxStock), pricePerUnit: String(item.pricePerUnit) }); setModal("edit"); }}>Edit</button><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setRestockForm({ date: formatDateInput(), itemName: item.name, currentStock: String(item.currentStock), qtyToAdd: "", restockedBy: "Admin", costPerUnit: String(item.pricePerUnit), supplier: "", notes: "" }); setModal("restock"); }}>Restock</button><button className="invMiniBtn invMiniBtnDanger" type="button" onClick={() => { setSelectedItemId(item.id); setModal("delete"); }}>Delete</button></div></td></tr>; })}{paged.length === 0 && <tr><td colSpan={8} className="invEmptyRow">No items found.</td></tr>}</tbody></table></div>
+        <table className="invTable"><thead><tr className="invGuideHeadRow"><th colSpan={8}><div className="invGuidePanel"><div className="invGuideCopy"><div className="invGuideEyebrow">Stock Status Guide</div><div className="invGuideText">Use the indicator color to quickly understand whether an item is critical, low, or still healthy.</div></div><div className="invLegendList">{STOCK_LEGEND.map((item) => (<div key={item.tone} className={`invLegendItem ${item.tone}`}><div className="invLegendBar" aria-hidden="true"><span className={`invLegendBarFill ${item.tone}`} /></div><div className="invLegendMeta"><span className="invLegendLabel">{item.label}</span><span className="invLegendRange">{item.range}</span><span className="invLegendNote">{item.note}</span></div></div>))}</div></div></th></tr><tr><th>Item ID</th><th>Item Name</th><th>Category</th><th>Current Stock (Qty)</th><th>Max Stock (Qty)</th><th>Stocks Percentage</th><th>Last Restocked</th><th>Actions</th></tr></thead><tbody>{paged.map((item) => { const percent = getStockPercent(item); const tone = getStockTone(item); return <tr key={item.id}><td>{item.id}</td><td>{item.name}</td><td>{item.category}</td><td className={`invStockValue ${tone}`}>{item.currentStock}</td><td>{item.maxStock}</td><td><div className="invPercentCell"><div className="invPercentTrack"><div className={`invPercentFill ${tone}`} style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td><td>{item.lastRestocked}</td><td><div className="invActionStack"><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setEditForm({ name: item.name, category: item.category, currentStock: String(item.currentStock), maxStock: String(item.maxStock), pricePerUnit: String(item.pricePerUnit) }); setModal("edit"); }}>Edit</button><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setRestockForm({ date: formatDateInput(), itemName: item.name, currentStock: String(item.currentStock), qtyToAdd: "", restockedBy: "Admin", costPerUnit: String(item.pricePerUnit), supplier: "", notes: "" }); setModal("restock"); }}>Restock</button><button className="invMiniBtn invMiniBtnDanger" type="button" onClick={() => { setSelectedItemId(item.id); setModal("delete"); }}>Delete</button></div></td></tr>; })}{paged.length === 0 && <tr><td colSpan={8} className="invEmptyRow">No items found.</td></tr>}</tbody></table></div>
 
       <div className="invPagerRow"><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button><span className="invPagerNum">{safePage}</span><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>
 

@@ -1,6 +1,7 @@
 import "../../styles/css/customer/customerDashboardStyle.css";
 import { useMemo } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { getRecognizedRevenue, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -24,11 +25,9 @@ export default function CustomerDashboard({ goTo }) {
     () => ({
       totalBookings: clientBookings.length,
       inProgress: clientBookings.filter((booking) =>
-        String(booking.status || "").toLowerCase().includes("progress")
+        normalizeBookingStatus(booking.status, "") === "In Progress"
       ).length,
-      totalPaid: clientPayments
-        .filter((payment) => String(payment.status || "").toLowerCase() === "paid")
-        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+      totalPaid: clientPayments.reduce((sum, payment) => sum + getRecognizedRevenue(payment), 0),
     }),
     [clientBookings, clientPayments]
   );
@@ -36,7 +35,7 @@ export default function CustomerDashboard({ goTo }) {
   const upcomingBookings = useMemo(
     () =>
       [...clientBookings]
-        .filter((booking) => booking.date)
+        .filter((booking) => isUpcomingBooking(booking, toAppDateKey()))
         .sort((a, b) => String(a.date).localeCompare(String(b.date)))
         .slice(0, 4)
         .map((booking) => ({

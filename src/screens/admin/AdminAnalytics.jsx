@@ -11,6 +11,7 @@ import {
 import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { getRecognizedRevenue, getRevenueEvents as getCanonicalRevenueEvents, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const RANGE_TYPES = [
   { key: "weekly", label: "Weekly" },
@@ -34,8 +35,7 @@ const QUARTER_OPTIONS = [
 const AI_TEXT_KEYS = ["text", "content", "message", "description", "summary", "value", "insight", "detail", "details", "body"];
 const AI_TITLE_KEYS = ["title", "label", "category", "type", "heading", "name"];
 
-const pad2 = (value) => String(value).padStart(2, "0");
-const toDateKey = (date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+const toDateKey = (date) => toAppDateKey(date);
 
 function peso(value) {
   return `Php ${Number(value || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
@@ -101,30 +101,6 @@ function endOfQuarter(year, quarter) {
   return endOfMonth(year, (quarter - 1) * 3 + 2);
 }
 
-function getPaymentTotal(payment = {}) {
-  const candidates = [payment.totalAmount, payment.finalAmount, payment.amount, payment.originalAmount];
-  for (const value of candidates) {
-    const amount = Number(value);
-    if (Number.isFinite(amount) && amount > 0) return amount;
-  }
-  return 0;
-}
-
-function isPaidStatus(status) {
-  return String(status || "").trim().toLowerCase() === "paid";
-}
-
-function hasMeaningfulStagedPayment(payment = {}) {
-  return Boolean(
-    payment.downPaymentRequired === true ||
-    Number(payment.downPaymentAmount || 0) > 0 ||
-    String(payment.downPaymentStatus || "").trim() ||
-    String(payment.finalPaymentStatus || "").trim() ||
-    Number(payment.totalAmount || 0) > 0 ||
-    Number(payment.amountPaid || 0) > 0
-  );
-}
-
 function getStageDate(payment = {}, fields = []) {
   for (const field of fields) {
     const date = parseDate(payment[field]);
@@ -140,68 +116,11 @@ function getStageDate(payment = {}, fields = []) {
 }
 
 function getVerifiedRevenueEventsForPayment(payment = {}) {
-  const total = getPaymentTotal(payment);
-  const downPaymentAmount = Math.min(total, Math.max(0, Number(payment.downPaymentAmount || 0) || 0));
-  const downPaymentPaid = isPaidStatus(payment.downPaymentStatus);
-  const finalPaymentPaid = isPaidStatus(payment.finalPaymentStatus);
-  const legacyPaid = isPaidStatus(payment.status);
-  const staged = hasMeaningfulStagedPayment(payment);
-  const events = [];
-
-  if (downPaymentPaid && downPaymentAmount > 0) {
-    events.push({
-      id: payment.id || payment.bookingId || `down-${events.length}`,
-      stage: "Down Payment",
-      amount: downPaymentAmount,
-      date: getStageDate(payment, ["downPaymentVerifiedAt"]),
-      customer: payment.customer || payment.customerEmail || "Customer",
-    });
-  }
-
-  if (finalPaymentPaid) {
-    const finalAmount = downPaymentPaid ? Math.max(0, total - downPaymentAmount) : total;
-    if (finalAmount > 0) {
-      events.push({
-        id: payment.id || payment.bookingId || `final-${events.length}`,
-        stage: downPaymentPaid ? "Remaining Balance" : "Full Payment",
-        amount: finalAmount,
-        date: getStageDate(payment, ["finalPaymentVerifiedAt", "reviewedAt"]),
-        customer: payment.customer || payment.customerEmail || "Customer",
-      });
-    }
-  }
-
-  if (legacyPaid && !finalPaymentPaid) {
-    const legacyAmount = Math.max(0, (total || Number(payment.amount || 0) || 0) - (downPaymentPaid ? downPaymentAmount : 0));
-    if (legacyAmount > 0) {
-      events.push({
-        id: payment.id || payment.bookingId || `legacy-${events.length}`,
-        stage: "Legacy Paid Payment",
-        amount: legacyAmount,
-        date: getStageDate(payment, ["reviewedAt"]),
-        customer: payment.customer || payment.customerEmail || "Customer",
-      });
-    }
-  }
-
-  if (!events.length && legacyPaid && !staged) {
-    const legacyAmount = total || Number(payment.amount || 0) || 0;
-    if (legacyAmount > 0) {
-      events.push({
-        id: payment.id || payment.bookingId || `legacy-${events.length}`,
-        stage: "Legacy Paid Payment",
-        amount: legacyAmount,
-        date: getStageDate(payment, ["reviewedAt"]),
-        customer: payment.customer || payment.customerEmail || "Customer",
-      });
-    }
-  }
-
-  return events.filter((event) => event.amount > 0 && event.date);
+  return getCanonicalRevenueEvents(payment);
 }
 
 function getVerifiedRevenueForPayment(payment = {}) {
-  return getVerifiedRevenueEventsForPayment(payment).reduce((sum, event) => sum + event.amount, 0);
+  return getRecognizedRevenue(payment);
 }
 
 function getPaymentRevenueDate(payment = {}) {
@@ -564,10 +483,10 @@ export default function AdminAnalytics() {
   const bookingSummary = useMemo(() => {
     const counts = bookings.reduce(
       (accumulator, booking) => {
-        const status = String(booking.status || "").trim().toLowerCase();
-        if (status === "completed") accumulator.completed += 1;
-        else if (status === "cancelled" || status === "canceled") accumulator.cancelled += 1;
-        else if (status === "in progress") accumulator.inProgress += 1;
+        const status = normalizeBookingStatus(booking.status, "Scheduled");
+        if (status === "Completed") accumulator.completed += 1;
+        else if (status === "Cancelled") accumulator.cancelled += 1;
+        else if (status === "In Progress") accumulator.inProgress += 1;
         else accumulator.scheduled += 1;
         return accumulator;
       },

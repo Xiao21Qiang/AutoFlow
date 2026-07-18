@@ -1,6 +1,7 @@
 import "../../styles/css/staff/staffDashboardStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { getOutstandingBalance, getRecognizedRevenue, getStockState, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -23,30 +24,6 @@ function monthLabel(date) {
   return `${m} ${date.getFullYear()}`;
 }
 
-function buildDerivedReorderLevel(item) {
-  const maxStock = Math.max(0, Number(item?.maxStock || 0));
-  if (!maxStock) return 0;
-  return Math.max(1, Math.ceil(maxStock * 0.25));
-}
-
-function getDashboardStockState(item) {
-  const currentStock = Math.max(0, Number(item?.currentStock || 0));
-  const maxStock = Math.max(0, Number(item?.maxStock || 0));
-  const reorderLevel = buildDerivedReorderLevel(item);
-  const lowLevel = reorderLevel > 0 ? reorderLevel + Math.max(1, reorderLevel) : 0;
-
-  if (!maxStock) {
-    return { tone: "healthy", reorderLevel };
-  }
-  if (currentStock < reorderLevel) {
-    return { tone: "critical", reorderLevel };
-  }
-  if (currentStock <= lowLevel) {
-    return { tone: "low", reorderLevel };
-  }
-  return { tone: "healthy", reorderLevel };
-}
-
 function buildCalendarGrid(monthDate) {
   const first = startOfMonth(monthDate);
   const firstDow = first.getDay();
@@ -63,7 +40,7 @@ function buildCalendarGrid(monthDate) {
 }
 
 export default function StaffDashboard({ goTo }) {
-  const { bookings, stockMonitoring, payments, quoteRequests, updateQuoteRequest } = useAdminData();
+  const { bookings, stockMonitoring, payments, quoteRequests, summary, updateQuoteRequest } = useAdminData();
   const today = useMemo(() => new Date(), []);
   const [monthDate, setMonthDate] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today));
@@ -83,13 +60,14 @@ export default function StaffDashboard({ goTo }) {
   const calendarCells = useMemo(() => buildCalendarGrid(monthDate), [monthDate]);
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate]);
   const selectedBookings = useMemo(() => bookingsByDate.get(selectedKey) || [], [bookingsByDate, selectedKey]);
-  const todayKey = useMemo(() => toKey(today), [today]);
+  const todayKey = useMemo(() => toAppDateKey(today), [today]);
 
-  const bookingsToday = (bookingsByDate.get(todayKey) || []).length;
-  const inProgressCount = bookings.filter((b) => b.status === "In Progress").length;
-  const paidRevenue = payments.filter((p) => p.status === "Paid").reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const pendingPaymentsCount = payments.filter((payment) => payment.status !== "Paid").length;
-  const pendingPaymentsTotal = payments.filter((payment) => payment.status !== "Paid").reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const bookingsToday = summary?.bookingsToday ?? (bookingsByDate.get(todayKey) || []).length;
+  const inProgressCount = summary?.inProgressCount ?? bookings.filter((b) => normalizeBookingStatus(b.status, "") === "In Progress").length;
+  const paidRevenue = summary?.paidRevenue ?? payments.reduce((sum, p) => sum + getRecognizedRevenue(p), 0);
+  const pendingPayments = payments.filter((payment) => getOutstandingBalance(payment) > 0);
+  const pendingPaymentsCount = pendingPayments.length;
+  const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + getOutstandingBalance(payment), 0);
   const recentQuoteRequests = quoteRequests;
   const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
   const stockSummary = useMemo(() => {
@@ -98,12 +76,12 @@ export default function StaffDashboard({ goTo }) {
     const healthyItems = [];
 
     stockMonitoring.forEach((item) => {
-      const state = getDashboardStockState(item);
-      if (state.tone === "critical") {
+      const state = getStockState(item);
+      if (state.key === "out" || state.key === "critical") {
         criticalItems.push({ ...item, reorderLevel: state.reorderLevel });
         return;
       }
-      if (state.tone === "low") {
+      if (state.key === "low") {
         lowItems.push({ ...item, reorderLevel: state.reorderLevel });
         return;
       }
@@ -123,8 +101,7 @@ export default function StaffDashboard({ goTo }) {
     () =>
       [...bookings]
         .filter((booking) => {
-          const normalizedStatus = String(booking.status || "").trim().toLowerCase();
-          return String(booking.date || "") >= todayKey && !["completed", "cancelled"].includes(normalizedStatus);
+          return isUpcomingBooking(booking, todayKey);
         })
         .sort((left, right) => {
           const leftKey = `${left.date || ""} ${left.time || ""}`;

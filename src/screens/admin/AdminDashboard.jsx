@@ -1,6 +1,7 @@
 import "../../styles/css/admin/adminDashboardStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { getOutstandingBalance, getRecognizedRevenue, getStockState, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -8,30 +9,6 @@ const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getD
 function monthLabel(d) {
   const m = d.toLocaleString("en-US", { month: "long" });
   return `${m} ${d.getFullYear()}`;
-}
-
-function buildDerivedReorderLevel(item) {
-  const maxStock = Math.max(0, Number(item?.maxStock || 0));
-  if (!maxStock) return 0;
-  return Math.max(1, Math.ceil(maxStock * 0.25));
-}
-
-function getDashboardStockState(item) {
-  const currentStock = Math.max(0, Number(item?.currentStock || 0));
-  const maxStock = Math.max(0, Number(item?.maxStock || 0));
-  const reorderLevel = buildDerivedReorderLevel(item);
-  const lowLevel = reorderLevel > 0 ? reorderLevel + Math.max(1, reorderLevel) : 0;
-
-  if (!maxStock) {
-    return { tone: "healthy", reorderLevel };
-  }
-  if (currentStock < reorderLevel) {
-    return { tone: "critical", reorderLevel };
-  }
-  if (currentStock <= lowLevel) {
-    return { tone: "low", reorderLevel };
-  }
-  return { tone: "healthy", reorderLevel };
 }
 
 function buildCalendarGrid(viewDate, bookings = []) {
@@ -61,28 +38,28 @@ export default function AdminDashboard({ goTo }) {
   const [selectedBooking, setSelectedBooking] = useState(null);
 
   const cal = useMemo(() => buildCalendarGrid(view, bookings), [view, bookings]);
-  const todayKey = toKey(today);
-  const bookingsToday = bookings.filter((b) => b.date === todayKey).length;
+  const todayKey = toAppDateKey(today);
+  const bookingsToday = summary?.bookingsToday ?? bookings.filter((b) => b.date === todayKey).length;
   const selectedKey = toKey(selected);
   const todays = bookings.filter((b) => b.date === selectedKey);
-  const paidRevenue = summary?.paidRevenue || payments.filter((payment) => payment.status === "Paid").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const paidRevenue = summary?.paidRevenue ?? payments.reduce((sum, payment) => sum + getRecognizedRevenue(payment), 0);
   const recentQuoteRequests = quoteRequests;
-  const pendingPayments = payments.filter((payment) => payment.status !== "Paid");
+  const pendingPayments = payments.filter((payment) => getOutstandingBalance(payment) > 0);
   const pendingPaymentsCount = pendingPayments.length;
-  const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const inProgressCount = bookings.filter((booking) => String(booking.status || "").trim().toLowerCase() === "in progress").length;
+  const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + getOutstandingBalance(payment), 0);
+  const inProgressCount = summary?.inProgressCount ?? bookings.filter((booking) => normalizeBookingStatus(booking.status, "") === "In Progress").length;
   const stockSummary = useMemo(() => {
     const criticalItems = [];
     const lowItems = [];
     const healthyItems = [];
 
     stockMonitoring.forEach((item) => {
-      const state = getDashboardStockState(item);
-      if (state.tone === "critical") {
+      const state = getStockState(item);
+      if (state.key === "out" || state.key === "critical") {
         criticalItems.push({ ...item, reorderLevel: state.reorderLevel });
         return;
       }
-      if (state.tone === "low") {
+      if (state.key === "low") {
         lowItems.push({ ...item, reorderLevel: state.reorderLevel });
         return;
       }
@@ -102,8 +79,7 @@ export default function AdminDashboard({ goTo }) {
     () =>
       [...bookings]
         .filter((booking) => {
-          const normalizedStatus = String(booking.status || "").trim().toLowerCase();
-          return String(booking.date || "") >= todayKey && !["completed", "cancelled"].includes(normalizedStatus);
+          return isUpcomingBooking(booking, todayKey);
         })
         .sort((left, right) => {
           const leftKey = `${left.date || ""} ${left.time || ""}`;

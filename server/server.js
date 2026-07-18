@@ -26,6 +26,12 @@ const {
   Reward,
   CustomerReward,
 } = require("./models");
+const bookingDomain = require("./domain/bookingStatus");
+const paymentDomain = require("./domain/payments");
+const stockDomain = require("./domain/stock");
+const scheduleDomain = require("./domain/schedule");
+const commissionDomain = require("./domain/commission");
+const { buildBusinessSummary } = require("./domain/summaries");
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
@@ -344,10 +350,7 @@ function toTimestamp() {
 }
 
 function toDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return scheduleDomain.toDateKey(date);
 }
 
 function normalizePromoExpiryMode(value) {
@@ -3211,30 +3214,23 @@ function getBookingAuditAction(previousBooking, nextBooking) {
 }
 
 function isInProgressStatus(status) {
-  return String(status || "").trim().toLowerCase() === "in progress";
+  return bookingDomain.isInProgressBookingStatus(status);
 }
 
 function isCompletedStatus(status) {
-  return String(status || "").trim().toLowerCase() === "completed";
+  return bookingDomain.isCompletedBookingStatus(status);
 }
 
 function isCancelledStatus(status) {
-  return String(status || "").trim().toLowerCase() === "cancelled";
+  return bookingDomain.isCancelledBookingStatus(status);
 }
 
 function isPaidStatus(status) {
-  return String(status || "").trim().toLowerCase() === "paid";
+  return paymentDomain.isPaidStatus(status);
 }
 
 function normalizeWorkflowStatus(status, fallback = "Scheduled") {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "completed" || normalized === "successful") return "Completed";
-  if (normalized === "cancelled" || normalized === "canceled") return "Cancelled";
-  if (normalized === "in progress") return "In Progress";
-  if (normalized === "rescheduled") return "Rescheduled";
-  if (normalized === "pending") return "Pending";
-  if (normalized === "scheduled") return "Scheduled";
-  return fallback;
+  return bookingDomain.normalizeBookingStatus(status, fallback);
 }
 
 function normalizeQuoteStatus(status) {
@@ -3332,52 +3328,18 @@ function getPreferredDetailerFields(body = {}) {
 }
 
 function normalizePaymentStageStatus(status, fallback = "Pending") {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "not required") return "Not Required";
-  if (normalized === "pending") return "Pending";
-  if (normalized === "for verification") return "For Verification";
-  if (normalized === "paid") return "Paid";
-  if (normalized === "rejected") return "Rejected";
-  return fallback;
+  return paymentDomain.normalizePaymentStageStatus(status, fallback);
 }
 
 function getPaymentTotalAmount(payment = {}) {
-  const candidates = [payment.totalAmount, payment.finalAmount, payment.amount, payment.originalAmount];
-  for (const value of candidates) {
-    const amount = Number(value);
-    if (Number.isFinite(amount) && amount > 0) return Math.max(0, roundMoney(amount));
-  }
-  return 0;
+  return paymentDomain.getPaymentFinalAmountDue(payment);
 }
 
-function normalizePaymentStageFields(payment = {}) {
-  const source = typeof payment.toObject === "function" ? payment.toObject() : { ...payment };
-  const totalAmount = getPaymentTotalAmount(source);
-  const existingAmountPaid = Number(source.amountPaid);
-  const amountPaid = Number.isFinite(existingAmountPaid)
-    ? Math.min(totalAmount, Math.max(0, roundMoney(existingAmountPaid)))
-    : (isPaidStatus(source.status) ? totalAmount : 0);
-  const remainingBalance = calculateRemainingBalance(totalAmount, amountPaid);
-  const downPaymentRequired = typeof source.downPaymentRequired === "boolean"
-    ? source.downPaymentRequired
-    : false;
-  const downPaymentAmount = Math.min(totalAmount, Math.max(0, roundMoney(source.downPaymentAmount || 0)));
-  const fallbackDownPaymentStatus = downPaymentRequired
-    ? normalizePaymentStageStatus(source.status, "Pending")
-    : "Not Required";
-  const downPaymentStatus = downPaymentRequired
-    ? normalizePaymentStageStatus(source.downPaymentStatus, fallbackDownPaymentStatus)
-    : "Not Required";
-  const finalPaymentStatus = normalizePaymentStageStatus(
-    source.finalPaymentStatus,
-    normalizePaymentStageStatus(source.status, "Pending")
-  );
+function normalizePaymentStageFields(payment = {}, booking = {}) {
+  const source = paymentDomain.normalizePaymentStageFields(payment, booking);
 
   return {
     ...source,
-    downPaymentRequired,
-    downPaymentAmount,
-    downPaymentStatus,
     downPaymentMethod: source.downPaymentMethod || "",
     downPaymentReference: source.downPaymentReference || "",
     downPaymentProofUrl: source.downPaymentProofUrl || "",
@@ -3395,10 +3357,6 @@ function normalizePaymentStageFields(payment = {}) {
     downPaymentVerifiedNotificationSentAt: source.downPaymentVerifiedNotificationSentAt || null,
     autoCancelledForNoDownPaymentProof: Boolean(source.autoCancelledForNoDownPaymentProof),
     cancellationReason: source.cancellationReason || "",
-    totalAmount,
-    amountPaid,
-    remainingBalance,
-    finalPaymentStatus,
     finalPaymentMethod: source.finalPaymentMethod || source.method || "",
     finalPaymentReference: source.finalPaymentReference || source.reference || "",
     finalPaymentProofUrl: source.finalPaymentProofUrl || source.proofImage || "",
@@ -3457,7 +3415,7 @@ function clampPaymentAmount(value, totalAmount) {
 }
 
 function isPaymentFullyPaid(payment = {}) {
-  return isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status);
+  return paymentDomain.isPaymentFullyPaid(payment);
 }
 
 function isDownPaymentSatisfiedForFinalReview(payment = {}) {
@@ -3482,26 +3440,7 @@ function canReviewFinalPaymentStage(payment = {}) {
 }
 
 function getVerifiedRevenueForPayment(payment = {}) {
-  const totalAmount = getPaymentTotalAmount(payment);
-  const downPaymentAmount = Math.min(totalAmount, Math.max(0, roundMoney(payment.downPaymentAmount || 0)));
-  const downPaymentPaid = isPaidStatus(payment.downPaymentStatus);
-  const finalPaymentPaid = isPaidStatus(payment.finalPaymentStatus);
-  const legacyPaid = isPaidStatus(payment.status);
-
-  let revenue = 0;
-  if (downPaymentPaid && downPaymentAmount > 0) {
-    revenue += downPaymentAmount;
-  }
-  if (finalPaymentPaid) {
-    revenue += downPaymentPaid ? Math.max(0, totalAmount - downPaymentAmount) : totalAmount;
-  }
-  if (legacyPaid && !finalPaymentPaid) {
-    revenue = Math.max(revenue, totalAmount || Number(payment.amount || 0) || 0);
-  }
-  if (!revenue && legacyPaid) {
-    revenue = totalAmount || Number(payment.amount || 0) || 0;
-  }
-  return roundMoney(revenue);
+  return paymentDomain.getHistoricalRecognizedRevenue(payment);
 }
 
 async function getLinkedPaymentForBooking(booking = {}) {
@@ -3517,7 +3456,7 @@ async function getLinkedPaymentForBooking(booking = {}) {
       { reference: { $in: candidates } },
     ],
   }).lean();
-  return payment ? normalizePaymentStageFields(payment) : null;
+  return payment ? normalizePaymentStageFields(payment, booking) : null;
 }
 
 function hasPaidDownPaymentForBooking(booking = {}, payment = null) {
@@ -3716,6 +3655,14 @@ async function validateBookingCompletion({ previousBooking, nextBooking, payment
 async function validateBookingLifecycleTransition({ previousBooking, nextBooking, payment, nextStatus, scheduleChanged = false }) {
   const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
   const statusChanged = previousStatus !== nextStatus;
+  if (statusChanged) {
+    const transition = bookingDomain.validateBookingTransition(previousStatus, nextStatus, {
+      allowInProgressCancellation: true,
+    });
+    if (!transition.allowed) {
+      throwValidationError(transition.reason);
+    }
+  }
   const needsScheduleGate =
     (statusChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus)) ||
     (scheduleChanged && ["Scheduled", "In Progress", "Completed"].includes(nextStatus));
@@ -3861,8 +3808,7 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
 }
 
 function getQualifiedBookingStatus(status) {
-  const normalized = String(status || "").trim().toLowerCase();
-  return normalized === "completed" || normalized === "successful";
+  return isCompletedStatus(status);
 }
 
 function buildClaimCode() {
@@ -3897,20 +3843,35 @@ async function ensureBookingCommission(booking, auditUser) {
   const workerName = String(booking?.assigned || "").trim();
   if (!bookingId || !workerName) return null;
 
-  const existingCommission = await Commission.findOne({ bookingId }).lean();
+  const existingCommission = await Commission.findOne({
+    bookingId,
+    status: { $nin: ["Voided", "Cancelled"] },
+  }).lean();
   if (existingCommission) return existingCommission;
 
-  const workers = await User.find({}).lean();
-  const worker = workers.find((user) =>
-    String(user.name || "").trim().toLowerCase() === workerName.toLowerCase()
-  );
+  const [workers, linkedPayment] = await Promise.all([
+    User.find({}).lean(),
+    getLinkedPaymentForBooking(booking),
+  ]);
+  const worker = workers.find((user) => {
+    const name = String(user.name || "").trim().toLowerCase();
+    const email = String(user.email || "").trim().toLowerCase();
+    const id = String(user.id || user._id || "").trim().toLowerCase();
+    const target = workerName.toLowerCase();
+    return name === target || email === target || id === target;
+  });
 
   if (!worker || normalizeUserType(worker.userType, worker.role) !== "staff") {
     return null;
   }
 
-  const serviceValue = Number(booking.amount || 0);
-  if (serviceValue <= 0) return null;
+  const eligibility = commissionDomain.evaluateCommissionEligibility({
+    booking,
+    payment: linkedPayment,
+    worker,
+    existingCommission,
+  });
+  if (!eligibility.eligible) return null;
 
   const commission = await Commission.create({
     id: createId("C"),
@@ -3919,9 +3880,9 @@ async function ensureBookingCommission(booking, auditUser) {
     worker: worker.name || workerName,
     role: toDisplaySubtype(worker.userType, worker.role),
     service: booking.service || "",
-    serviceValue,
-    rate: 10,
-    earned: Number((serviceValue * 0.1).toFixed(2)),
+    serviceValue: eligibility.serviceValue,
+    rate: eligibility.rate,
+    earned: eligibility.earned,
     status: "Earned",
     generatedBy: auditUser || "System",
     dateCompleted: booking.date || toDateKey(),
@@ -4464,7 +4425,7 @@ async function backfillAutomaticExpenses() {
       sourceId: commission.id,
       date: commission.date || toDateKey(commission.createdAt ? new Date(commission.createdAt) : new Date()),
       description: `Worker commission: ${commission.worker || "Staff"}`,
-      note: `${commission.service || "Completed service"} commission at ${commission.rate || 10}%`,
+      note: `${commission.service || "Completed service"} commission at ${commission.rate || commissionDomain.DEFAULT_COMMISSION_RATE_PERCENT}%`,
       category: "Commissions",
       amount: earned,
       paidBy: "System",
@@ -4617,16 +4578,36 @@ async function loadBootstrapData() {
     getOrCreateSecuritySetting(),
   ]);
 
-  const lowStockCount = stockMonitoring.filter((item) => item.maxStock && item.currentStock / item.maxStock <= 0.25).length;
-  const inProgressCount = bookings.filter((booking) => String(booking.status || "").toLowerCase().includes("progress")).length;
-  const completedCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "completed").length;
-  const cancelledCount = bookings.filter((booking) => String(booking.status || "").toLowerCase() === "cancelled").length;
-  const normalizedPayments = payments.map((payment) => normalizePaymentStageFields(payment));
-  const paidRevenue = normalizedPayments.reduce((sum, payment) => sum + getVerifiedRevenueForPayment(payment), 0);
+  const bookingById = new Map(bookings.map((booking) => [String(booking.id || "").trim(), booking]));
+  const normalizedPayments = payments.map((payment) => {
+    const booking = bookingById.get(String(payment.bookingId || "").trim()) || {};
+    const normalizedPayment = normalizePaymentStageFields(payment, booking);
+    return {
+      ...normalizedPayment,
+      recognizedRevenueEvents: paymentDomain.getVerifiedRevenueEventsForPayment(normalizedPayment, booking),
+    };
+  });
+  const normalizedStockMonitoring = stockMonitoring.map((item) => {
+    const stockStatus = stockDomain.getStockStatus(item);
+    return {
+      ...item,
+      reorderLevel: stockStatus.reorderLevel,
+      stockStatus: stockStatus.label,
+      stockStatusKey: stockStatus.key,
+      stockTone: stockStatus.tone,
+      stockPercent: stockDomain.getStockPercent(item),
+    };
+  });
+  const businessSummary = buildBusinessSummary({
+    bookings,
+    payments: normalizedPayments,
+    stockMonitoring: normalizedStockMonitoring,
+    quoteRequests,
+  });
 
   const alerts = [];
-  if (lowStockCount > 0) {
-    alerts.push({ title: "Low stock items", description: String(lowStockCount) + " stock monitoring item(s) need restocking." });
+  if (businessSummary.lowStockCount > 0) {
+    alerts.push({ title: "Low stock items", description: String(businessSummary.lowStockCount) + " stock monitoring item(s) need restocking." });
   }
   if (bookings.length === 0) {
     alerts.push({ title: "No bookings yet", description: "Create your first booking to start building the dashboard." });
@@ -4638,7 +4619,7 @@ async function loadBootstrapData() {
   return {
     bookings: bookings.map((booking) => appendBookingAccessLinks(booking)),
     services: services.map((service) => hydrateService(service)),
-    stockMonitoring,
+    stockMonitoring: normalizedStockMonitoring,
     payments: normalizedPayments,
     users: users.map((user) => sanitizeUser(user)),
     auditLogs,
@@ -4653,14 +4634,20 @@ async function loadBootstrapData() {
     settings: getSafeSecuritySettings(securitySetting),
     alerts,
     summary: {
-      bookingsToday: bookings.filter((booking) => booking.date === toDateKey()).length,
-      inProgressCount,
-      lowStockCount,
-      paidRevenue,
-      totalSchedules: bookings.length,
-      completedCount,
-      cancelledCount,
-      quoteRequestCount: quoteRequests.length,
+      bookingsToday: businessSummary.bookingsToday,
+      inProgressCount: businessSummary.inProgressCount,
+      lowStockCount: businessSummary.lowStockCount,
+      paidRevenue: businessSummary.paidRevenue,
+      activePaidRevenue: businessSummary.activePaidRevenue,
+      historicalPaidRevenue: businessSummary.historicalPaidRevenue,
+      paidRevenueEvents: businessSummary.paidRevenueEvents,
+      totalSchedules: businessSummary.totalSchedules,
+      completedCount: businessSummary.completedCount,
+      cancelledCount: businessSummary.cancelledCount,
+      pendingCount: businessSummary.pendingCount,
+      scheduledCount: businessSummary.scheduledCount,
+      upcomingBookings: businessSummary.upcomingBookings,
+      quoteRequestCount: businessSummary.quoteRequestCount,
     },
   };
 }
@@ -5920,23 +5907,33 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     }
 
     const bookingDate = String(req.body.date || existingBooking.date || "").trim();
-    const currentStatusRaw = String(existingBooking.status || "").trim().toLowerCase();
+    const currentStatusRaw = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
+    const requestedStatusRaw = String(req.body.status || "").trim().toLowerCase().replace(/\s+/g, " ");
     const nextTime = String(req.body.time ?? existingBooking.time ?? "").trim();
     const nextPlaceSlot = Number(req.body.placeSlot ?? existingBooking.placeSlot ?? 0);
     const hasValidScheduleTime = isValidScheduleTime(nextTime);
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "status") &&
+      !bookingDomain.normalizeBookingStatus(req.body.status, null)
+    ) {
+      res.status(400).json({ message: `Unsupported booking status: ${req.body.status || "blank"}.` });
+      return;
+    }
     const shouldAutoSchedulePending =
-      (currentStatusRaw === "pending" || currentStatusRaw === "pending confirmation") &&
+      currentStatusRaw === "Pending" &&
       hasValidScheduleTime &&
       nextPlaceSlot > 0 &&
-      String(req.body.status || "").trim().toLowerCase() !== "cancelled" &&
-      String(req.body.status || "").trim().toLowerCase() !== "completed";
+      requestedStatusRaw !== "cancelled" &&
+      requestedStatusRaw !== "canceled" &&
+      requestedStatusRaw !== "completed" &&
+      requestedStatusRaw !== "successful";
     const nextStatus = shouldAutoSchedulePending
       ? "Scheduled"
       : normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
     const previousStatus = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
     const isSensitiveStatusChange =
       (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
-      (nextStatus === "Rescheduled" && previousStatus !== "Rescheduled");
+      requestedStatusRaw === "rescheduled";
     if (isSensitiveStatusChange) {
       await requireSpecialCredentialForRequest(req, {
         mode: "pin",
@@ -5952,7 +5949,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       return;
     }
     const scheduleChanged = dateChanged || timeChanged || slotChanged;
-    const requiresScheduleValidation = nextStatus === "Rescheduled" || shouldAutoSchedulePending;
+    const requiresScheduleValidation = requestedStatusRaw === "rescheduled" || shouldAutoSchedulePending;
 
     if ((dateChanged || requiresScheduleValidation) && isPastDateKey(bookingDate)) {
       res.status(400).json({ message: "Booking date cannot be in the past." });
@@ -6444,8 +6441,7 @@ app.delete("/api/admin/services/:id", requireAdminUser, async (req, res, next) =
 });
 
 function normalizeStockQuantityValue(value) {
-  const quantity = Number(value);
-  return Number.isFinite(quantity) ? quantity : 0;
+  return stockDomain.normalizeStockQuantity(value);
 }
 
 function getConfiguredMaxStockQuantity(value) {
@@ -6453,42 +6449,21 @@ function getConfiguredMaxStockQuantity(value) {
   return quantity > 0 ? quantity : 0;
 }
 
-function validateStockQuantityLimit({ currentStock, maxStock, qtyToAdd = null }) {
-  const nextCurrentStock = normalizeStockQuantityValue(currentStock);
-  const nextMaxStock = normalizeStockQuantityValue(maxStock);
-  const configuredMaxStock = getConfiguredMaxStockQuantity(nextMaxStock);
-
-  if (nextCurrentStock < 0) {
-    return "Current stock quantity cannot be negative.";
-  }
-
-  if (nextMaxStock < 0) {
-    return "Max stock quantity cannot be negative.";
-  }
-
-  if (qtyToAdd !== null) {
-    const nextQtyToAdd = normalizeStockQuantityValue(qtyToAdd);
-    if (nextQtyToAdd <= 0) {
-      return "Restock quantity must be greater than zero.";
-    }
-
-    if (configuredMaxStock && nextCurrentStock + nextQtyToAdd > configuredMaxStock) {
-      return `This restock would exceed the max stock quantity of ${configuredMaxStock}.`;
-    }
-
-    return "";
-  }
-
-  if (configuredMaxStock && nextCurrentStock > configuredMaxStock) {
-    return `Current stock quantity cannot exceed the max stock quantity of ${configuredMaxStock}.`;
-  }
-
-  return "";
+function validateStockQuantityLimit({ currentStock, maxStock, reorderLevel, qtyToAdd = null }) {
+  return stockDomain.validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd });
 }
 
 app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
-    const item = await StockMonitoringItem.create({ id: createId("INV"), ...req.body });
+    const validationMessage = stockDomain.validateStockPayload(req.body);
+    if (validationMessage) {
+      res.status(400).json({ message: validationMessage });
+      return;
+    }
+    const item = await StockMonitoringItem.create({
+      id: createId("INV"),
+      ...stockDomain.normalizeStockPayload(req.body),
+    });
     const initialStock = Number(req.body.currentStock || 0);
     const unitCost = Number(req.body.pricePerUnit || 0);
 
@@ -6514,22 +6489,22 @@ app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireA
 
 app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
+    const existingItem = await StockMonitoringItem.findOne({ id: req.params.id }).lean();
+    if (!existingItem) {
+      res.status(404).json({ message: "Stock monitoring item not found" });
+      return;
+    }
     const validationMessage = validateStockQuantityLimit({
-      currentStock: req.body.currentStock,
-      maxStock: req.body.maxStock,
+      currentStock: req.body.currentStock ?? existingItem.currentStock,
+      maxStock: req.body.maxStock ?? existingItem.maxStock,
+      reorderLevel: req.body.reorderLevel ?? existingItem.reorderLevel,
     });
     if (validationMessage) {
       res.status(400).json({ message: validationMessage });
       return;
     }
 
-    const nextPayload = { ...req.body };
-    if (Object.prototype.hasOwnProperty.call(req.body, "currentStock")) {
-      nextPayload.currentStock = normalizeStockQuantityValue(req.body.currentStock);
-    }
-    if (Object.prototype.hasOwnProperty.call(req.body, "maxStock")) {
-      nextPayload.maxStock = normalizeStockQuantityValue(req.body.maxStock);
-    }
+    const nextPayload = stockDomain.normalizeStockPayload(req.body, existingItem);
 
     const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, nextPayload, { new: true });
     await recordAudit(req.body.auditUser, "Updated stock monitoring item", req.params.id);
@@ -6551,6 +6526,7 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
     const validationMessage = validateStockQuantityLimit({
       currentStock: item.currentStock,
       maxStock: item.maxStock,
+      reorderLevel: item.reorderLevel,
       qtyToAdd,
     });
     if (validationMessage) {
@@ -6660,6 +6636,15 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       "finalPaymentNotes",
     ].some(hasBodyField);
     const isCustomerDownPaymentSubmission = actorType === "customer" && !isCustomerFinalPaymentSubmission;
+    for (const field of ["status", "downPaymentStatus", "finalPaymentStatus"]) {
+      if (
+        Object.prototype.hasOwnProperty.call(req.body, field) &&
+        !paymentDomain.normalizePaymentStageStatus(req.body[field], "")
+      ) {
+        res.status(400).json({ message: `Unsupported payment status: ${req.body[field] || "blank"}.` });
+        return;
+      }
+    }
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
       res.status(403).json({ message: "You can only update your own payment records." });
       return;

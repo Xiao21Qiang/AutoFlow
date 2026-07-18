@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+import { getRecognizedRevenue, getRevenueEvents, toAppDateKey } from "../../utils/businessMetrics";
 
 const CATEGORY_COLORS = {
   Materials: "violet",
@@ -56,10 +57,10 @@ export default function AdminFinancialTracker() {
   const canCreateExpense = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
 
   const paidPayments = useMemo(
-    () => payments.filter((item) => String(item.status || "").toLowerCase() === "paid"),
+    () => payments.filter((item) => getRecognizedRevenue(item) > 0),
     [payments]
   );
-  const totalRevenue = useMemo(() => paidPayments.reduce((sum, item) => sum + Number(item.amount || 0), 0), [paidPayments]);
+  const totalRevenue = useMemo(() => paidPayments.reduce((sum, item) => sum + getRecognizedRevenue(item), 0), [paidPayments]);
   const totalExpenses = useMemo(() => expenses.reduce((sum, item) => sum + Number(item.amount || 0), 0), [expenses]);
   const totalCommissions = useMemo(() => commissions.reduce((sum, item) => sum + Number(item.earned || 0), 0), [commissions]);
   const staffOptions = useMemo(
@@ -102,9 +103,14 @@ export default function AdminFinancialTracker() {
   const filteredRevenuePayments = useMemo(
     () =>
       paidPayments.filter((item) => {
-        const matchesFrom = !dateFrom || item.date >= dateFrom;
-        const matchesTo = !dateTo || item.date <= dateTo;
-        return matchesFrom && matchesTo;
+        const events = getRevenueEvents(item);
+        if (!events.length) return false;
+        return events.some((event) => {
+          const key = toAppDateKey(event.date);
+          const matchesFrom = !dateFrom || key >= dateFrom;
+          const matchesTo = !dateTo || key <= dateTo;
+          return matchesFrom && matchesTo;
+        });
       }),
     [paidPayments, dateFrom, dateTo]
   );
@@ -148,7 +154,15 @@ export default function AdminFinancialTracker() {
       .sort((left, right) => Number(right.total || 0) - Number(left.total || 0))
       .slice(0, 5);
 
-    const revenueInScope = filteredRevenuePayments.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const revenueInScope = filteredRevenuePayments.reduce((sum, item) => {
+      const scopedEventRevenue = getRevenueEvents(item)
+        .filter((event) => {
+          const key = toAppDateKey(event.date);
+          return (!dateFrom || key >= dateFrom) && (!dateTo || key <= dateTo);
+        })
+        .reduce((eventSum, event) => eventSum + Number(event.amount || 0), 0);
+      return sum + scopedEventRevenue;
+    }, 0);
     const expensesInScope = filteredExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const commissionsInScope = filteredCommissionsForAi.reduce((sum, item) => sum + Number(item.earned || 0), 0);
 
@@ -458,7 +472,7 @@ export default function AdminFinancialTracker() {
         <div className="finCardHead finCardHeadStack finCommissionHead">
           <div>
             <div className="finCardTitle">Worker Commission Log</div>
-            <div className="finCardSub">Entries are created automatically when a staff-assigned booking is marked completed. Every completed service gives the assigned staff member a fixed 10% commission.</div>
+            <div className="finCardSub">Entries are created automatically when an eligible completed booking has verified paid service value.</div>
           </div>
           <div className="finWorkerSearchWrap">
             <input className="finSearchInput finWorkerSearch" placeholder="Search worker..." value={workerQuery} onChange={(e) => setWorkerQuery(e.target.value)} list="fin-worker-list" />

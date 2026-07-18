@@ -1,18 +1,14 @@
+import { getOutstandingBalance as getAuthoritativeOutstandingBalance, getRecognizedRevenue, normalizePaymentStatus } from "./businessMetrics";
+
 export const PAYMENT_STATUS_OPTIONS = ["Pending", "For Verification", "Paid", "Rejected"];
 export const PAYMENT_METHOD_OPTIONS = ["Cash", "E-Wallet", "Bank Transfer", "Online Transfer"];
 
 export function isPaidStatus(status) {
-  return String(status || "").trim().toLowerCase() === "paid";
+  return normalizePaymentStatus(status, "") === "Paid";
 }
 
 export function normalizeStageStatus(status, fallback = "Pending") {
-  const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "not required") return "Not Required";
-  if (normalized === "pending") return "Pending";
-  if (normalized === "for verification") return "For Verification";
-  if (normalized === "paid") return "Paid";
-  if (normalized === "rejected") return "Rejected";
-  return fallback;
+  return normalizePaymentStatus(status, fallback);
 }
 
 export function getPaymentTotal(payment = {}) {
@@ -23,13 +19,11 @@ export function getPaymentTotal(payment = {}) {
 }
 
 export function getAmountPaid(payment = {}) {
-  const total = getPaymentTotal(payment);
-  if (isPaidStatus(payment.finalPaymentStatus) || isPaidStatus(payment.status)) return total;
-  return Math.min(total, Math.max(0, Number(payment.amountPaid || 0) || 0));
+  return getRecognizedRevenue(payment);
 }
 
 export function getRemainingBalance(payment = {}) {
-  return Math.max(0, getPaymentTotal(payment) - getAmountPaid(payment));
+  return getAuthoritativeOutstandingBalance(payment);
 }
 
 export function isDownPaymentSatisfied(payment = {}) {
