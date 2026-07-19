@@ -7,7 +7,7 @@ import { getRewardStatus } from "../../utils/rewards";
 import { ACTION_KEYS } from "../../utils/rbac";
 
 export default function AdminEngagement() {
-  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
+  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
@@ -19,9 +19,11 @@ export default function AdminEngagement() {
   const [manualRewardCustomerEmail, setManualRewardCustomerEmail] = useState("");
   const [promoForm, setPromoForm] = useState({
     title: "",
+    code: "",
     status: "Draft",
     message: "",
-    discountPercent: "",
+    discountType: "Percentage",
+    discountValue: "",
     maxUsagePerUser: "",
     expiryMode: "none",
     expiresAt: "",
@@ -122,9 +124,11 @@ export default function AdminEngagement() {
     setEditingPromoId("");
     setPromoForm({
       title: "",
+      code: "",
       status: "Draft",
       message: "",
-      discountPercent: "",
+      discountType: "Percentage",
+      discountValue: "",
       maxUsagePerUser: "",
       expiryMode: "none",
       expiresAt: "",
@@ -137,9 +141,11 @@ export default function AdminEngagement() {
     setEditingPromoId(promo.id || "");
     setPromoForm({
       title: promo.title || "",
+      code: promo.code || "",
       status: promo.status === "Expired" ? "Active" : promo.status || "Draft",
       message: promo.message || "",
-      discountPercent: String(Number(promo.discountPercent || 0) || ""),
+      discountType: promo.discountType || "Percentage",
+      discountValue: String(Number(promo.discountValue || promo.discountPercent || 0) || ""),
       maxUsagePerUser: String(Number(promo.maxUsagePerUser || 0) || ""),
       expiryMode: promo.expiryMode || "none",
       expiresAt: promo.expiresAt ? new Date(promo.expiresAt).toISOString().slice(0, 16) : "",
@@ -173,11 +179,12 @@ export default function AdminEngagement() {
       subtitle: "Saved promos exported in tabular format.",
       sections: [
         {
-          columns: ["Promo ID", "Title", "Discount", "Per User Limit", "Status", "Expiry", "Message"],
+          columns: ["Promo ID", "Code", "Title", "Discount", "Per User Limit", "Status", "Expiry", "Message"],
           rows: promos.map((promo) => [
             promo.id || "-",
+            promo.code || "-",
             promo.title || "-",
-            `${Number(promo.discountPercent || 0)}%`,
+            promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)}` : `${Number(promo.discountValue || promo.discountPercent || 0)}%`,
             Number(promo.maxUsagePerUser || 0) > 0 ? `${Number(promo.maxUsagePerUser || 0)} use(s)` : "-",
             promo.status || "-",
             getPromoExpiryLabel(promo),
@@ -201,9 +208,19 @@ export default function AdminEngagement() {
           </div>
 
           <div className="engTableWrap">
-            <div className="engTableHead"><div>Customer</div><div>Rating</div><div>Comment</div></div>
+            <div className="engTableHead"><div>Customer</div><div>Rating</div><div>Comment</div><div>Status</div><div>Actions</div></div>
             {reviews.map((r) => (
-              <div className="engTableRow" key={r.id}><div className="engClient">{r.customer}</div><div className="engRating">{stars(r.rating)}</div><div className="engComment">{r.comment}</div></div>
+              <div className="engTableRow" key={r.id}>
+                <div className="engClient">{r.customer}</div>
+                <div className="engRating">{stars(r.rating)}</div>
+                <div className="engComment">{r.comment}</div>
+                <div><span className="engStatusBadge">{r.status || "Pending"}</span></div>
+                <div className="engRewardActions">
+                  <button className="engBtnLight engBtnAuto" type="button" onClick={() => updateReview?.(r.id, { status: "Published" })}>Publish</button>
+                  <button className="engBtnLight engBtnAuto" type="button" onClick={() => updateReview?.(r.id, { status: "Hidden" })}>Hide</button>
+                  <button className="engBtnLight engBtnAuto danger" type="button" onClick={() => updateReview?.(r.id, { status: "Archived" })}>Archive</button>
+                </div>
+              </div>
             ))}
             {reviews.length === 0 && <div className="engEmpty">No reviews yet.</div>}
           </div>
@@ -236,7 +253,7 @@ export default function AdminEngagement() {
               {promos.map((promo) => (
                 <div className="engTableRow engPromoTableRow" key={promo.id}>
                   <div className="engClient">{promo.title}</div>
-                  <div className="engMetaText">{Number(promo.discountPercent || 0)}% off</div>
+                  <div className="engMetaText">{promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)} off` : `${Number(promo.discountValue || promo.discountPercent || 0)}% off`}</div>
                   <div className="engMetaText">
                     {Number(promo.maxUsagePerUser || 0) > 0 ? `Max ${Number(promo.maxUsagePerUser || 0)}/user` : "-"}
                   </div>
@@ -379,16 +396,34 @@ export default function AdminEngagement() {
               </label>
 
               <label className="engField">
-                <span>Discount Percentage</span>
+                <span>Code</span>
                 <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={promoForm.discountPercent}
-                  onChange={(event) => setPromoForm((prev) => ({ ...prev, discountPercent: event.target.value }))}
-                  placeholder="e.g. 10"
-                  required
+                  value={promoForm.code}
+                  onChange={(event) => setPromoForm((prev) => ({ ...prev, code: event.target.value }))}
+                  placeholder="SAVE10"
                 />
+              </label>
+
+              <label className="engField">
+                <span>Discount</span>
+                <div className="engFieldRow">
+                  <select
+                    value={promoForm.discountType}
+                    onChange={(event) => setPromoForm((prev) => ({ ...prev, discountType: event.target.value }))}
+                  >
+                    <option value="Percentage">Percentage</option>
+                    <option value="Fixed">Fixed</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    max={promoForm.discountType === "Percentage" ? "100" : undefined}
+                    value={promoForm.discountValue}
+                    onChange={(event) => setPromoForm((prev) => ({ ...prev, discountValue: event.target.value }))}
+                    placeholder={promoForm.discountType === "Percentage" ? "e.g. 10" : "e.g. 500"}
+                    required
+                  />
+                </div>
               </label>
 
               <div className="engFieldRow">

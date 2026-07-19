@@ -79,6 +79,7 @@ const bookingSchema = new mongoose.Schema(
     carSize: { type: String, default: "" },
     plate: { type: String, default: "" },
     service: { type: String, default: "" },
+    serviceId: { type: String, default: "" },
     assigned: { type: String, default: "" },
     preferredDetailer: { type: String, default: "" },
     preferredDetailerName: { type: String, default: "" },
@@ -89,12 +90,16 @@ const bookingSchema = new mongoose.Schema(
     amount: { type: Number, default: 0 },
     originalAmount: { type: Number, default: 0 },
     promoId: { type: String, default: "" },
+    promoCode: { type: String, default: "" },
     promoTitle: { type: String, default: "" },
+    promoDiscountType: { type: String, default: "" },
+    promoDiscountValue: { type: Number, default: 0 },
     promoDiscountPercent: { type: Number, default: 0 },
     promoDiscountAmount: { type: Number, default: 0 },
     rewardId: { type: String, default: "" },
     rewardName: { type: String, default: "" },
     rewardType: { type: String, default: "" },
+    rewardDiscountType: { type: String, default: "" },
     rewardValue: { type: String, default: "" },
     rewardClaimCode: { type: String, default: "" },
     rewardDiscountAmount: { type: Number, default: 0 },
@@ -186,15 +191,20 @@ const paymentSchema = new mongoose.Schema(
     customer: { type: String, default: "" },
     customerEmail: { type: String, default: "" },
     service: { type: String, default: "" },
+    serviceId: { type: String, default: "" },
     amount: { type: Number, default: 0 },
     originalAmount: { type: Number, default: 0 },
     promoId: { type: String, default: "" },
+    promoCode: { type: String, default: "" },
     promoTitle: { type: String, default: "" },
+    promoDiscountType: { type: String, default: "" },
+    promoDiscountValue: { type: Number, default: 0 },
     promoDiscountPercent: { type: Number, default: 0 },
     promoDiscountAmount: { type: Number, default: 0 },
     rewardId: { type: String, default: "" },
     rewardName: { type: String, default: "" },
     rewardType: { type: String, default: "" },
+    rewardDiscountType: { type: String, default: "" },
     rewardValue: { type: String, default: "" },
     rewardClaimCode: { type: String, default: "" },
     rewardDiscountAmount: { type: Number, default: 0 },
@@ -311,29 +321,75 @@ const auditLogSchema = new mongoose.Schema(
 const reviewSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
+    customerId: { type: String, default: "" },
     customer: { type: String, default: "" },
     customerEmail: { type: String, default: "" },
+    bookingId: { type: String, default: "" },
+    serviceId: { type: String, default: "" },
+    serviceName: { type: String, default: "" },
     rating: { type: Number, default: 5 },
     comment: { type: String, default: "" },
+    bookingStatusSnapshot: { type: String, default: "" },
+    paymentEligibilitySnapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
+    status: { type: String, default: "Pending" },
+    moderatedAt: { type: String, default: "" },
+    moderatedBy: { type: String, default: "" },
+    moderationReason: { type: String, default: "" },
+    adminResponse: { type: String, default: "" },
+    adminResponseAt: { type: String, default: "" },
+    archived: { type: Boolean, default: false },
+    archivedAt: { type: String, default: "" },
+    archivedBy: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
+);
+reviewSchema.index(
+  { bookingId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      bookingId: { $exists: true, $type: "string", $ne: "" },
+      status: { $nin: ["Archived"] },
+    },
+  }
 );
 
 const promoSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
     title: { type: String, default: "" },
+    name: { type: String, default: "" },
+    code: { type: String, default: "" },
     message: { type: String, default: "" },
+    description: { type: String, default: "" },
     status: { type: String, default: "Draft" },
+    enabled: { type: Boolean, default: false },
+    archived: { type: Boolean, default: false },
     scheduledFor: { type: String, default: "" },
+    startAt: { type: String, default: "" },
+    endAt: { type: String, default: "" },
     expiryMode: { type: String, default: "none" },
     expiresAt: { type: String, default: "" },
     usageLimit: { type: Number, default: 0 },
     usageCount: { type: Number, default: 0 },
     maxUsagePerUser: { type: Number, default: 0 },
+    discountType: { type: String, default: "Percentage" },
+    discountValue: { type: Number, default: 0 },
     discountPercent: { type: Number, default: 0 },
+    applicableServiceIds: { type: [String], default: [] },
+    archivedAt: { type: String, default: "" },
+    archivedBy: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
+);
+promoSchema.index(
+  { code: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      code: { $exists: true, $type: "string", $ne: "" },
+    },
+  }
 );
 
 const expenseSchema = new mongoose.Schema(
@@ -412,16 +468,35 @@ const rewardSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
     name: { type: String, default: "" },
+    code: { type: String, default: "" },
     type: { type: String, default: "Voucher" },
+    rewardType: { type: String, default: "" },
     description: { type: String, default: "" },
     value: { type: String, default: "" },
+    discountType: { type: String, default: "" },
+    discountValue: { type: Number, default: 0 },
     rarity: { type: String, default: "Common" },
     weight: { type: Number, default: 10 },
+    enabled: { type: Boolean, default: true },
     active: { type: Boolean, default: true },
+    archived: { type: Boolean, default: false },
+    quantity: { type: Number, default: 0 },
     stock: { type: Number, default: 0 },
     expirationDays: { type: Number, default: 30 },
+    applicableServiceIds: { type: [String], default: [] },
+    archivedAt: { type: String, default: "" },
+    archivedBy: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
+);
+rewardSchema.index(
+  { code: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      code: { $exists: true, $type: "string", $ne: "" },
+    },
+  }
 );
 
 const customerRewardSchema = new mongoose.Schema(
@@ -433,22 +508,47 @@ const customerRewardSchema = new mongoose.Schema(
     rewardId: { type: String, default: "" },
     rewardName: { type: String, default: "" },
     rewardType: { type: String, default: "" },
+    rewardCode: { type: String, default: "" },
+    discountType: { type: String, default: "" },
+    discountValue: { type: Number, default: 0 },
+    rarity: { type: String, default: "" },
     rewardValue: { type: String, default: "" },
     dateEarned: { type: String, default: "" },
+    dateGranted: { type: String, default: "" },
     sourceCompletedBookingsCount: { type: Number, default: 0 },
+    eligibleBookingCount: { type: Number, default: 0 },
+    eligibleBookingIds: { type: [String], default: [] },
+    countedBookingIds: { type: [String], default: [] },
+    milestoneNumber: { type: Number, default: 0 },
+    milestoneKey: { type: String, default: "" },
     status: { type: String, default: "Unused" },
     expirationDate: { type: String, default: "" },
     generatedBy: { type: String, default: "System" },
     claimCode: { type: String, default: "" },
+    claimedAt: { type: String, default: "" },
     linkedBookingId: { type: String, default: "" },
+    reservedBookingId: { type: String, default: "" },
+    reservedAt: { type: String, default: "" },
     linkedPaymentId: { type: String, default: "" },
     discountAmount: { type: Number, default: 0 },
     subtotalAfterDiscount: { type: Number, default: 0 },
     taxAmount: { type: Number, default: 0 },
     finalAmount: { type: Number, default: 0 },
     usedAt: { type: String, default: "" },
+    releasedAt: { type: String, default: "" },
+    releaseReason: { type: String, default: "" },
+    paymentStatusAtUse: { type: String, default: "" },
   },
   { timestamps: true, versionKey: false }
+);
+customerRewardSchema.index(
+  { milestoneKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      milestoneKey: { $exists: true, $type: "string", $ne: "" },
+    },
+  }
 );
 
 module.exports = {

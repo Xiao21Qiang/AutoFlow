@@ -401,7 +401,13 @@ export default function CustomerPayments() {
                       </div>
                       {Number(selectedPayment.promoDiscountAmount || 0) > 0 && (
                         <div className="clPayBreakdownRow">
-                          <div>{selectedPayment.promoTitle || "Promo Discount"} ({Number(selectedPayment.promoDiscountPercent || 0)}%)</div>
+                          <div>
+                            {selectedPayment.promoTitle || "Promo Discount"} (
+                            {selectedPayment.promoDiscountType === "Fixed"
+                              ? `P ${Number(selectedPayment.promoDiscountValue || 0)}`
+                              : `${Number(selectedPayment.promoDiscountValue || selectedPayment.promoDiscountPercent || 0)}%`}
+                            )
+                          </div>
                           <div>- {formatCurrency(getInvoiceBreakdown(selectedPayment).promoDiscount)}</div>
                         </div>
                       )}

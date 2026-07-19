@@ -7,7 +7,7 @@ import { getRewardStatus } from "../../utils/rewards";
 const stars = (n = 0) => "★★★★★".slice(0, Math.max(0, Math.min(5, n)));
 
 export default function CustomerEngagement({ initialAction = null, onActionHandled }) {
-  const { reviews, promos, customerRewards, currentUser, createReview } = useAdminData();
+  const { bookings, payments, reviews, promos, customerRewards, currentUser, createReview, claimReward } = useAdminData();
   const getPromoMeta = (promo) => {
     const expiryMode = String(promo.expiryMode || "none").trim().toLowerCase();
     if (expiryMode === "date" && promo.expiresAt) {
@@ -34,7 +34,7 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
     [reviews, customerEmail, customerName]
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState({ rating: 5, comment: "" });
+  const [form, setForm] = useState({ bookingId: "", rating: 5, comment: "" });
   const [hoverRating, setHoverRating] = useState(0);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
@@ -48,6 +48,20 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
     }),
     [customerRewards, customerEmail, customerName]
   );
+  const eligibleReviewBookings = useMemo(() => {
+    const reviewedBookingIds = new Set(
+      customerReviews
+        .filter((review) => String(review.status || "Published").trim().toLowerCase() !== "archived")
+        .map((review) => String(review.bookingId || "").trim())
+        .filter(Boolean)
+    );
+    return bookings.filter((booking) => {
+      if (String(booking.status || "").trim().toLowerCase() !== "completed") return false;
+      if (reviewedBookingIds.has(String(booking.id || "").trim())) return false;
+      const payment = payments.find((item) => String(item.bookingId || "").trim() === String(booking.id || "").trim());
+      return payment?.invoice ? Number(payment.invoice.outstandingBalance || 0) <= 0 && Number(payment.invoice.finalAmountDue || 0) > 0 : false;
+    });
+  }, [bookings, payments, customerReviews]);
 
   useEffect(() => {
     if (initialAction !== "open-add-review") return;
@@ -151,7 +165,15 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
                   <div key={reward.id} className="clEngTableRow clEngPromoRow">
                     <div className="clEngPromoTitle">{reward.rewardName}<div className="clEngPromoMeta">{reward.rewardValue || reward.rewardType}</div></div>
                     <div><span className="clEngPromoBadge">{rewardStatus}</span></div>
-                    <div><div>{reward.claimCode || "-"}</div><div className="clEngPromoMeta">{reward.expirationDate ? `Expires ${reward.expirationDate}` : "No expiration date"}</div></div>
+                    <div>
+                      <div>{reward.claimCode || "-"}</div>
+                      <div className="clEngPromoMeta">{reward.expirationDate ? `Expires ${reward.expirationDate}` : "No expiration date"}</div>
+                      {rewardStatus === "Available" ? (
+                        <button className="clEngAddBtn" type="button" onClick={() => claimReward?.(reward.id)}>
+                          Claim
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })
@@ -171,12 +193,11 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
                 e.preventDefault();
                 try {
                   await createReview({
-                    customer: currentUser?.name || "Customer",
-                    customerEmail: currentUser?.email || "",
+                    bookingId: form.bookingId,
                     rating: Number(form.rating),
                     comment: form.comment,
                   });
-                  setForm({ rating: 5, comment: "" });
+                  setForm({ bookingId: "", rating: 5, comment: "" });
                   setIsModalOpen(false);
                 } catch (error) {
                   window.alert(error.message || "Failed to submit review.");
@@ -184,6 +205,21 @@ export default function CustomerEngagement({ initialAction = null, onActionHandl
               }}
             >
               <div className="clSvcModalTitle">Add Review</div>
+              <label className="clSvcField">
+                <span>Booking</span>
+                <select
+                  value={form.bookingId}
+                  onChange={(e) => setForm((prev) => ({ ...prev, bookingId: e.target.value }))}
+                  required
+                >
+                  <option value="">Select completed booking</option>
+                  {eligibleReviewBookings.map((booking) => (
+                    <option key={booking.id} value={booking.id}>
+                      {booking.id} - {booking.service} - {booking.date || "Completed"}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="clSvcField">
                 <span>Rating</span>
                 <div

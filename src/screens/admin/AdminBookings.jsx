@@ -152,7 +152,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
       "No promo",
       ...activePromos.map((promo) => {
         const perUserLimit = Number(promo.maxUsagePerUser || 0);
-        return `${promo.title} (${Number(promo.discountPercent || 0)}% off${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
+        const discount = promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)} off` : `${Number(promo.discountValue || promo.discountPercent || 0)}% off`;
+        return `${promo.title} (${discount}${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
       }),
     ],
     [activePromos]
@@ -168,7 +169,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     const promo = activePromos.find((entry) => entry.id === form.promoId);
     if (!promo) return "No promo";
     const perUserLimit = Number(promo.maxUsagePerUser || 0);
-    return `${promo.title} (${Number(promo.discountPercent || 0)}% off${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
+    const discount = promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)} off` : `${Number(promo.discountValue || promo.discountPercent || 0)}% off`;
+    return `${promo.title} (${discount}${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
   }, [activePromos, form.promoId]);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [securityConfirm, setSecurityConfirm] = useState(null);
@@ -620,7 +622,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                         }
                         const promo = activePromos.find((entry) => {
                           const perUserLimit = Number(entry.maxUsagePerUser || 0);
-                          return `${entry.title} (${Number(entry.discountPercent || 0)}% off${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})` === option;
+                          const discount = entry.discountType === "Fixed" ? `P ${Number(entry.discountValue || 0)} off` : `${Number(entry.discountValue || entry.discountPercent || 0)}% off`;
+                          return `${entry.title} (${discount}${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})` === option;
                         });
                         setForm((prev) => ({ ...prev, promoId: promo?.id || "" }));
                       }}

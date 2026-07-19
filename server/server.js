@@ -34,6 +34,7 @@ const scheduleDomain = require("./domain/schedule");
 const commissionDomain = require("./domain/commission");
 const expenseDomain = require("./domain/expenses");
 const invoiceDomain = require("./domain/invoices");
+const engagementDomain = require("./domain/engagement");
 const { buildBusinessSummary } = require("./domain/summaries");
 
 const app = express();
@@ -363,53 +364,24 @@ function normalizePromoExpiryMode(value) {
 }
 
 function normalizePromoStatus(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "active") return "Active";
-  if (normalized === "expired") return "Expired";
-  return "Draft";
+  return engagementDomain.normalizePromotionStatus(value, "Draft");
 }
 
 function normalizePromoDiscountPercent(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
-  return Math.min(100, Math.max(0, numeric));
+  return numeric;
 }
 
 function parsePromoExpiryDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  const parsed = raw.length === 10 ? new Date(`${raw}T23:59:59`) : new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString();
+  return engagementDomain.hydratePromotion({ expiresAt: value }).expiresAt || "";
 }
 
 function hydratePromo(promo) {
-  const basePromo = promo?.toObject ? promo.toObject() : { ...(promo || {}) };
-  const expiryMode = normalizePromoExpiryMode(basePromo.expiryMode);
-  const normalizedStatus = normalizePromoStatus(basePromo.status);
-  const usageLimit = Math.max(0, Number(basePromo.usageLimit) || 0);
-  const usageCount = Math.max(0, Number(basePromo.usageCount) || 0);
-  const maxUsagePerUser = Math.max(0, Number(basePromo.maxUsagePerUser) || 0);
-  const discountPercent = normalizePromoDiscountPercent(basePromo.discountPercent);
-  const expiresAt = parsePromoExpiryDate(basePromo.expiresAt);
-  const now = Date.now();
-  const isDateExpired = expiryMode === "date" && expiresAt ? new Date(expiresAt).getTime() <= now : false;
-  const isUsageExpired = expiryMode === "usage" && usageLimit > 0 && usageCount >= usageLimit;
-  const isExpired = normalizedStatus === "Expired" || (normalizedStatus !== "Draft" && (isDateExpired || isUsageExpired));
-  const status = normalizedStatus === "Draft" ? "Draft" : isExpired ? "Expired" : "Active";
-
+  const hydrated = engagementDomain.hydratePromotion(promo);
   return {
-    ...basePromo,
-    expiryMode,
-    expiresAt,
-    usageLimit,
-    usageCount,
-    maxUsagePerUser,
-    discountPercent,
-    remainingUses: usageLimit > 0 ? Math.max(0, usageLimit - usageCount) : null,
-    status,
-    isExpired,
+    ...hydrated,
+    expiryMode: hydrated.endAt ? "date" : hydrated.usageLimit > 0 ? "usage" : normalizePromoExpiryMode(hydrated.expiryMode),
   };
 }
 
@@ -460,7 +432,12 @@ async function resolvePromoById(promoId) {
   const normalizedPromoId = String(promoId || "").trim();
   if (!normalizedPromoId) return null;
 
-  const promo = await Promo.findOne({ id: normalizedPromoId });
+  const promo = await Promo.findOne({
+    $or: [
+      { id: normalizedPromoId },
+      { code: engagementDomain.normalizePromotionCode(normalizedPromoId) },
+    ],
+  });
   if (!promo) {
     const error = new Error("Selected promo was not found.");
     error.statusCode = 404;
@@ -478,25 +455,37 @@ async function resolvePromoById(promoId) {
 }
 
 function computePromoPricing(amount, promo) {
-  const originalAmount = Math.max(0, Number(amount) || 0);
-  const discountPercent = normalizePromoDiscountPercent(promo?.discountPercent);
-  const promoDiscountAmount = Number(((originalAmount * discountPercent) / 100).toFixed(2));
-  const finalAmount = Number(Math.max(0, originalAmount - promoDiscountAmount).toFixed(2));
-
-  return {
-    originalAmount,
-    promoId: promo?.id || "",
-    promoTitle: promo?.title || "",
-    promoDiscountPercent: discountPercent,
-    promoDiscountAmount,
-    amount: finalAmount,
-  };
+  if (!promo) {
+    const originalAmount = Math.max(0, Number(amount) || 0);
+    return {
+      originalAmount,
+      promoId: "",
+      promoCode: "",
+      promoTitle: "",
+      promoDiscountType: "",
+      promoDiscountValue: 0,
+      promoDiscountPercent: 0,
+      promoDiscountAmount: 0,
+      amount: originalAmount,
+    };
+  }
+  return engagementDomain.calculatePromotionDiscount(amount, promo);
 }
 
 async function incrementPromoUsage(promoId) {
   const normalizedPromoId = String(promoId || "").trim();
   if (!normalizedPromoId) return;
-  await Promo.findOneAndUpdate({ id: normalizedPromoId }, { $inc: { usageCount: 1 } });
+  await Promo.findOneAndUpdate(
+    {
+      id: normalizedPromoId,
+      $or: [
+        { usageLimit: 0 },
+        { usageLimit: { $exists: false } },
+        { $expr: { $lt: ["$usageCount", "$usageLimit"] } },
+      ],
+    },
+    { $inc: { usageCount: 1 } }
+  );
 }
 
 async function decrementPromoUsage(promoId) {
@@ -3106,6 +3095,18 @@ async function runDownPaymentDeadlineWorkflow() {
     payment.cancellationReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
     payment.status = "Rejected";
     await payment.save();
+    if (booking.promoId) {
+      await decrementPromoUsage(booking.promoId);
+    }
+    if (booking.rewardId) {
+      await releaseCustomerRewardReservation({
+        rewardId: booking.rewardId,
+        bookingId: booking.id,
+        paymentId: payment.id || "",
+        reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+        auditUser: "system",
+      });
+    }
 
     await recordCustomerNotification(
       "Booking cancelled",
@@ -3289,6 +3290,17 @@ async function resolveBookingBaseAmount(serviceName, carSize, fallbackPrice = 0)
   return getServicePriceForCarSize(service, carSize, fallbackPrice);
 }
 
+async function ensureApplicableServicesExist(serviceIds = []) {
+  const ids = Array.isArray(serviceIds) ? serviceIds.filter(Boolean) : [];
+  if (!ids.length) return;
+  const services = await Service.find({ id: { $in: ids } }).lean();
+  const activeIds = new Set(services.filter((service) => service.enabled !== false).map((service) => String(service.id || "")));
+  const missing = ids.filter((id) => !activeIds.has(String(id || "")));
+  if (missing.length) {
+    throwValidationError("Applicable services must exist and be enabled.");
+  }
+}
+
 function getUserAuditAction(previousUser, nextUser) {
   if (previousUser && nextUser.status && previousUser.status !== nextUser.status) {
     return String(nextUser.status).toLowerCase() === "active" ? "Activated user" : "Deactivated user";
@@ -3358,48 +3370,21 @@ function normalizeQuoteStatus(status) {
 }
 
 function normalizeRewardPayload(body = {}, existing = {}) {
-  const name = String(body.name ?? existing.name ?? "").trim();
-  const type = String(body.type ?? existing.type ?? "Voucher").trim() || "Voucher";
-  const description = String(body.description ?? existing.description ?? "").trim();
-  const value = String(body.value ?? existing.value ?? "").trim();
-  const rarity = String(body.rarity ?? existing.rarity ?? "Common").trim() || "Common";
-  const weight = Math.max(0, Number(body.weight ?? existing.weight ?? 10) || 0);
-  const active = typeof body.active === "boolean" ? body.active : Boolean(existing.active ?? true);
-  const stock = Math.max(0, Number(body.stock ?? existing.stock ?? 0) || 0);
-  const expirationDays = Math.max(0, Number(body.expirationDays ?? existing.expirationDays ?? 30) || 0);
-
-  return { name, type, description, value, rarity, weight, active, stock, expirationDays };
+  return engagementDomain.normalizeRewardDefinitionPayload(body, existing);
 }
 
 function selectWeightedReward(rewards) {
-  const pool = rewards.filter((reward) => reward.active && Number(reward.weight || 0) > 0);
-  const totalWeight = pool.reduce((sum, reward) => sum + Number(reward.weight || 0), 0);
-  if (!pool.length || totalWeight <= 0) return null;
-  let cursor = Math.random() * totalWeight;
-  for (const reward of pool) {
-    cursor -= Number(reward.weight || 0);
-    if (cursor <= 0) return reward;
-  }
-  return pool[pool.length - 1];
+  return engagementDomain.selectWeightedReward(rewards);
 }
 
 function parseRewardDiscount(value, amount) {
   const raw = String(value || "").trim();
-  const baseAmount = Math.max(0, Number(amount || 0));
-  if (!raw || baseAmount <= 0) return 0;
-
-  const percentMatch = raw.match(/(\d+(?:\.\d+)?)\s*%/);
-  if (percentMatch) {
-    const percent = Math.min(100, Math.max(0, Number(percentMatch[1]) || 0));
-    return Math.min(baseAmount, Number(((baseAmount * percent) / 100).toFixed(2)));
-  }
-
-  const fixedMatch = raw.replace(/,/g, "").match(/(?:php|p|₱)?\s*(\d+(?:\.\d+)?)/i);
-  if (fixedMatch && /discount|off|php|₱|p\s*\d/i.test(raw)) {
-    return Math.min(baseAmount, Number((Number(fixedMatch[1]) || 0).toFixed(2)));
-  }
-
-  return 0;
+  const discountType = raw.includes("%") ? "Percentage" : /discount|off|php|p\s*\d|₱/i.test(raw) ? "Fixed" : "";
+  return engagementDomain.calculateRewardDiscount(amount, {
+    type: discountType ? `${discountType} Discount` : raw,
+    discountType,
+    value: raw,
+  }).rewardDiscountAmount;
 }
 
 function roundMoney(value) {
@@ -3965,12 +3950,19 @@ function buildInvoiceSnapshot(finalAmount, rewardDiscountAmount = 0) {
 }
 
 function buildRewardPricing(baseAmount, customerReward) {
-  const rewardDiscountAmount = parseRewardDiscount(customerReward?.rewardValue, baseAmount);
+  const rewardDiscount = engagementDomain.calculateRewardDiscount(baseAmount, {
+    type: customerReward?.rewardType || "",
+    discountType: customerReward?.discountType || "",
+    discountValue: customerReward?.discountValue || 0,
+    value: customerReward?.rewardValue || "",
+  });
+  const rewardDiscountAmount = rewardDiscount.rewardDiscountAmount;
   const amount = Math.max(0, roundMoney(Number(baseAmount || 0) - rewardDiscountAmount));
   return {
     rewardId: customerReward?.id || "",
     rewardName: customerReward?.rewardName || "",
     rewardType: customerReward?.rewardType || "",
+    rewardDiscountType: customerReward?.discountType || "",
     rewardValue: customerReward?.rewardValue || "",
     rewardClaimCode: customerReward?.claimCode || "",
     rewardDiscountAmount,
@@ -3980,40 +3972,18 @@ function buildRewardPricing(baseAmount, customerReward) {
 }
 
 function isRewardExpired(customerReward) {
-  const expirationDate = String(customerReward?.expirationDate || "").trim();
-  return Boolean(expirationDate && expirationDate < toDateKey());
+  return engagementDomain.isCustomerRewardExpired(customerReward);
 }
 
 function getCustomerRewardUsageStatus(customerReward = {}) {
-  const status = String(customerReward.status || "").trim().toLowerCase();
-  if (
-    status === "used" ||
-    status === "redeemed" ||
-    customerReward.used === true ||
-    customerReward.isUsed === true ||
-    Boolean(String(customerReward.usedAt || customerReward.redeemedAt || "").trim()) ||
-    Boolean(String(customerReward.linkedPaymentId || "").trim())
-  ) {
-    return "Used";
-  }
-  return "Unused";
+  return engagementDomain.normalizeRewardStatus(customerReward.status, "Available");
 }
 
 function hydrateCustomerReward(customerReward = {}, payments = []) {
-  const rewardId = String(customerReward.id || "").trim();
-  const paidPayment = rewardId
-    ? (payments || []).find((payment) => String(payment?.rewardId || "").trim() === rewardId && isPaidStatus(payment?.status))
-    : null;
-  return {
-    ...customerReward,
-    status: paidPayment ? "Used" : getCustomerRewardUsageStatus(customerReward),
-    linkedBookingId: customerReward.linkedBookingId || paidPayment?.bookingId || "",
-    linkedPaymentId: customerReward.linkedPaymentId || paidPayment?.id || "",
-    usedAt: customerReward.usedAt || (paidPayment ? paidPayment.updatedAt || paidPayment.createdAt || "" : ""),
-  };
+  return engagementDomain.hydrateCustomerReward(customerReward, payments);
 }
 
-async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "", customerName = "", baseAmount = 0, excludePaymentId = "" }) {
+async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "", customerName = "", baseAmount = 0, excludePaymentId = "", service = {} }) {
   const normalizedRewardId = String(rewardId || "").trim();
   if (!normalizedRewardId) {
     return buildRewardPricing(baseAmount, null);
@@ -4037,8 +4007,9 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
     throw error;
   }
 
-  if (getCustomerRewardUsageStatus(customerReward) !== "Unused") {
-    const error = new Error("This reward has already been used.");
+  const currentRewardStatus = getCustomerRewardUsageStatus(customerReward);
+  if (!["Available", "Claimed", "Released"].includes(currentRewardStatus)) {
+    const error = new Error("This reward is not available.");
     error.statusCode = 400;
     throw error;
   }
@@ -4049,7 +4020,7 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
     status: { $nin: ["Rejected"] },
   }).lean();
   if (existingActivePayment) {
-    const error = new Error("This reward has already been used.");
+    const error = new Error("This reward is already reserved for another booking.");
     error.statusCode = 400;
     throw error;
   }
@@ -4061,13 +4032,97 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
   }
 
   const reward = await Reward.findOne({ id: customerReward.rewardId }).lean();
-  if (!reward || !reward.active) {
+  if (!reward || !engagementDomain.isRewardDefinitionSelectable(reward, service)) {
     const error = new Error("Reward is no longer active.");
     error.statusCode = 400;
     throw error;
   }
 
   return buildRewardPricing(baseAmount, customerReward);
+}
+
+async function reserveCustomerRewardForBooking({ rewardId = "", booking = {}, payment = {}, auditUser = "" } = {}) {
+  const normalizedRewardId = String(rewardId || "").trim();
+  if (!normalizedRewardId) return null;
+  const customerReward = await CustomerReward.findOne({ id: normalizedRewardId });
+  if (!customerReward) return null;
+  const currentStatus = getCustomerRewardUsageStatus(customerReward);
+  if (!["Available", "Claimed", "Released"].includes(currentStatus)) {
+    const error = new Error("This reward is not available.");
+    error.statusCode = 400;
+    throw error;
+  }
+  customerReward.status = "Reserved";
+  customerReward.linkedBookingId = booking.id || "";
+  customerReward.reservedBookingId = booking.id || "";
+  customerReward.linkedPaymentId = "";
+  customerReward.reservedAt = customerReward.reservedAt || new Date().toISOString();
+  customerReward.discountAmount = Number(payment.rewardDiscountAmount || booking.rewardDiscountAmount || 0);
+  customerReward.subtotalAfterDiscount = Number(payment.subtotalAfterDiscount || booking.subtotalAfterDiscount || 0);
+  customerReward.taxAmount = Number(payment.taxAmount || booking.taxAmount || 0);
+  customerReward.finalAmount = Number(payment.finalAmount || booking.finalAmount || booking.amount || 0);
+  customerReward.releaseReason = "";
+  customerReward.releasedAt = "";
+  await customerReward.save();
+  await recordAudit(auditUser || "system", "Reward reserved", customerReward.id, {
+    bookingId: booking.id || "",
+    customerEmail: customerReward.customerEmail || "",
+  });
+  return customerReward;
+}
+
+async function releaseCustomerRewardReservation({ rewardId = "", bookingId = "", paymentId = "", reason = "", auditUser = "system" } = {}) {
+  const normalizedRewardId = String(rewardId || "").trim();
+  if (!normalizedRewardId) return null;
+  const reward = await CustomerReward.findOne({ id: normalizedRewardId });
+  if (!reward) return null;
+  const status = getCustomerRewardUsageStatus(reward);
+  if (!["Reserved", "Claimed", "Released"].includes(status)) return reward;
+  if (bookingId && String(reward.linkedBookingId || reward.reservedBookingId || "") !== String(bookingId)) return reward;
+  if (paymentId && reward.linkedPaymentId && String(reward.linkedPaymentId || "") !== String(paymentId)) return reward;
+  reward.status = "Available";
+  reward.linkedBookingId = "";
+  reward.reservedBookingId = "";
+  reward.linkedPaymentId = "";
+  reward.releasedAt = new Date().toISOString();
+  reward.releaseReason = String(reason || "Reservation released.").trim().slice(0, 240);
+  await reward.save();
+  await recordAudit(auditUser || "system", "Reward released", reward.id, {
+    bookingId,
+    paymentId,
+    reason: reward.releaseReason,
+  });
+  return reward;
+}
+
+async function markCustomerRewardUsedForPayment(payment = {}, auditUser = "system") {
+  const rewardId = String(payment.rewardId || "").trim();
+  if (!rewardId || !isPaidStatus(payment.status)) return null;
+  const reward = await CustomerReward.findOne({ id: rewardId });
+  if (!reward) return null;
+  if (getCustomerRewardUsageStatus(reward) === "Used") return reward;
+  const status = getCustomerRewardUsageStatus(reward);
+  if (!["Reserved", "Claimed", "Available", "Released"].includes(status)) {
+    const error = new Error("This reward cannot be marked used from its current status.");
+    error.statusCode = 400;
+    throw error;
+  }
+  reward.status = "Used";
+  reward.linkedBookingId = payment.bookingId || reward.linkedBookingId || "";
+  reward.reservedBookingId = payment.bookingId || reward.reservedBookingId || "";
+  reward.linkedPaymentId = payment.id || "";
+  reward.discountAmount = Number(payment.discountAmount || payment.rewardDiscountAmount || 0);
+  reward.subtotalAfterDiscount = Number(payment.subtotalAfterDiscount || 0);
+  reward.taxAmount = Number(payment.taxAmount || 0);
+  reward.finalAmount = Number(payment.finalAmount || payment.amount || 0);
+  reward.paymentStatusAtUse = payment.status || "";
+  reward.usedAt = reward.usedAt || new Date().toISOString();
+  await reward.save();
+  await recordAudit(auditUser || "system", "Reward used", reward.id, {
+    bookingId: payment.bookingId || "",
+    paymentId: payment.id || "",
+  });
+  return reward;
 }
 
 function getQualifiedBookingStatus(status) {
@@ -4529,7 +4584,9 @@ async function ensureDefaultRewardPool() {
       rarity: "Common",
       weight: 50,
       active: true,
-      stock: 0,
+      enabled: true,
+      stock: 100,
+      quantity: 100,
       expirationDays: 30,
     },
     {
@@ -4541,7 +4598,9 @@ async function ensureDefaultRewardPool() {
       rarity: "Uncommon",
       weight: 30,
       active: true,
-      stock: 0,
+      enabled: true,
+      stock: 100,
+      quantity: 100,
       expirationDays: 30,
     },
     {
@@ -4553,7 +4612,9 @@ async function ensureDefaultRewardPool() {
       rarity: "Rare",
       weight: 15,
       active: true,
-      stock: 0,
+      enabled: true,
+      stock: 100,
+      quantity: 100,
       expirationDays: 30,
     },
   ]);
@@ -4750,18 +4811,33 @@ async function generateEligibleRewardsForBooking(booking, auditUser = "system") 
   if (!customerEmail && !customerName) return [];
 
   const bookingQuery = customerEmail ? { customerEmail } : { customer: customerName };
-  const qualifiedBookings = await Booking.find(bookingQuery).lean();
-  const completedCount = qualifiedBookings.filter((item) => getQualifiedBookingStatus(item.status)).length;
-  const earnedSlots = Math.floor(completedCount / 3);
-  if (earnedSlots <= 0) return [];
+  const [qualifiedBookings, payments, existingCustomerRewards] = await Promise.all([
+    Booking.find(bookingQuery).lean(),
+    Payment.find(bookingQuery).lean(),
+    CustomerReward.find(customerEmail ? { customerEmail } : { customerName }).lean(),
+  ]);
+  const paymentsByBookingId = new Map(payments.map((payment) => [String(payment.bookingId || "").trim(), payment]));
+  const eligibleBookings = engagementDomain.eligibleBookingsForRewards(qualifiedBookings, paymentsByBookingId);
+  const milestoneNumbers = engagementDomain.getEarnedMilestoneNumbers(eligibleBookings.length);
+  if (!milestoneNumbers.length) return [];
 
-  const existingRewards = await CustomerReward.countDocuments(customerEmail ? { customerEmail } : { customerName });
-  const missingRewards = Math.max(0, earnedSlots - existingRewards);
-  if (missingRewards <= 0) return [];
+  const existingMilestones = new Set(
+    existingCustomerRewards
+      .map((reward) => Number(reward.milestoneNumber || 0))
+      .filter((milestone) => milestone > 0)
+  );
+  const missingMilestones = milestoneNumbers.filter((milestone) => !existingMilestones.has(milestone));
+  if (!missingMilestones.length) return [];
 
-  const activeRewards = await Reward.find({ active: true }).lean();
   const createdRewards = [];
-  for (let index = 0; index < missingRewards; index += 1) {
+  for (const milestoneNumber of missingMilestones) {
+    const activeRewards = await Reward.find({
+      active: { $ne: false },
+      enabled: { $ne: false },
+      archived: { $ne: true },
+      quantity: { $gt: 0 },
+      stock: { $gt: 0 },
+    }).lean();
     const reward = selectWeightedReward(activeRewards);
     if (!reward) break;
 
@@ -4770,27 +4846,65 @@ async function generateEligibleRewardsForBooking(booking, auditUser = "system") 
       ? new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       : "";
 
-    const customerReward = await CustomerReward.create({
-      id: createId("CRW"),
-      customerId: String(booking.customerId || ""),
-      customerName,
-      customerEmail,
-      rewardId: reward.id,
-      rewardName: reward.name,
-      rewardType: reward.type,
-      rewardValue: reward.value,
-      dateEarned: toDateKey(),
-      sourceCompletedBookingsCount: completedCount,
-      status: "Unused",
-      expirationDate,
-      generatedBy: auditUser === "system" ? "System" : "Admin",
-      claimCode: buildClaimCode(),
-    });
-    createdRewards.push(customerReward);
+    const decrementedReward = await Reward.findOneAndUpdate(
+      {
+        id: reward.id,
+        active: { $ne: false },
+        enabled: { $ne: false },
+        archived: { $ne: true },
+        quantity: { $gt: 0 },
+        stock: { $gt: 0 },
+      },
+      { $inc: { quantity: -1, stock: -1 } },
+      { new: true }
+    );
+    if (!decrementedReward) continue;
+
+    const milestoneBookings = eligibleBookings.slice(0, milestoneNumber * engagementDomain.REWARD_MILESTONE_SIZE);
+    const milestoneKey = `${String(booking.customerId || customerEmail || customerName).trim().toLowerCase()}:${milestoneNumber}`;
+    try {
+      const customerReward = await CustomerReward.create({
+        id: createId("CRW"),
+        customerId: String(booking.customerId || ""),
+        customerName,
+        customerEmail,
+        rewardId: reward.id,
+        rewardName: reward.name,
+        rewardType: reward.type || reward.rewardType || "",
+        rewardCode: reward.code || "",
+        discountType: reward.discountType || "",
+        discountValue: Number(reward.discountValue || 0),
+        rarity: reward.rarity || "",
+        rewardValue: reward.value,
+        dateEarned: toDateKey(),
+        dateGranted: toDateKey(),
+        sourceCompletedBookingsCount: eligibleBookings.length,
+        eligibleBookingCount: eligibleBookings.length,
+        eligibleBookingIds: milestoneBookings.map((item) => item.id).filter(Boolean),
+        countedBookingIds: milestoneBookings.map((item) => item.id).filter(Boolean),
+        milestoneNumber,
+        milestoneKey,
+        status: "Available",
+        expirationDate,
+        generatedBy: auditUser === "system" ? "System" : "Admin",
+        claimCode: buildClaimCode(),
+      });
+      createdRewards.push(customerReward);
+      await recordAudit(auditUser, "Reward granted", customerReward.id, {
+        customer: customerName,
+        customerEmail,
+        milestoneNumber,
+        eligibleBookingCount: eligibleBookings.length,
+        rewardId: reward.id,
+      });
+    } catch (error) {
+      await Reward.findOneAndUpdate({ id: reward.id }, { $inc: { quantity: 1, stock: 1 } });
+      if (error?.code !== 11000) throw error;
+    }
   }
 
   if (createdRewards.length) {
-    await recordAudit(auditUser, "Generated customer reward", booking.id, {
+    await recordAudit(auditUser, "Generated customer rewards", booking.id, {
       customer: customerName,
       customerEmail,
       count: createdRewards.length,
@@ -5948,7 +6062,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       return;
     }
 
-    await ensureBookableService(req.body.service);
+    const selectedService = await ensureBookableService(req.body.service);
 
     if (bookingTime && isCustomerRequested) {
       await validateShopHours({ time: bookingTime, service: req.body.service });
@@ -5963,10 +6077,18 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       await validateShopHours({ time: bookingTime, service: req.body.service });
     }
 
-    const promoResolution = await resolvePromoById(req.body.promoId).catch((error) => {
-      if (!String(req.body.promoId || "").trim()) return null;
+    const requestedPromo = String(req.body.promoId || req.body.promoCode || "").trim();
+    const promoResolution = await resolvePromoById(requestedPromo).catch((error) => {
+      if (!requestedPromo) return null;
       throw error;
     });
+    const promoEligibility = promoResolution
+      ? engagementDomain.evaluatePromotionEligibility({ promo: promoResolution.hydratedPromo, service: selectedService })
+      : { eligible: true };
+    if (!promoEligibility.eligible) {
+      res.status(400).json({ message: promoEligibility.reason });
+      return;
+    }
     await enforcePromoUsagePerUserLimit({
       promo: promoResolution?.hydratedPromo || null,
       promoId: promoResolution?.hydratedPromo?.id || "",
@@ -5987,6 +6109,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       customerEmail: bookingCustomerEmail,
       customerName: bookingCustomerName,
       baseAmount: pricing.amount,
+      service: selectedService,
     });
 
     const preferredDetailerFields = getPreferredDetailerFields(req.body);
@@ -6002,6 +6125,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       carSize: vehicleSnapshot.carSize,
       plate: vehicleSnapshot.plate,
       service: String(req.body.service || "").trim(),
+      serviceId: selectedService.id || "",
       assigned: isCustomerRequested ? "" : String(req.body.assigned || "").trim(),
       ...preferredDetailerFields,
       date: bookingDate,
@@ -6044,15 +6168,20 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
       service: booking.service,
+      serviceId: booking.serviceId || "",
       amount: Number(booking.amount || 0),
       originalAmount: Number(booking.originalAmount || 0),
       promoId: booking.promoId || "",
+      promoCode: booking.promoCode || "",
       promoTitle: booking.promoTitle || "",
+      promoDiscountType: booking.promoDiscountType || "",
+      promoDiscountValue: Number(booking.promoDiscountValue || 0),
       promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
       promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
       rewardId: booking.rewardId || "",
       rewardName: booking.rewardName || "",
       rewardType: booking.rewardType || "",
+      rewardDiscountType: booking.rewardDiscountType || "",
       rewardValue: booking.rewardValue || "",
       rewardClaimCode: booking.rewardClaimCode || "",
       rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
@@ -6082,6 +6211,14 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
 
     if (booking.promoId) {
       await incrementPromoUsage(booking.promoId);
+    }
+    if (booking.rewardId) {
+      await reserveCustomerRewardForBooking({
+        rewardId: booking.rewardId,
+        booking,
+        payment,
+        auditUser: req.authUser?.email || req.body.auditUser || "system",
+      });
     }
 
     if (isCompletedStatus(booking.status)) {
@@ -6190,13 +6327,18 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         "carSize",
         "plate",
         "service",
+        "serviceId",
         "promoId",
+        "promoCode",
         "promoTitle",
+        "promoDiscountType",
+        "promoDiscountValue",
         "promoDiscountPercent",
         "promoDiscountAmount",
         "rewardId",
         "rewardName",
         "rewardType",
+        "rewardDiscountType",
         "rewardValue",
         "rewardClaimCode",
         "rewardDiscountAmount",
@@ -6212,8 +6354,11 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     }
 
     const requestedService = String(req.body.service || "").trim();
+    let selectedServiceForUpdate = null;
     if (requestedService && requestedService !== String(existingBooking.service || "").trim()) {
-      await ensureBookableService(requestedService);
+      selectedServiceForUpdate = await ensureBookableService(requestedService);
+    } else {
+      selectedServiceForUpdate = await Service.findOne({ name: String(req.body.service || existingBooking.service || "").trim() }).lean();
     }
 
     if (isCancelledStatus(existingBooking.status)) {
@@ -6308,6 +6453,13 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
             if (!nextPromoId) return null;
             throw error;
           });
+    const promoEligibility = promoResolution
+      ? engagementDomain.evaluatePromotionEligibility({ promo: promoResolution.hydratedPromo, service: selectedServiceForUpdate || { id: existingBooking.serviceId || "" } })
+      : { eligible: true };
+    if (!promoEligibility.eligible) {
+      res.status(400).json({ message: promoEligibility.reason });
+      return;
+    }
     await enforcePromoUsagePerUserLimit({
       promo: promoResolution?.hydratedPromo || null,
       promoId: promoResolution?.hydratedPromo?.id || "",
@@ -6347,6 +6499,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
           customerName: req.body.customer ?? existingBooking.customer,
           baseAmount: promoPricing.amount,
           excludePaymentId: linkedPaymentForReward?.id || "",
+          service: selectedServiceForUpdate || { id: existingBooking.serviceId || "" },
         });
     const wasCompleted = isCompletedStatus(existingBooking.status);
     const willComplete = isCompletedStatus(nextStatus);
@@ -6361,6 +6514,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const updatePayload = {
       ...req.body,
       status: nextStatus,
+      serviceId: selectedServiceForUpdate?.id || existingBooking.serviceId || "",
       ...promoPricing,
       ...rewardPricing,
       consumablesApplied: existingBooking.consumablesApplied || shouldApplyConsumables,
@@ -6374,14 +6528,25 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         carSize: existingBooking.carSize,
         plate: existingBooking.plate,
         service: existingBooking.service,
+        serviceId: existingBooking.serviceId,
         assigned: existingBooking.assigned,
         date: existingBooking.date,
         time: existingBooking.time,
         placeSlot: existingBooking.placeSlot,
         promoId: existingBooking.promoId,
+        promoCode: existingBooking.promoCode,
         promoTitle: existingBooking.promoTitle,
+        promoDiscountType: existingBooking.promoDiscountType,
+        promoDiscountValue: existingBooking.promoDiscountValue,
         promoDiscountPercent: existingBooking.promoDiscountPercent,
         promoDiscountAmount: existingBooking.promoDiscountAmount,
+        rewardId: existingBooking.rewardId,
+        rewardName: existingBooking.rewardName,
+        rewardType: existingBooking.rewardType,
+        rewardDiscountType: existingBooking.rewardDiscountType,
+        rewardValue: existingBooking.rewardValue,
+        rewardClaimCode: existingBooking.rewardClaimCode,
+        rewardDiscountAmount: existingBooking.rewardDiscountAmount,
         amount: existingBooking.amount,
         originalAmount: existingBooking.originalAmount,
         status: "Completed",
@@ -6420,15 +6585,20 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
       service: booking.service,
+      serviceId: booking.serviceId || "",
       amount: Number(booking.amount || 0),
       originalAmount: Number(booking.originalAmount || 0),
       promoId: booking.promoId || "",
+      promoCode: booking.promoCode || "",
       promoTitle: booking.promoTitle || "",
+      promoDiscountType: booking.promoDiscountType || "",
+      promoDiscountValue: Number(booking.promoDiscountValue || 0),
       promoDiscountPercent: Number(booking.promoDiscountPercent || 0),
       promoDiscountAmount: Number(booking.promoDiscountAmount || 0),
       rewardId: booking.rewardId || "",
       rewardName: booking.rewardName || "",
       rewardType: booking.rewardType || "",
+      rewardDiscountType: booking.rewardDiscountType || "",
       rewardValue: booking.rewardValue || "",
       rewardClaimCode: booking.rewardClaimCode || "",
       rewardDiscountAmount: Number(booking.rewardDiscountAmount || 0),
@@ -6441,7 +6611,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const hasExistingDownPaymentRequired = Object.prototype.hasOwnProperty.call(linkedPaymentForReward || {}, "downPaymentRequired");
     const hasExistingDownPaymentAmount = Object.prototype.hasOwnProperty.call(linkedPaymentForReward || {}, "downPaymentAmount");
 
-    await Payment.findOneAndUpdate(
+    const syncedPayment = await Payment.findOneAndUpdate(
       { bookingId: booking.id },
       {
         ...paymentPricingPayload,
@@ -6457,7 +6627,38 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
             : fallbackDownPaymentAmount,
         }),
       }
+      ,
+      { new: true }
     );
+    if (String(existingBooking.rewardId || "").trim() && String(existingBooking.rewardId || "").trim() !== String(booking.rewardId || "").trim()) {
+      await releaseCustomerRewardReservation({
+        rewardId: existingBooking.rewardId,
+        bookingId: booking.id,
+        reason: "Booking reward changed before payment confirmation.",
+        auditUser: req.authUser?.email || req.body.auditUser || "system",
+      });
+    }
+    if (booking.rewardId && String(existingBooking.rewardId || "").trim() !== String(booking.rewardId || "").trim()) {
+      await reserveCustomerRewardForBooking({
+        rewardId: booking.rewardId,
+        booking,
+        payment: syncedPayment || {},
+        auditUser: req.authUser?.email || req.body.auditUser || "system",
+      });
+    }
+    if (nextStatus === "Cancelled") {
+      if (booking.rewardId) {
+        await releaseCustomerRewardReservation({
+          rewardId: booking.rewardId,
+          bookingId: booking.id,
+          reason: "Booking cancelled before reward usage.",
+          auditUser: req.authUser?.email || req.body.auditUser || "system",
+        });
+      }
+      if (booking.promoId) {
+        await decrementPromoUsage(booking.promoId);
+      }
+    }
 
     if (shouldApplyConsumables) {
       const consumableResult = await applyServiceConsumablesToStockMonitoring(booking.service, booking.carSize);
@@ -7195,6 +7396,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       rewardId: existingPayment.rewardId || "",
       rewardName: existingPayment.rewardName || "",
       rewardType: existingPayment.rewardType || "",
+      rewardDiscountType: existingPayment.rewardDiscountType || "",
       rewardValue: existingPayment.rewardValue || "",
       rewardClaimCode: existingPayment.rewardClaimCode || "",
       rewardDiscountAmount: Number(existingPayment.rewardDiscountAmount || 0),
@@ -7214,6 +7416,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           customerName: existingPayment.customer,
           baseAmount: baseBeforeReward,
           excludePaymentId: existingPayment.id,
+          service: { id: existingPayment.serviceId || "" },
         });
     const customerSubmittedDownPaymentMethod = normalizePaymentMethodLabel(req.body.downPaymentMethod || req.body.method || existingPayment.downPaymentMethod || "");
     const customerSubmittedDownPaymentIsCash = String(customerSubmittedDownPaymentMethod || "").trim().toLowerCase() === "cash";
@@ -7445,30 +7648,32 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       }
     );
     if (isPaidStatus(payment.status) && payment.rewardId) {
-      const usedReward = await CustomerReward.findOneAndUpdate(
-        {
-          id: payment.rewardId,
-          $and: [
-            { $or: [{ status: /^unused$/i }, { status: "" }, { status: { $exists: false } }] },
-            { $or: [{ usedAt: "" }, { usedAt: null }, { usedAt: { $exists: false } }] },
-          ],
-        },
-        {
-          status: "Used",
-          linkedBookingId: payment.bookingId || "",
-          linkedPaymentId: payment.id || "",
-          discountAmount: Number(payment.discountAmount || payment.rewardDiscountAmount || 0),
-          subtotalAfterDiscount: Number(payment.subtotalAfterDiscount || 0),
-          taxAmount: Number(payment.taxAmount || 0),
-          finalAmount: Number(payment.finalAmount || payment.amount || 0),
-          usedAt: new Date().toISOString(),
-        },
-        { new: true }
-      );
-      if (!usedReward && !isPaidStatus(existingPayment.status)) {
-        res.status(400).json({ message: "This reward has already been used." });
-        return;
-      }
+      await markCustomerRewardUsedForPayment(payment, req.authUser?.email || req.body.auditUser || "system");
+    } else if ((isRejectingDownPayment || isRejectingFinalPayment) && payment.rewardId) {
+      await releaseCustomerRewardReservation({
+        rewardId: payment.rewardId,
+        bookingId: payment.bookingId || "",
+        paymentId: payment.id || "",
+        reason: "Payment was rejected before reward usage.",
+        auditUser: req.authUser?.email || req.body.auditUser || "system",
+      });
+      const resetPricing = {
+        rewardId: "",
+        rewardName: "",
+        rewardType: "",
+        rewardDiscountType: "",
+        rewardValue: "",
+        rewardClaimCode: "",
+        rewardDiscountAmount: 0,
+        discountAmount: 0,
+        amount: Math.max(0, roundMoney(baseBeforeReward)),
+        ...buildInvoiceSnapshot(baseBeforeReward, 0),
+      };
+      await Promise.all([
+        Payment.findOneAndUpdate({ id: payment.id }, resetPricing),
+        Booking.findOneAndUpdate({ id: payment.bookingId }, resetPricing),
+      ]);
+      Object.assign(payment, resetPricing);
     }
     if (isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission) {
       await recordCustomerNotification(
@@ -7868,177 +8073,231 @@ app.post("/api/admin/audit-logs/unarchive", requireAdminUser, async (req, res, n
 
 app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    if (actorType !== "customer") {
+      res.status(403).json({ message: "Customers submit reviews from their own completed bookings. Admins may moderate existing reviews." });
+      return;
+    }
+    const bookingId = String(req.body.bookingId || "").trim();
+    if (!bookingId) {
+      res.status(400).json({ message: "Booking selection is required before submitting a review." });
+      return;
+    }
+    const [booking, existingReview] = await Promise.all([
+      Booking.findOne({ id: bookingId }).lean(),
+      Review.findOne({
+        bookingId,
+        status: { $nin: ["Archived"] },
+      }).lean(),
+    ]);
+    const payment = booking ? await getLinkedPaymentForBooking(booking) : null;
+    const eligibility = engagementDomain.evaluateReviewEligibility({
+      booking,
+      payment,
+      existingReview,
+      customer: req.authUser,
+    });
+    if (!eligibility.eligible) {
+      res.status(400).json({ message: eligibility.reason });
+      return;
+    }
+    const reviewInput = engagementDomain.validateReviewInput(req.body);
     const review = await Review.create({
       id: createId("REV"),
-      customer: actorType === "customer" ? (req.authUser?.name || "Customer") : (req.body.customer || "Customer"),
-      customerEmail: actorType === "customer" ? (req.authUser?.email || "") : (req.body.customerEmail || ""),
-      rating: Number(req.body.rating || 5),
-      comment: req.body.comment || "",
+      customerId: req.authUser?.id || booking.customerId || "",
+      customer: req.authUser?.name || booking.customer || "Customer",
+      customerEmail: req.authUser?.email || booking.customerEmail || "",
+      bookingId: booking.id,
+      serviceId: booking.serviceId || "",
+      serviceName: booking.service || "",
+      rating: reviewInput.rating,
+      comment: reviewInput.comment,
+      bookingStatusSnapshot: bookingDomain.normalizeBookingStatus(booking.status, "Completed"),
+      paymentEligibilitySnapshot: {
+        fullyPaid: paymentDomain.isPaymentFullyPaid(payment, booking),
+        verifiedPaidAmount: paymentDomain.getVerifiedPaidAmount(payment, booking),
+        outstandingBalance: paymentDomain.getOutstandingBalance(payment, booking),
+      },
+      status: "Pending",
     });
-    await recordAudit(req.authUser?.email || req.body.auditUser, "Created review", review.id, { customer: review.customer });
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Review submitted", review.id, {
+      bookingId: booking.id,
+      customerEmail: review.customerEmail || "",
+      rating: review.rating,
+    });
     res.status(201).json(review);
+  } catch (error) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: "This booking already has a review." });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.put("/api/admin/reviews/:id", requireAdminUser, async (req, res, next) => {
+  try {
+    const review = await Review.findOne({ id: req.params.id });
+    if (!review) {
+      res.status(404).json({ message: "Review not found." });
+      return;
+    }
+    const previousStatus = engagementDomain.normalizeReviewStatus(review.status, "Pending");
+    const nextStatus = Object.prototype.hasOwnProperty.call(req.body, "status")
+      ? engagementDomain.normalizeReviewStatus(req.body.status, "")
+      : previousStatus;
+    if (!nextStatus || !engagementDomain.REVIEW_STATUSES.includes(nextStatus)) {
+      res.status(400).json({ message: "Unsupported review status." });
+      return;
+    }
+    if (previousStatus === "Archived" && nextStatus !== "Published" && nextStatus !== "Hidden") {
+      res.status(400).json({ message: "Archived reviews can only be restored to Published or Hidden." });
+      return;
+    }
+    const adminResponse = Object.prototype.hasOwnProperty.call(req.body, "adminResponse")
+      ? String(req.body.adminResponse || "").trim().slice(0, 1000)
+      : review.adminResponse || "";
+    const now = new Date().toISOString();
+    review.status = nextStatus;
+    review.archived = nextStatus === "Archived";
+    review.archivedAt = nextStatus === "Archived" ? now : "";
+    review.archivedBy = nextStatus === "Archived" ? req.authUser?.email || "" : "";
+    review.moderatedAt = now;
+    review.moderatedBy = req.authUser?.email || "";
+    review.moderationReason = String(req.body.reason || req.body.moderationReason || "").trim().slice(0, 240);
+    if (adminResponse !== review.adminResponse) {
+      review.adminResponse = adminResponse;
+      review.adminResponseAt = adminResponse ? now : "";
+    }
+    await review.save();
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Review moderated", review.id, {
+      bookingId: review.bookingId || "",
+      previousStatus,
+      status: review.status,
+      hasAdminResponse: Boolean(review.adminResponse),
+    });
+    res.json(review);
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/admin/promos", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
-    const title = String(req.body.title || "").trim();
-    const message = String(req.body.message || "").trim();
-    const status = normalizePromoStatus(req.body.status || "Draft");
-    const expiryMode = normalizePromoExpiryMode(req.body.expiryMode);
-    const expiresAt = parsePromoExpiryDate(req.body.expiresAt);
-    const usageLimit = Math.max(0, Number(req.body.usageLimit) || 0);
-    const maxUsagePerUser = Math.max(0, Number(req.body.maxUsagePerUser) || 0);
-    const discountPercent = normalizePromoDiscountPercent(req.body.discountPercent);
-
-    if (!title) {
-      res.status(400).json({ message: "Promo title is required." });
-      return;
-    }
-
-    if (!message) {
-      res.status(400).json({ message: "Promo message is required." });
-      return;
-    }
-
-    if (discountPercent <= 0) {
-      res.status(400).json({ message: "A discount percentage greater than zero is required." });
-      return;
-    }
-
-    if (expiryMode === "date" && !expiresAt) {
-      res.status(400).json({ message: "An expiry date is required for time-limited promos." });
-      return;
-    }
-
-    if (expiryMode === "usage" && usageLimit <= 0) {
-      res.status(400).json({ message: "A usage limit greater than zero is required for usage-limited promos." });
-      return;
-    }
-
-    if (maxUsagePerUser <= 0) {
-      res.status(400).json({ message: "A maximum usage per user greater than zero is required." });
+    const payload = engagementDomain.normalizePromotionPayload(req.body);
+    await ensureApplicableServicesExist(payload.applicableServiceIds);
+    const duplicate = await Promo.findOne({ code: payload.code }).lean();
+    if (duplicate) {
+      res.status(409).json({ message: "Promotion code already exists." });
       return;
     }
 
     const promo = await Promo.create({
       id: createId("PRO"),
-      title,
-      message,
-      status,
-      scheduledFor: String(req.body.scheduledFor || "").trim(),
-      expiryMode,
-      expiresAt,
-      usageLimit: expiryMode === "usage" ? usageLimit : 0,
+      ...payload,
+      expiryMode: payload.endAt ? "date" : payload.usageLimit > 0 ? "usage" : "none",
       usageCount: 0,
-      maxUsagePerUser,
-      discountPercent,
     });
 
-    await recordAudit(req.body.auditUser, "Created promo", promo.id, {
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Promotion created", promo.id, {
       title: promo.title,
+      code: promo.code,
       status: promo.status,
-      expiryMode,
-      expiresAt,
-      usageLimit: expiryMode === "usage" ? usageLimit : 0,
-      maxUsagePerUser,
-      discountPercent,
+      discountType: promo.discountType,
+      discountValue: promo.discountValue,
     });
 
     res.status(201).json(hydratePromo(promo));
   } catch (error) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: "Promotion code already exists." });
+      return;
+    }
     next(error);
   }
 });
 
-app.put("/api/admin/promos/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
     const existingPromo = await Promo.findOne({ id: req.params.id });
     if (!existingPromo) {
       res.status(404).json({ message: "Promo not found." });
       return;
     }
 
-    const title = String(req.body.title || "").trim();
-    const message = String(req.body.message || "").trim();
-    const status = normalizePromoStatus(req.body.status || existingPromo.status || "Draft");
-    const expiryMode = normalizePromoExpiryMode(req.body.expiryMode || existingPromo.expiryMode);
-    const expiresAt = parsePromoExpiryDate(req.body.expiresAt ?? existingPromo.expiresAt);
-    const usageLimit = Math.max(0, Number(req.body.usageLimit ?? existingPromo.usageLimit) || 0);
-    const maxUsagePerUser = Math.max(0, Number(req.body.maxUsagePerUser ?? existingPromo.maxUsagePerUser) || 0);
-    const discountPercent = normalizePromoDiscountPercent(
-      req.body.discountPercent ?? existingPromo.discountPercent
-    );
-
-    if (!title) {
-      res.status(400).json({ message: "Promo title is required." });
+    const payload = engagementDomain.normalizePromotionPayload(req.body, existingPromo);
+    await ensureApplicableServicesExist(payload.applicableServiceIds);
+    const duplicate = await Promo.findOne({ code: payload.code, id: { $ne: req.params.id } }).lean();
+    if (duplicate) {
+      res.status(409).json({ message: "Promotion code already exists." });
       return;
     }
-
-    if (!message) {
-      res.status(400).json({ message: "Promo message is required." });
-      return;
-    }
-
-    if (discountPercent <= 0) {
-      res.status(400).json({ message: "A discount percentage greater than zero is required." });
-      return;
-    }
-
-    if (expiryMode === "date" && !expiresAt) {
-      res.status(400).json({ message: "An expiry date is required for time-limited promos." });
-      return;
-    }
-
-    if (expiryMode === "usage" && usageLimit <= 0) {
-      res.status(400).json({ message: "A usage limit greater than zero is required for usage-limited promos." });
-      return;
-    }
-
-    if (maxUsagePerUser <= 0) {
-      res.status(400).json({ message: "A maximum usage per user greater than zero is required." });
-      return;
-    }
-
+    const previousState = hydratePromo(existingPromo);
     const promo = await Promo.findOneAndUpdate(
       { id: req.params.id },
       {
-        title,
-        message,
-        status,
-        scheduledFor: String(req.body.scheduledFor || existingPromo.scheduledFor || "").trim(),
-        expiryMode,
-        expiresAt: expiryMode === "date" ? expiresAt : "",
-        usageLimit: expiryMode === "usage" ? usageLimit : 0,
-        maxUsagePerUser,
-        discountPercent,
+        ...payload,
+        expiryMode: payload.endAt ? "date" : payload.usageLimit > 0 ? "usage" : "none",
       },
       { new: true }
     );
 
-    await recordAudit(req.body.auditUser, "Updated promo", promo.id, {
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Promotion updated", promo.id, {
       title: promo.title,
+      code: promo.code,
+      previousStatus: previousState.status,
       status: promo.status,
-      expiryMode,
-      expiresAt: promo.expiresAt || "",
-      usageLimit: promo.usageLimit || 0,
-      maxUsagePerUser: promo.maxUsagePerUser || 0,
-      discountPercent,
+      discountType: promo.discountType,
+      discountValue: promo.discountValue,
     });
 
+    res.json(hydratePromo(promo));
+  } catch (error) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: "Promotion code already exists." });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.patch("/api/admin/promos/:id/archive", requireAdminUser, async (req, res, next) => {
+  try {
+    const promo = await Promo.findOneAndUpdate(
+      { id: req.params.id },
+      { status: "Archived", enabled: false, archived: true, archivedAt: new Date().toISOString(), archivedBy: req.authUser?.email || "" },
+      { new: true }
+    );
+    if (!promo) {
+      res.status(404).json({ message: "Promo not found." });
+      return;
+    }
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Promotion archived", promo.id, { code: promo.code || "" });
     res.json(hydratePromo(promo));
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/admin/promos/:id/use", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.patch("/api/admin/promos/:id/restore", requireAdminUser, async (req, res, next) => {
+  try {
+    const promo = await Promo.findOneAndUpdate(
+      { id: req.params.id },
+      { status: "Draft", enabled: false, archived: false, archivedAt: "", archivedBy: "" },
+      { new: true }
+    );
+    if (!promo) {
+      res.status(404).json({ message: "Promo not found." });
+      return;
+    }
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Promotion restored", promo.id, { code: promo.code || "" });
+    res.json(hydratePromo(promo));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/promos/:id/use", requireAdminUser, async (req, res, next) => {
   try {
     if (await blockStaffEngagementMutation(req, res)) return;
     const promo = await Promo.findOne({ id: req.params.id });
@@ -8068,69 +8327,134 @@ app.post("/api/admin/promos/:id/use", requireRoles("admin", "staff"), requireAct
   }
 });
 
-app.post("/api/admin/rewards", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
     const payload = normalizeRewardPayload(req.body);
-    if (!payload.name) {
-      res.status(400).json({ message: "Reward name is required." });
-      return;
-    }
-    if (payload.weight <= 0) {
-      res.status(400).json({ message: "Reward weight must be greater than zero." });
+    const duplicate = await Reward.findOne({ code: payload.code }).lean();
+    if (duplicate) {
+      res.status(409).json({ message: "Reward code already exists." });
       return;
     }
     const reward = await Reward.create({ id: createId("RWD"), ...payload });
-    await recordAudit(req.body.auditUser, "Created reward", reward.id, { name: reward.name });
-    res.status(201).json(reward);
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Reward definition created", reward.id, {
+      name: reward.name,
+      code: reward.code,
+      type: reward.type,
+      weight: reward.weight,
+    });
+    res.status(201).json(engagementDomain.hydrateRewardDefinition(reward));
   } catch (error) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: "Reward code already exists." });
+      return;
+    }
     next(error);
   }
 });
 
-app.put("/api/admin/rewards/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
     const existingReward = await Reward.findOne({ id: req.params.id });
     if (!existingReward) {
       res.status(404).json({ message: "Reward not found." });
       return;
     }
     const payload = normalizeRewardPayload(req.body, existingReward);
-    if (!payload.name) {
-      res.status(400).json({ message: "Reward name is required." });
+    const duplicate = await Reward.findOne({ code: payload.code, id: { $ne: req.params.id } }).lean();
+    if (duplicate) {
+      res.status(409).json({ message: "Reward code already exists." });
       return;
     }
-    if (payload.weight <= 0) {
-      res.status(400).json({ message: "Reward weight must be greater than zero." });
-      return;
-    }
+    const previous = engagementDomain.hydrateRewardDefinition(existingReward);
     const reward = await Reward.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
-    await recordAudit(req.body.auditUser, "Updated reward", reward.id, { name: reward.name, weight: reward.weight, active: reward.active });
-    res.json(reward);
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Reward definition updated", reward.id, {
+      name: reward.name,
+      code: reward.code,
+      previousEnabled: previous.enabled,
+      enabled: reward.enabled,
+      archived: reward.archived,
+      weight: reward.weight,
+      quantity: reward.quantity,
+    });
+    res.json(engagementDomain.hydrateRewardDefinition(reward));
   } catch (error) {
+    if (error?.code === 11000) {
+      res.status(409).json({ message: "Reward code already exists." });
+      return;
+    }
     next(error);
   }
 });
 
 app.delete("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
-    const reward = await Reward.findOneAndDelete({ id: req.params.id });
+    const historyCount = await CustomerReward.countDocuments({ rewardId: req.params.id });
+    const reward = historyCount > 0
+      ? await Reward.findOneAndUpdate(
+          { id: req.params.id },
+          { active: false, enabled: false, archived: true, archivedAt: new Date().toISOString(), archivedBy: req.authUser?.email || "" },
+          { new: true }
+        )
+      : await Reward.findOneAndDelete({ id: req.params.id });
     if (!reward) {
       res.status(404).json({ message: "Reward not found." });
       return;
     }
-    await recordAudit(req.body.auditUser || req.query.auditUser, "Deleted reward", req.params.id, { name: reward.name });
+    await recordAudit(req.authUser?.email || req.body.auditUser || req.query.auditUser, historyCount > 0 ? "Reward definition archived" : "Reward definition deleted", req.params.id, {
+      name: reward.name,
+      historyCount,
+    });
+    if (historyCount > 0) {
+      res.json(engagementDomain.hydrateRewardDefinition(reward));
+      return;
+    }
     res.status(204).end();
   } catch (error) {
     next(error);
   }
 });
 
-app.post("/api/admin/rewards/generate", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.engagementManage), async (req, res, next) => {
+app.post("/api/admin/rewards/:id/claim", requireRoles("customer"), async (req, res, next) => {
   try {
-    if (await blockStaffEngagementMutation(req, res)) return;
+    const customerReward = await CustomerReward.findOne({ id: req.params.id });
+    if (!customerReward) {
+      res.status(404).json({ message: "Reward not found." });
+      return;
+    }
+    const ownerEmail = String(customerReward.customerEmail || "").trim().toLowerCase();
+    const ownerId = String(customerReward.customerId || "").trim();
+    const actorEmail = String(req.authUser?.email || "").trim().toLowerCase();
+    const actorId = String(req.authUser?.id || "").trim();
+    if (!((ownerEmail && ownerEmail === actorEmail) || (ownerId && ownerId === actorId))) {
+      res.status(403).json({ message: "Reward does not belong to your account." });
+      return;
+    }
+    if (isRewardExpired(customerReward)) {
+      customerReward.status = "Expired";
+      await customerReward.save();
+      res.status(400).json({ message: "Reward expired." });
+      return;
+    }
+    const transition = engagementDomain.getRewardTransition(customerReward.status, "Claimed");
+    if (!transition.allowed && transition.current !== "Claimed") {
+      res.status(400).json({ message: "This reward cannot be claimed from its current status." });
+      return;
+    }
+    customerReward.status = "Claimed";
+    customerReward.claimedAt = customerReward.claimedAt || new Date().toISOString();
+    await customerReward.save();
+    await recordAudit(req.authUser?.email || req.body.auditUser, "Reward claimed", customerReward.id, {
+      customerEmail: customerReward.customerEmail || "",
+      milestoneNumber: customerReward.milestoneNumber || 0,
+    });
+    res.json(hydrateCustomerReward(customerReward));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/rewards/generate", requireAdminUser, async (req, res, next) => {
+  try {
     const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
     const customerName = String(req.body.customerName || "").trim();
     const booking = await Booking.findOne(customerEmail ? { customerEmail } : { customer: customerName }).sort({ createdAt: -1 }).lean();

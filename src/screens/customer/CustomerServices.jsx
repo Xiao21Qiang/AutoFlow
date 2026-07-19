@@ -88,7 +88,8 @@ export default function CustomerServices() {
   );
   const formatPromoOptionLabel = (promo) => {
     const perUserLimit = Number(promo?.maxUsagePerUser || 0);
-    return `${promo.title} (${Number(promo.discountPercent || 0)}% off${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
+    const discount = promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)} off` : `${Number(promo.discountValue || promo.discountPercent || 0)}% off`;
+    return `${promo.title} (${discount}${perUserLimit > 0 ? `, max ${perUserLimit}/user` : ""})`;
   };
 
   const visibleServices = useMemo(
@@ -122,8 +123,10 @@ export default function CustomerServices() {
     [selectedService, bookingForm.carSize]
   );
   const promoAdjustedPrice = useMemo(() => {
-    const discountPercent = Number(selectedPromo?.discountPercent || 0);
-    return Math.max(0, Number(selectedServicePrice || 0) - ((Number(selectedServicePrice || 0) * discountPercent) / 100));
+    const base = Number(selectedServicePrice || 0);
+    const value = Number(selectedPromo?.discountValue || selectedPromo?.discountPercent || 0);
+    const discount = selectedPromo?.discountType === "Fixed" ? value : (base * value) / 100;
+    return Math.max(0, base - discount);
   }, [selectedPromo, selectedServicePrice]);
   const rewardPreview = useMemo(
     () => getRewardPreview(selectedReward, promoAdjustedPrice),
@@ -331,7 +334,7 @@ export default function CustomerServices() {
                 <div>{selectedService.mins} mins estimated</div>
                 {selectedPromo ? (
                   <div>
-                    {selectedPromo.title} applies {Number(selectedPromo.discountPercent || 0)}% off
+                    {selectedPromo.title} applies {selectedPromo.discountType === "Fixed" ? `P ${Number(selectedPromo.discountValue || 0)} off` : `${Number(selectedPromo.discountValue || selectedPromo.discountPercent || 0)}% off`}
                     {Number(selectedPromo.maxUsagePerUser || 0) > 0 ? ` with a max of ${Number(selectedPromo.maxUsagePerUser || 0)} use(s) per user` : ""}
                   </div>
                 ) : null}

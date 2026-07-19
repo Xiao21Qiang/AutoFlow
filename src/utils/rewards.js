@@ -10,6 +10,12 @@ export function isRewardExpired(reward) {
 
 export function getRewardStatus(reward) {
   const status = String(reward?.status || "").trim().toLowerCase();
+  if (status === "available" || status === "unused" || status === "granted") return "Available";
+  if (status === "claimed") return "Claimed";
+  if (status === "reserved") return "Reserved";
+  if (status === "expired") return "Expired";
+  if (status === "released") return "Available";
+  if (status === "cancelled" || status === "canceled") return "Cancelled";
   if (
     status === "used" ||
     status === "redeemed" ||
@@ -20,7 +26,7 @@ export function getRewardStatus(reward) {
   ) {
     return "Used";
   }
-  return "Unused";
+  return "Available";
 }
 
 function isRewardReserved(reward, payments = []) {
@@ -37,7 +43,7 @@ function isRewardReserved(reward, payments = []) {
 }
 
 export function isRewardUsable(reward) {
-  return getRewardStatus(reward) === "Unused" && !isRewardExpired(reward);
+  return ["Available", "Claimed"].includes(getRewardStatus(reward)) && !isRewardExpired(reward);
 }
 
 export function getCustomerRewards(customerRewards, currentUser) {
