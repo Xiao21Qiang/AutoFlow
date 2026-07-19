@@ -1,7 +1,7 @@
 import "../../styles/css/admin/adminEngagementStyle.css";
 import { useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRewardStatus } from "../../utils/rewards";
 import { ACTION_KEYS } from "../../utils/rbac";
@@ -16,6 +16,16 @@ export default function AdminEngagement() {
   const [editingRewardId, setEditingRewardId] = useState("");
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [rewardFilters, setRewardFilters] = useState({ query: "", rarity: "", active: "" });
+  const [rewardHistoryFilters, setRewardHistoryFilters] = useState({
+    query: "",
+    status: "",
+    type: "",
+    code: "",
+    bookingId: "",
+    milestone: "",
+    dateFrom: "",
+    dateTo: "",
+  });
   const [manualRewardCustomerEmail, setManualRewardCustomerEmail] = useState("");
   const [promoForm, setPromoForm] = useState({
     title: "",
@@ -83,6 +93,34 @@ export default function AdminEngagement() {
       return matchesQuery && matchesRarity && matchesActive;
     })
     .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+  const filteredCustomerRewards = customerRewards.filter((reward) => {
+    const q = rewardHistoryFilters.query.trim().toLowerCase();
+    const status = getRewardStatus(reward);
+    const granted = reward.dateGranted || reward.dateEarned || "";
+    const used = reward.usedAt || "";
+    const haystack = [
+      reward.customerName,
+      reward.customerEmail,
+      reward.rewardName,
+      reward.rewardCode,
+      reward.claimCode,
+      reward.linkedBookingId,
+      reward.reservedBookingId,
+      reward.milestoneNumber,
+      reward.milestoneKey,
+      status,
+    ].join(" ").toLowerCase();
+    return (
+      (!q || haystack.includes(q)) &&
+      (!rewardHistoryFilters.status || status === rewardHistoryFilters.status) &&
+      (!rewardHistoryFilters.type || reward.rewardType === rewardHistoryFilters.type) &&
+      (!rewardHistoryFilters.code || String(reward.rewardCode || reward.claimCode || "").toLowerCase().includes(rewardHistoryFilters.code.toLowerCase())) &&
+      (!rewardHistoryFilters.bookingId || [reward.linkedBookingId, reward.reservedBookingId].some((value) => String(value || "").toLowerCase().includes(rewardHistoryFilters.bookingId.toLowerCase()))) &&
+      (!rewardHistoryFilters.milestone || String(reward.milestoneNumber || reward.milestoneKey || "").toLowerCase().includes(rewardHistoryFilters.milestone.toLowerCase())) &&
+      (!rewardHistoryFilters.dateFrom || granted >= rewardHistoryFilters.dateFrom || used >= rewardHistoryFilters.dateFrom) &&
+      (!rewardHistoryFilters.dateTo || (granted && granted <= rewardHistoryFilters.dateTo) || (used && used <= rewardHistoryFilters.dateTo))
+    );
+  });
   const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
 
   const saveReward = async () => {
@@ -156,44 +194,18 @@ export default function AdminEngagement() {
   };
 
   const exportReviewsPdf = () =>
-    exportTabularPdf({
-      title: "Admin Reviews Report",
-      subtitle: "Customer feedback exported in tabular format.",
-      sections: [
-        {
-          columns: ["Review ID", "Customer", "Rating", "Comment"],
-          rows: reviews.map((review) => [
-            review.id || "-",
-            review.customer || "-",
-            `${review.rating || 0}/5`,
-            review.comment || "-",
-          ]),
-          emptyMessage: "No reviews yet.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("reviews", "pdf"), "autoflow-review-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const exportPromosPdf = () =>
-    exportTabularPdf({
-      title: "Admin Promos Report",
-      subtitle: "Saved promos exported in tabular format.",
-      sections: [
-        {
-          columns: ["Promo ID", "Code", "Title", "Discount", "Per User Limit", "Status", "Expiry", "Message"],
-          rows: promos.map((promo) => [
-            promo.id || "-",
-            promo.code || "-",
-            promo.title || "-",
-            promo.discountType === "Fixed" ? `P ${Number(promo.discountValue || 0)}` : `${Number(promo.discountValue || promo.discountPercent || 0)}%`,
-            Number(promo.maxUsagePerUser || 0) > 0 ? `${Number(promo.maxUsagePerUser || 0)} use(s)` : "-",
-            promo.status || "-",
-            getPromoExpiryLabel(promo),
-            promo.message || "-",
-          ]),
-          emptyMessage: "No promos saved yet.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("promotions", "pdf"), "autoflow-promotion-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
+  const exportRewardsPdf = () =>
+    downloadAuthenticatedFile(buildReportDownloadPath("rewards", "pdf"), "autoflow-reward-pool-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
+  const exportRewardHistoryPdf = () =>
+    downloadAuthenticatedFile(buildReportDownloadPath("reward-history", "pdf"), "autoflow-reward-history-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   return (
     <div className="engWrap">
@@ -289,7 +301,10 @@ export default function AdminEngagement() {
             <div className="engTitle">Reward Pool Management</div>
             <div className="engSub">Admin-managed weighted rewards for every 3 completed bookings.</div>
           </div>
-          <button className="engBtnGold engBtnAuto" type="button" onClick={() => { resetRewardForm(); setIsRewardModalOpen(true); }}>Add Reward</button>
+          <div className="engHeadActions">
+            <button className="engBtnDark" type="button" onClick={exportRewardsPdf}>Export as PDF</button>
+            <button className="engBtnGold engBtnAuto" type="button" onClick={() => { resetRewardForm(); setIsRewardModalOpen(true); }}>Add Reward</button>
+          </div>
         </div>
         <div className="engRewardFilters">
           <input value={rewardFilters.query} onChange={(event) => setRewardFilters((prev) => ({ ...prev, query: event.target.value }))} placeholder="Search reward" />
@@ -325,6 +340,7 @@ export default function AdminEngagement() {
               <div className="engSub">Generated rewards and claim status.</div>
             </div>
             <div className="engManualReward">
+              <button className="engBtnDark" type="button" onClick={exportRewardHistoryPdf}>Export as PDF</button>
               <select value={manualRewardCustomerEmail} onChange={(event) => setManualRewardCustomerEmail(event.target.value)}>
                 <option value="">Select customer</option>
                 {customerOptions.map((user) => <option key={user.email} value={user.email}>{user.name || user.email}</option>)}
@@ -332,7 +348,17 @@ export default function AdminEngagement() {
               <button className="engBtnLight engBtnAuto" type="button" disabled={!manualRewardCustomerEmail} onClick={() => setSecurityConfirm({ mode: "pin", title: "Generate Reward", message: "Enter the special PIN before manually generating a reward.", onConfirm: async () => { const customer = customerOptions.find((user) => user.email === manualRewardCustomerEmail); await generateCustomerReward({ customerEmail: customer?.email || "", customerName: customer?.name || "" }); setSecurityConfirm(null); } })}>Generate</button>
             </div>
           </div>
-          {customerRewards.slice(0, 8).map((reward) => {
+          <div className="engRewardFilters engRewardHistoryFilters">
+            <input value={rewardHistoryFilters.query} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, query: event.target.value }))} placeholder="Search customer, reward, booking..." />
+            <select value={rewardHistoryFilters.status} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="">All status</option><option>Available</option><option>Reserved</option><option>Used</option><option>Expired</option><option>Released</option></select>
+            <input value={rewardHistoryFilters.type} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, type: event.target.value }))} placeholder="Reward type" />
+            <input value={rewardHistoryFilters.code} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, code: event.target.value }))} placeholder="Reward code" />
+            <input value={rewardHistoryFilters.bookingId} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, bookingId: event.target.value }))} placeholder="Booking ID" />
+            <input value={rewardHistoryFilters.milestone} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, milestone: event.target.value }))} placeholder="Milestone" />
+            <input type="date" value={rewardHistoryFilters.dateFrom} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, dateFrom: event.target.value }))} />
+            <input type="date" value={rewardHistoryFilters.dateTo} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, dateTo: event.target.value }))} />
+          </div>
+          {filteredCustomerRewards.map((reward) => {
             const rewardStatus = getRewardStatus(reward);
             return (
               <div className="engRewardHistoryRow" key={reward.id}>
@@ -343,7 +369,7 @@ export default function AdminEngagement() {
               </div>
             );
           })}
-          {customerRewards.length === 0 && <div className="engEmpty">No generated rewards yet.</div>}
+          {filteredCustomerRewards.length === 0 && <div className="engEmpty">No generated rewards matched the filters.</div>}
         </div>
       </div>
 

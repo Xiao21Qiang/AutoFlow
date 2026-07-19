@@ -35,6 +35,7 @@ const commissionDomain = require("./domain/commission");
 const expenseDomain = require("./domain/expenses");
 const invoiceDomain = require("./domain/invoices");
 const engagementDomain = require("./domain/engagement");
+const exportDomain = require("./domain/exports");
 const { buildBusinessSummary } = require("./domain/summaries");
 
 const app = express();
@@ -79,6 +80,7 @@ const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const vehicleReferenceCache = new Map();
 let smtpMailTransportPromise = null;
+let testBootstrapDataOverride = null;
 
 function base64UrlEncode(value) {
   return Buffer.from(value)
@@ -1033,6 +1035,106 @@ function buildFinancialAiInput(body = {}) {
   return hasContent ? payload : null;
 }
 
+async function buildBackendAnalyticsAiInput(req) {
+  const data = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+  const requestedAnalysisType = String(req.body?.analysisType || req.body?.type || "descriptive").trim().toLowerCase();
+  const analysisType = requestedAnalysisType === "predictive" ? "predictive" : "descriptive";
+  const summary = buildBusinessSummary({
+    bookings: data.bookings || [],
+    payments: data.payments || [],
+    stockMonitoring: data.stockMonitoring || [],
+    quoteRequests: data.quoteRequests || [],
+  });
+  const topServices = Object.values((data.bookings || []).reduce((acc, booking) => {
+    const name = String(booking.service || "Unspecified").trim() || "Unspecified";
+    acc[name] = acc[name] || { name, count: 0 };
+    acc[name].count += 1;
+    return acc;
+  }, {})).sort((left, right) => right.count - left.count).slice(0, 5);
+  const bottomServices = topServices.slice().reverse().slice(0, 5);
+  const paymentSummary = Object.values((data.payments || []).reduce((acc, payment) => {
+    const booking = (data.bookings || []).find((item) => item.id === payment.bookingId) || {};
+    paymentDomain.getVerifiedRevenueEventsForPayment(payment, booking).forEach((event) => {
+      const method = String(payment.finalPaymentMethod || payment.downPaymentMethod || payment.method || event.stage || "Unspecified").trim() || "Unspecified";
+      acc[method] = acc[method] || { method, count: 0, amount: 0 };
+      acc[method].count += 1;
+      acc[method].amount += Number(event.amount || 0);
+    });
+    return acc;
+  }, {})).sort((left, right) => Number(right.amount || 0) - Number(left.amount || 0)).slice(0, 8);
+
+  return buildAnalyticsAiInput({
+    analysisType,
+    totals: {
+      totalSales: summary.paidRevenue,
+      selectedRangeSales: summary.paidRevenue,
+      paidRevenueEvents: summary.paidRevenueEvents,
+      totalBookings: summary.totalSchedules,
+      completedBookings: summary.completedCount,
+      inProgressBookings: summary.inProgressCount,
+      cancelledBookings: summary.cancelledCount,
+      selectedRange: "All authorized records",
+      totalReviews: (data.reviews || []).length,
+    },
+    topServices,
+    bottomServices,
+    paymentSummary,
+  });
+}
+
+async function buildBackendFinancialAiInput(req) {
+  const filters = parseExportFilters(req.body?.filters || {});
+  const data = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+  const dto = invoiceDomain.buildFinancialReportDto({
+    payments: data.payments || [],
+    expenses: data.expenses || [],
+    commissions: data.commissions || [],
+    dateFrom: filters.dateFrom || "",
+    dateTo: filters.dateTo || "",
+  });
+  const expenseCategories = Object.values((dto.expenses || []).reduce((acc, expense) => {
+    const category = String(expense.category || "Uncategorized").trim() || "Uncategorized";
+    acc[category] = acc[category] || { category, total: 0, count: 0 };
+    acc[category].total += Number(expense.amount || 0);
+    acc[category].count += 1;
+    return acc;
+  }, {})).sort((left, right) => right.total - left.total).slice(0, 8);
+  const topCommissionWorkers = Object.values((dto.commissions || []).reduce((acc, commission) => {
+    const worker = String(commission.worker || "Unassigned").trim() || "Unassigned";
+    acc[worker] = acc[worker] || { worker, total: 0, count: 0 };
+    acc[worker].total += Number(commission.earned || 0);
+    acc[worker].count += 1;
+    return acc;
+  }, {})).sort((left, right) => right.total - left.total).slice(0, 5);
+
+  return buildFinancialAiInput({
+    filters,
+    totals: {
+      ...dto.totals,
+      paidTransactions: (dto.payments || []).filter((payment) => Number(payment.verifiedPaid || 0) > 0).length,
+      expenseEntries: (dto.expenses || []).length,
+      commissionEntries: (dto.commissions || []).length,
+    },
+    expenseCategories,
+    topCommissionWorkers,
+  });
+}
+
+async function recordAiRequestAudit(req, feature, metadata = {}) {
+  await recordSafeAudit(req, metadata.success === false ? "AI request failed" : "AI request completed", feature, {
+    type: "ai-request",
+    targetType: "AI",
+    aiFeature: feature,
+    model: metadata.model || GROQ_MODEL || "",
+    result: metadata.success === false ? "failed" : "success",
+    dateRange: metadata.dateRange || {},
+    bookingId: metadata.bookingId || "",
+    responseType: metadata.responseType || "json",
+    errorCategory: metadata.errorCategory || "",
+    durationMs: metadata.durationMs || 0,
+  });
+}
+
 async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, maxTokens = 420, allowTextFallback = false }) {
   if (!GROQ_API_KEY) {
     return createAiUnavailablePayload(feature);
@@ -1424,9 +1526,15 @@ function normalizeFinancialAiOutput(payload) {
 }
 
 async function handleAnalyticsAiInterpret(req, res, next) {
+  const startedAt = Date.now();
   try {
-    const sanitizedInput = buildAnalyticsAiInput(req.body);
+    const sanitizedInput = await buildBackendAnalyticsAiInput(req);
     if (!sanitizedInput) {
+      await recordAiRequestAudit(req, "analytics-interpretation", {
+        success: false,
+        errorCategory: "empty-authorized-data",
+        durationMs: Date.now() - startedAt,
+      });
       res.status(400).json({ message: "Analytics data is required." });
       return;
     }
@@ -1466,6 +1574,12 @@ async function handleAnalyticsAiInterpret(req, res, next) {
     });
 
     if (!aiPayload.available) {
+      await recordAiRequestAudit(req, isPredictive ? "analytics-predictive" : "analytics-descriptive", {
+        success: false,
+        model: aiPayload.model || "",
+        errorCategory: "provider-unavailable",
+        durationMs: Date.now() - startedAt,
+      });
       res.json({
         ...aiPayload,
         analysisType: sanitizedInput.analysisType,
@@ -1475,6 +1589,11 @@ async function handleAnalyticsAiInterpret(req, res, next) {
       return;
     }
 
+    await recordAiRequestAudit(req, isPredictive ? "analytics-predictive" : "analytics-descriptive", {
+      success: true,
+      model: aiPayload.model || "",
+      durationMs: Date.now() - startedAt,
+    });
     res.json({
       available: true,
       feature: aiPayload.feature,
@@ -1483,14 +1602,30 @@ async function handleAnalyticsAiInterpret(req, res, next) {
       ...normalizeAnalyticsAiOutput(aiPayload, sanitizedInput),
     });
   } catch (error) {
+    try {
+      await recordAiRequestAudit(req, "analytics-interpretation", {
+        success: false,
+        errorCategory: error.statusCode === 400 ? "invalid-request" : "server-error",
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (_auditError) {
+      // Ignore audit failures for AI response handling.
+    }
     next(error);
   }
 }
 
 async function handleTrackingIssueNoteAi(req, res, next) {
+  const startedAt = Date.now();
   try {
     const sanitizedInput = buildTrackingIssueNoteAiInput(req.body);
     if (!sanitizedInput) {
+      await recordAiRequestAudit(req, "tracking-issue-note", {
+        success: false,
+        errorCategory: "empty-context",
+        bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
+        durationMs: Date.now() - startedAt,
+      });
       res.status(400).json({ message: "Issue note context is required." });
       return;
     }
@@ -1512,10 +1647,23 @@ async function handleTrackingIssueNoteAi(req, res, next) {
     });
 
     if (!aiPayload.available) {
+      await recordAiRequestAudit(req, "tracking-issue-note", {
+        success: false,
+        model: aiPayload.model || "",
+        errorCategory: "provider-unavailable",
+        bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
+        durationMs: Date.now() - startedAt,
+      });
       res.json(aiPayload);
       return;
     }
 
+    await recordAiRequestAudit(req, "tracking-issue-note", {
+      success: true,
+      model: aiPayload.model || "",
+      bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
+      durationMs: Date.now() - startedAt,
+    });
     res.json({
       available: true,
       feature: aiPayload.feature,
@@ -1524,14 +1672,31 @@ async function handleTrackingIssueNoteAi(req, res, next) {
       ...normalizeTrackingIssueNoteAiOutput(aiPayload),
     });
   } catch (error) {
+    try {
+      await recordAiRequestAudit(req, "tracking-issue-note", {
+        success: false,
+        errorCategory: error.statusCode === 400 ? "invalid-request" : "server-error",
+        bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (_auditError) {
+      // Ignore audit failures for AI response handling.
+    }
     next(error);
   }
 }
 
 async function handleFinancialAiInterpret(req, res, next) {
+  const startedAt = Date.now();
   try {
-    const sanitizedInput = buildFinancialAiInput(req.body);
+    const sanitizedInput = await buildBackendFinancialAiInput(req);
     if (!sanitizedInput) {
+      await recordAiRequestAudit(req, "financial-interpretation", {
+        success: false,
+        errorCategory: "empty-authorized-data",
+        dateRange: parseExportFilters(req.body?.filters || {}),
+        durationMs: Date.now() - startedAt,
+      });
       res.status(400).json({ message: "Financial data is required." });
       return;
     }
@@ -1554,10 +1719,23 @@ async function handleFinancialAiInterpret(req, res, next) {
     });
 
     if (!aiPayload.available) {
+      await recordAiRequestAudit(req, "financial-interpretation", {
+        success: false,
+        model: aiPayload.model || "",
+        errorCategory: "provider-unavailable",
+        dateRange: sanitizedInput.filters || {},
+        durationMs: Date.now() - startedAt,
+      });
       res.json(aiPayload);
       return;
     }
 
+    await recordAiRequestAudit(req, "financial-interpretation", {
+      success: true,
+      model: aiPayload.model || "",
+      dateRange: sanitizedInput.filters || {},
+      durationMs: Date.now() - startedAt,
+    });
     res.json({
       available: true,
       feature: aiPayload.feature,
@@ -1566,6 +1744,16 @@ async function handleFinancialAiInterpret(req, res, next) {
       ...normalizeFinancialAiOutput(aiPayload),
     });
   } catch (error) {
+    try {
+      await recordAiRequestAudit(req, "financial-interpretation", {
+        success: false,
+        errorCategory: error.statusCode === 400 ? "invalid-request" : "server-error",
+        dateRange: parseExportFilters(req.body?.filters || {}),
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (_auditError) {
+      // Ignore audit failures for AI response handling.
+    }
     next(error);
   }
 }
@@ -2909,6 +3097,17 @@ async function recordAudit(userId, action, targetId, meta) {
   });
 }
 
+async function recordSafeAudit(req, action, targetId, meta = {}) {
+  const actor = req?.authUser || {};
+  await recordAudit(actor.email || actor.id || "system", action, targetId, {
+    actorUserId: actor.id || "",
+    actorRole: actor.role || "",
+    actorUserType: actor.userType || "",
+    result: meta.result || "success",
+    ...meta,
+  });
+}
+
 function formatAuditDateTime(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "Submission time not recorded";
@@ -3333,6 +3532,17 @@ function getPaymentAuditAction(previousPayment, nextPayment) {
 
 function getBookingAuditAction(previousBooking, nextBooking) {
   if (!previousBooking) return "Updated booking";
+
+  if (
+    nextBooking.date !== undefined &&
+    (
+      String(previousBooking.date || "") !== String(nextBooking.date || "") ||
+      String(previousBooking.time || "") !== String(nextBooking.time || "") ||
+      String(previousBooking.placeSlot || "") !== String(nextBooking.placeSlot || "")
+    )
+  ) {
+    return "Rescheduled booking";
+  }
 
   if (nextBooking.status && previousBooking.status !== nextBooking.status) {
     return "Updated booking status";
@@ -4949,6 +5159,10 @@ async function migrateStockMonitoringCollection() {
 }
 
 async function loadBootstrapData() {
+  if (typeof testBootstrapDataOverride === "function") {
+    return testBootstrapDataOverride();
+  }
+
   const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions, rewards, customerRewards, securitySetting] = await Promise.all([
     Booking.find().sort({ createdAt: -1 }).lean(),
     Service.find().sort({ createdAt: -1 }).lean(),
@@ -5278,6 +5492,115 @@ function filterBootstrapDataForRole(data, authUser = {}) {
   };
 }
 
+const EXPORT_REPORT_PERMISSIONS = {
+  bookings: { module: MODULE_KEYS.bookings, action: ACTION_KEYS.bookingView, roles: ["admin", "staff"] },
+  tracking: { module: MODULE_KEYS.serviceTracking, action: ACTION_KEYS.trackingView, roles: ["admin", "staff"] },
+  stock: { module: MODULE_KEYS.stockMonitoring, action: ACTION_KEYS.stockView, roles: ["admin", "staff"] },
+  services: { module: MODULE_KEYS.services, roles: ["admin", "staff"] },
+  payments: { module: MODULE_KEYS.paymentTracking, action: ACTION_KEYS.paymentView, roles: ["admin", "staff"] },
+  financial: { module: MODULE_KEYS.financialTracker, roles: ["admin", "staff"] },
+  analytics: { module: MODULE_KEYS.analytics, roles: ["admin", "staff"] },
+  commissions: { action: ACTION_KEYS.commissionExport, roles: ["admin", "staff"] },
+  "audit-logs": { module: MODULE_KEYS.auditLogs, roles: ["admin", "staff"] },
+  reviews: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
+  promotions: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
+  rewards: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
+  "reward-history": { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
+  "my-work": { module: MODULE_KEYS.myWork, action: ACTION_KEYS.bookingView, roles: ["staff"] },
+  "detailer-management": { module: MODULE_KEYS.detailerManagement, roles: ["admin", "staff"] },
+};
+
+function normalizeExportFormat(value) {
+  const format = String(value || "pdf").trim().toLowerCase();
+  if (format === "pdf" || format === "csv") return format;
+  return "";
+}
+
+function parseExportFilters(query = {}) {
+  const rawDateFrom = String(query.dateFrom || "").trim();
+  const rawDateTo = String(query.dateTo || "").trim();
+  if ((rawDateFrom && !/^\d{4}-\d{2}-\d{2}$/.test(rawDateFrom)) || (rawDateTo && !/^\d{4}-\d{2}-\d{2}$/.test(rawDateTo))) {
+    const error = new Error("Invalid date range.");
+    error.statusCode = 400;
+    throw error;
+  }
+  const dateFrom = exportDomain.formatDateKey(query.dateFrom || "");
+  const dateTo = exportDomain.formatDateKey(query.dateTo || "");
+  if (dateFrom && dateTo && dateFrom > dateTo) {
+    const error = new Error("Invalid date range.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return { dateFrom, dateTo };
+}
+
+function canExportReport(user = {}, reportType) {
+  const config = EXPORT_REPORT_PERMISSIONS[reportType];
+  if (!config) return false;
+  const userType = normalizeUserType(user.userType, user.role);
+  if (!config.roles.includes(userType)) return false;
+  if (config.module && !canAccessModule(user, config.module)) return false;
+  if (config.action && !canPerformAction(user, config.action)) return false;
+  return true;
+}
+
+function getReportRecordCount(report = {}) {
+  return (report.sections || []).reduce((sum, section) => sum + (section.rows || []).length, 0);
+}
+
+function buildReportCsv(report = {}) {
+  const columns = [{ label: "Section" }, { label: "Column" }, { label: "Value" }];
+  const rows = [];
+  for (const section of report.sections || []) {
+    const sectionTitle = section.title || "Report";
+    if (!(section.rows || []).length) {
+      rows.push([sectionTitle, "Message", section.emptyMessage || "No data available."]);
+      continue;
+    }
+    for (const row of section.rows || []) {
+      (section.columns || []).forEach((column, index) => {
+        rows.push([sectionTitle, column.label || column, Array.isArray(row) ? row[index] : row[column.key]]);
+      });
+    }
+  }
+  return exportDomain.buildCsv({ columns, rows });
+}
+
+async function sendReportResponse(req, res, report, format, baseFilename) {
+  const filenameBase = exportDomain.sanitizeFilename(baseFilename || report.key || "autoflow-report");
+  const recordCount = getReportRecordCount(report);
+  const auditAction = report.auditAction || "Report exported";
+  if (format === "csv") {
+    const csv = buildReportCsv(report);
+    await recordSafeAudit(req, auditAction, report.key || filenameBase, {
+      type: "report-export",
+      targetType: "Report",
+      reportType: report.key || "",
+      format,
+      recordCount,
+      filters: report.filters || {},
+      result: "success",
+    });
+    res.set("Content-Type", "text/csv; charset=utf-8");
+    res.set("Content-Disposition", `attachment; filename="${filenameBase}.csv"`);
+    res.send(csv);
+  } else {
+    const pdf = await exportDomain.renderReportPdf(report);
+    await recordSafeAudit(req, auditAction, report.key || filenameBase, {
+      type: "report-export",
+      targetType: "Report",
+      reportType: report.key || "",
+      format,
+      recordCount,
+      filters: report.filters || {},
+      result: "success",
+    });
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
+    res.send(pdf);
+  }
+}
+
 function sendHealth(res) {
   res.json({
     status: "ok",
@@ -5361,6 +5684,142 @@ app.get("/api/public/services", async (_req, res, next) => {
 
 app.use("/api/admin", authenticateApi);
 app.use("/api/ai", authenticateApi);
+
+app.get("/api/admin/invoices/:id/pdf", async (req, res, next) => {
+  try {
+    const scopedData = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+    const invoiceId = String(req.params.id || "").trim();
+    if (!invoiceId || /[<>/\\]/.test(invoiceId)) {
+      await recordSafeAudit(req, "Invoice PDF download failed", invoiceId || "invoice", {
+        type: "invoice-export",
+        targetType: "Invoice",
+        format: "pdf",
+        result: "failed",
+        reason: "invalid-id",
+      });
+      res.status(400).json({ message: "Invalid invoice ID." });
+      return;
+    }
+
+    const userType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const canViewFinancialInvoice =
+      userType === "admin" ||
+      (userType === "staff" && (canPerformAction(req.authUser, ACTION_KEYS.paymentView) || canAccessModule(req.authUser, MODULE_KEYS.financialTracker)));
+    const payment = (scopedData.payments || []).find((item) => item.id === invoiceId || item.bookingId === invoiceId);
+    if (!payment || (userType !== "customer" && !canViewFinancialInvoice)) {
+      await recordSafeAudit(req, "Invoice PDF download denied", invoiceId, {
+        type: "invoice-export",
+        targetType: "Invoice",
+        format: "pdf",
+        result: "denied",
+        reason: payment ? "role" : "ownership-or-not-found",
+      });
+      res.status(404).json({ message: "Invoice not found." });
+      return;
+    }
+
+    const booking = (scopedData.bookings || []).find((item) => item.id === payment.bookingId) || {};
+    const invoice = invoiceDomain.buildInvoiceDto(payment, booking);
+    const report = {
+      key: "invoice",
+      auditAction: "Invoice PDF downloaded",
+      title: "AutoFlow Invoice",
+      subtitle: `Invoice for Booking ${invoice.bookingId || "-"}`,
+      generatedAt: new Date(),
+      sections: [
+        {
+          title: "Invoice Details",
+          columns: ["Field", "Value"],
+          rows: [
+            ["Invoice / Booking", invoice.bookingId || "-"],
+            ["Customer", invoice.customer || "-"],
+            ["Service", invoice.service || "-"],
+            ["Vehicle", `${booking.vehicle || "-"} / ${booking.plate || "-"}`],
+            ["Booking Date", invoice.bookingDate || booking.date || "-"],
+            ["Scheduled Time", booking.time || "-"],
+            ["Payment Method", invoice.paymentMethod || "-"],
+            ["Payment Stage", invoice.paymentStage || "-"],
+            ["Payment Status", invoice.paymentStatus || "-"],
+            ["Original Amount", exportDomain.formatPeso(invoice.originalServiceAmount)],
+            ["Promotion", invoice.promotion || "-"],
+            ["Reward", invoice.reward || "-"],
+            ["Discount Type", invoice.promotionDiscountType || invoice.rewardDiscountType || "-"],
+            ["Discount Value", String(invoice.promotionDiscountValue || invoice.rewardDiscountValue || "-")],
+            ["Discount Amount", exportDomain.formatPeso(invoice.discountAmount)],
+            ["Final Amount Due", exportDomain.formatPeso(invoice.finalAmountDue)],
+            ["Verified Downpayment", exportDomain.formatPeso(invoice.verifiedDownPayment)],
+            ["Verified Final Payment", exportDomain.formatPeso(invoice.verifiedFinalPayment)],
+            ["Total Verified Paid", exportDomain.formatPeso(invoice.totalVerifiedPaid)],
+            ["Outstanding Balance", exportDomain.formatPeso(invoice.outstandingBalance)],
+            ["Downpayment Reference", sanitizePaymentReference(invoice.downPaymentReference) || "-"],
+            ["Final Payment Reference", sanitizePaymentReference(invoice.finalPaymentReference) || "-"],
+            ["Proof Submitted", exportDomain.formatDateTime(invoice.proofSubmittedAt) || "-"],
+            ["Generated", exportDomain.formatDateTime(new Date())],
+            ["Relevant Status", normalizeBookingStatus(booking.status || "", "Scheduled")],
+          ],
+        },
+      ],
+    };
+    await sendReportResponse(req, res, report, "pdf", `autoflow-invoice-${invoice.bookingId || payment.id}`);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
+  const reportType = String(req.params.type || "").trim().toLowerCase();
+  const format = normalizeExportFormat(req.params.format);
+  try {
+    if (!EXPORT_REPORT_PERMISSIONS[reportType] || !format) {
+      await recordSafeAudit(req, "Report export failed", reportType || "report", {
+        type: "report-export",
+        targetType: "Report",
+        reportType,
+        format: format || String(req.params.format || ""),
+        result: "failed",
+        reason: "unsupported-report-or-format",
+      });
+      res.status(400).json({ message: "Unsupported report export." });
+      return;
+    }
+    if (!canExportReport(req.authUser, reportType)) {
+      await recordSafeAudit(req, "Report export denied", reportType, {
+        type: "report-export",
+        targetType: "Report",
+        reportType,
+        format,
+        result: "denied",
+        reason: "role-or-module",
+      });
+      res.status(403).json({ message: "You do not have permission to export this report." });
+      return;
+    }
+
+    const filters = parseExportFilters(req.query || {});
+    const scopedData = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+    const report = exportDomain.buildReport(reportType, scopedData, filters);
+    if (!report) {
+      res.status(400).json({ message: "Unsupported report export." });
+      return;
+    }
+    report.filters = filters;
+    await sendReportResponse(req, res, report, format, `autoflow-${reportType}-report`);
+  } catch (error) {
+    try {
+      await recordSafeAudit(req, "Report export failed", reportType || "report", {
+        type: "report-export",
+        targetType: "Report",
+        reportType,
+        format,
+        result: "failed",
+        reason: error.statusCode === 400 ? "invalid-request" : "server-error",
+      });
+    } catch (_auditError) {
+      // Best effort only; the original export failure should be returned.
+    }
+    next(error);
+  }
+});
 
 app.get("/api/admin/bootstrap", async (_req, res, next) => {
   try {
@@ -8734,15 +9193,39 @@ module.exports = {
   ACTION_KEYS,
   MODULE_KEYS,
   QR_TOKEN_PURPOSES,
+  __testModels: {
+    AuditLog,
+    Booking,
+    Commission,
+    CustomerReward,
+    Expense,
+    Payment,
+    Promo,
+    QuoteRequest,
+    Review,
+    Reward,
+    SecuritySetting,
+    Service,
+    StockMonitoringItem,
+    User,
+  },
   appendBookingAccessLinks,
   buildTrackingDto,
   buildWarrantyDto,
+  buildBackendAnalyticsAiInput,
+  buildBackendFinancialAiInput,
   canPerformAction,
+  canExportReport,
   canViewBooking,
   createBookingAccessToken,
   filterBootstrapDataForRole,
   getBookingAccessVersion,
+  parseExportFilters,
   isBookingAccessRevoked,
   isActiveAccount,
   parseBookingAccessToken,
+  setTestBootstrapDataOverride: (loader) => {
+    testBootstrapDataOverride = typeof loader === "function" ? loader : null;
+  },
+  signJwt,
 };

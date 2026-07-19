@@ -4,7 +4,7 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
 
 import icoSearch from "../../styles/icons/search.png";
@@ -124,25 +124,8 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   }, [initialAction, onActionHandled]);
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Stock Monitoring Report",
-      subtitle: "Filtered stock monitoring records exported in tabular format.",
-      sections: [
-        {
-          columns: ["Item ID", "Item Name", "Category", "Current Stock (Qty)", "Max Stock (Qty)", "Stocks Percentage", "Last Restocked"],
-          rows: filtered.map((item) => [
-            item.id,
-            item.name,
-            item.category,
-            item.currentStock,
-            item.maxStock,
-            `${getStockPercent(item)}%`,
-            item.lastRestocked || "-",
-          ]),
-          emptyMessage: "No stock monitoring items found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("stock", "pdf"), "autoflow-stock-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const showToast = (type, message, title) => {
     setToast({ type, message, title, id: Date.now() });

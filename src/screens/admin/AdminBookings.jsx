@@ -3,7 +3,7 @@ import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
@@ -24,7 +24,7 @@ import {
 } from "../../utils/bookingWorkflow";
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
 function formatDate(dateStr) {
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return String(dateStr || "");
@@ -210,8 +210,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   );
   const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
   const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
-  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
-  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
+  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
+  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
   const disabledStatusOptions = useMemo(() => {
     if (isCompletedBookingLocked) return [];
@@ -384,26 +384,8 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Bookings Report",
-      subtitle: "Filtered booking records exported in tabular format.",
-      sections: [
-        {
-          columns: ["Booking ID", "Booking Date", "Customer", "Vehicle", "Plate Number", "Service", "Assigned To", "Status"],
-          rows: filtered.map((booking) => [
-            booking.id || "-",
-            formatDate(booking.date),
-            booking.customer || "-",
-            booking.vehicle || "-",
-            booking.plate || "-",
-            booking.service || "-",
-            booking.assigned || "-",
-            booking.status || "-",
-          ]),
-          emptyMessage: "No bookings found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("bookings", "pdf"), "autoflow-bookings-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   return (
     <div className="bookingsWrap">
@@ -436,9 +418,16 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   return;
                 }
                 const isReschedule = isRescheduledStatus(form.status);
-                const isSchedulingPending = isPendingBookingEdit && String(form.status || "").trim().toLowerCase() === "scheduled";
+                const isScheduledEdit = modal === "edit" && selectedBooking && isScheduledStatus(form.status);
+                const isSchedulingPending = isPendingBookingEdit && isScheduledStatus(form.status);
                 const canPersistScheduleEdit = isReschedule || isSchedulingPending;
-                const requiresTime = modal === "add" || canPersistScheduleEdit;
+                const hasScheduleChanged = isScheduledEdit && (
+                  String(selectedBooking.date || "") !== String(form.date || "") ||
+                  String(selectedBooking.time || "") !== String(form.time || "") ||
+                  String(selectedBooking.placeSlot || "") !== String(form.placeSlot || "")
+                );
+                const canPersistScheduleUpdate = canPersistScheduleEdit || hasScheduleChanged;
+                const requiresTime = modal === "add" || canPersistScheduleEdit || hasScheduleChanged || isScheduledEdit;
 
                 if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
                   setFormError("Please select today or a future date for the booking.");
@@ -485,13 +474,13 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   ...form,
                   selectedCar: undefined,
                   placeSlot: Number(form.placeSlot || 0),
-                  status: isSchedulingPending ? "Scheduled" : form.status,
+                  status: isSchedulingPending || isReschedule ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || form.amount || 0),
                   amount: Number(resolvedPrice || form.amount || 0),
                 };
-                if (modal === "edit" && selectedBooking && !canPersistScheduleEdit) {
+                if (modal === "edit" && selectedBooking && !canPersistScheduleUpdate) {
                   payload.date = selectedBooking.date;
                   payload.time = selectedBooking.time || "";
                   payload.placeSlot = selectedBooking.placeSlot || 0;
@@ -509,7 +498,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       closeModal();
                     };
                     const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
-                    const needsReschedulePin = isReschedule;
+                    const needsReschedulePin = isReschedule || hasScheduleChanged;
                     if (needsCancelPin || needsReschedulePin) {
                       setSecurityConfirm({
                         mode: "pin",

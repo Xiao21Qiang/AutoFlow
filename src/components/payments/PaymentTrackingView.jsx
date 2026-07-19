@@ -3,7 +3,7 @@ import FilterModal from "../common/FilterModal";
 import SecurityConfirmModal from "../common/SecurityConfirmModal";
 import ToastMessage from "../common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import {
   PAYMENT_STATUS_OPTIONS,
   getAllowedDownPaymentStatuses,
@@ -208,27 +208,13 @@ export default function PaymentTrackingView({ role = "admin" }) {
     setForm(getPaymentFormDefaults(payment));
   };
 
+  const downloadInvoicePdf = (payment) =>
+    downloadAuthenticatedFile(`/api/admin/invoices/${encodeURIComponent(payment.id || payment.bookingId)}/pdf`, `autoflow-invoice-${payment.bookingId || payment.id}.pdf`)
+      .catch((error) => setToast({ type: "error", message: error.message || "Could not download invoice.", id: Date.now() }));
+
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Payments Report",
-      subtitle: "Filtered payment records exported in tabular format.",
-      sections: [
-        {
-          columns: ["Booking ID", "Booking Date", "Customer", "Service", "Total", "Stage", "Method", "Reference"],
-          rows: filtered.map((payment) => [
-            payment.bookingId || payment.id,
-            payment.date || "-",
-            getCustomerName(payment),
-            payment.service || "-",
-            formatCurrency(getPaymentTotal(payment)),
-            getPaymentStageLabel(payment),
-            getDisplayMethod(payment),
-            payment.finalPaymentReference || payment.downPaymentReference || payment.reference || "-",
-          ]),
-          emptyMessage: "No payments found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("payments", "pdf"), "autoflow-payment-report.pdf")
+      .catch((error) => setToast({ type: "error", message: error.message || "Could not download report.", id: Date.now() }));
 
   const selectedWithForm = selectedPayment ? {
     ...selectedPayment,
@@ -506,6 +492,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
               </div>
 
               <div className={classes.modalActions}>
+                <button className={classes.textBtn} type="button" onClick={() => downloadInvoicePdf(selectedPayment)}>Download Invoice PDF</button>
                 <button className={classes.textBtn} type="button" onClick={() => setSelectedPayment(null)}>Cancel</button>
                 <button className={classes.primaryBtn} type="submit">Save</button>
               </div>

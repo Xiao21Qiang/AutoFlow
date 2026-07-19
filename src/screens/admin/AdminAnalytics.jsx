@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import "../../styles/css/admin/adminAnalyticsStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { getRecognizedRevenue, getRevenueEvents as getCanonicalRevenueEvents, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const RANGE_TYPES = [
@@ -593,67 +593,9 @@ export default function AdminAnalytics() {
     }
   };
 
-  const descriptiveLines = useMemo(() => getAiLines(descriptiveAiState), [descriptiveAiState]);
-  const predictiveLines = useMemo(() => getAiLines(predictiveAiState), [predictiveAiState]);
-
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Analytics Report",
-      subtitle: "Verified staged-payment revenue, booking demand, ratings, and AI analytics.",
-      sections: [
-        {
-          title: "Sales Overview",
-          columns: ["Metric", "Value"],
-          rows: [
-            ["All-Time Verified Sales", peso(totalSales)],
-            [`Selected Range (${currentRange.label})`, peso(selectedRangeSales)],
-            ["Verified Revenue Events", verifiedRevenueEvents.length],
-          ],
-        },
-        {
-          title: "Sales Summary by Period",
-          columns: ["Period", "Verified Sales", "Paid Records", "Customers"],
-          rows: periodSummary.map((item) => [item.key, peso(item.sales), item.transactions, item.customers]),
-        },
-        {
-          title: "Bookings",
-          columns: ["Metric", "Value"],
-          rows: [
-            ["Total Bookings", bookingSummary.total],
-            ["Completed", bookingSummary.completed],
-            ["In Progress", bookingSummary.inProgress],
-            ["Scheduled/Pending", bookingSummary.scheduled],
-            ["Cancelled", bookingSummary.cancelled],
-          ],
-        },
-        {
-          title: "Ratings",
-          columns: ["Metric", "Value"],
-          rows: [
-            ["Average Rating", avgRating || "No ratings"],
-            ["Total Reviews", totalRatings],
-            ...ratingDistribution.map((item) => [`${item.rating} Star`, item.count]),
-          ],
-        },
-        {
-          title: "Top Services",
-          columns: ["Rank", "Service", "Bookings"],
-          rows: topServices.map((service, index) => [index + 1, service.name, service.count]),
-        },
-        {
-          title: "AI Generated Descriptive Analytics",
-          columns: ["Insight"],
-          rows: descriptiveLines.map((line) => [`${line.label}: ${line.text}`]),
-          emptyMessage: "No descriptive AI analysis generated yet.",
-        },
-        {
-          title: "AI Generated Predictive Analytics",
-          columns: ["Insight"],
-          rows: predictiveLines.map((line) => [`${line.label}: ${line.text}`]),
-          emptyMessage: "No predictive AI analysis generated yet.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("analytics", "pdf"), "autoflow-analytics-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const maxRatingCount = Math.max(...ratingDistribution.map((item) => item.count), 1);
 

@@ -2,7 +2,7 @@ import "../../styles/css/admin/adminAuditLogsStyle.css";
 import { useEffect, useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -67,24 +67,8 @@ export default function AdminAuditLogs() {
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Audit Logs Report",
-      subtitle: "Filtered audit trail exported in tabular format.",
-      sections: [
-        {
-          columns: ["Audit ID", "User ID", "Action", "Details", "Target ID", "Timestamp"],
-          rows: filtered.map((log) => [
-            log.id || "-",
-            log.userId || "-",
-            log.action || "-",
-            getAuditDetail(log) || "-",
-            log.targetId || "-",
-            log.ts || "-",
-          ]),
-          emptyMessage: "No audit logs found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("audit-logs", "pdf"), "autoflow-audit-log-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   return (
     <div className="auditWrap">

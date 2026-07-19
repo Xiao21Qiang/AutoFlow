@@ -5,7 +5,7 @@ import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import carDiagram from "../../assets/IMAGE/car.jpg";
 import { WARRANTY_COVERAGE_NOTES, WARRANTY_COVERAGE_OPTIONS, WARRANTY_ISSUE_TYPES, createWarrantyAcknowledgement, normalizeWarrantyChecklist } from "../../utils/warrantyChecklist";
 import {
@@ -26,7 +26,7 @@ import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
 const ISSUE_TYPES = WARRANTY_ISSUE_TYPES;
 
 const formatDateForInput = (value) => {
@@ -196,25 +196,8 @@ export default function AdminTracking() {
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Service Tracking Report",
-      subtitle: "Filtered booking tracking records exported in tabular format.",
-      sections: [
-        {
-          columns: ["Booking ID", "Booking Date", "Customer", "Vehicle", "Service", "Status", "Assigned To"],
-          rows: filtered.map((row) => [
-            row.id,
-            row.date || "-",
-            row.customer || "-",
-            row.vehicle || "-",
-            row.service || "-",
-            row.status || "-",
-            row.assigned || "-",
-          ]),
-          emptyMessage: "No tracking records found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("tracking", "pdf"), "autoflow-tracking-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const resetIssueNoteAi = () => {
     setIssueNoteAi({

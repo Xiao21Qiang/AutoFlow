@@ -3,6 +3,7 @@ import "../../styles/css/customer/customerPaymentsStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
+import { downloadAuthenticatedFile } from "../../utils/downloadExport";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import {
@@ -249,6 +250,10 @@ export default function CustomerPayments() {
     setModal("proof");
   };
 
+  const downloadInvoicePdf = (payment) =>
+    downloadAuthenticatedFile(`/api/admin/invoices/${encodeURIComponent(payment.id || payment.bookingId)}/pdf`, `autoflow-invoice-${payment.bookingId || payment.id}.pdf`)
+      .catch((error) => window.alert(error.message || "Could not download invoice."));
+
   return (
     <div className="clPayWrap">
       <div className="clPayTop">
@@ -471,6 +476,9 @@ export default function CustomerPayments() {
                   )}
                 </div>
                 <div className="clPayModalActions">
+                  <button className="clPayPrimaryBtn" type="button" onClick={() => downloadInvoicePdf(selectedPayment)}>
+                    Download PDF
+                  </button>
                   <button className="clPayPrimaryBtn" type="button" onClick={closeModal}>
                     Close
                   </button>

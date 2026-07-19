@@ -4,7 +4,7 @@ import ConfirmModal from "../../components/common/ConfirmModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
 import {
   buildConsumablesBySizePayload,
@@ -349,29 +349,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Admin Services Report",
-      subtitle: "Filtered service records exported in tabular format.",
-      sections: [
-        {
-          columns: ["Service ID", "Name", "Type", "Description", "Category", "Price Range", "Duration (mins)", "Status", "Consumables"],
-          rows: filtered.map((service) => [
-            service.id || "-",
-            service.name || "-",
-            getServiceType(service),
-            service.desc || "-",
-            service.category || "-",
-            formatPriceRangeLabel(service),
-            service.mins || 0,
-            service.enabled ? "Enabled" : "Disabled",
-            Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables))
-              .map(([name, quantities]) => formatConsumableSizeLabel(name, quantities))
-              .join(", ") || "-",
-          ]),
-          emptyMessage: "No services found for the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("services", "pdf"), "autoflow-services-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");

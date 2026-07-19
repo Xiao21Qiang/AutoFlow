@@ -1,7 +1,7 @@
 import "../../styles/css/staff/staffMyWorkStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 
 const STATUS_OPTIONS = ["Pending", "Scheduled", "In Progress", "Completed", "Cancelled"];
 
@@ -86,7 +86,7 @@ function filterBookings(bookings, filters, commissions) {
   });
 }
 
-function WorkTable({ rows, commissions, emptyMessage, showAssigned = false }) {
+function WorkTable({ rows, commissions, emptyMessage, showAssigned = false, onView }) {
   return (
     <div className="mwTableWrap">
       <table className="mwTable">
@@ -102,6 +102,7 @@ function WorkTable({ rows, commissions, emptyMessage, showAssigned = false }) {
             <th>Issue Notes</th>
             <th>Warranty</th>
             <th>Commission</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -119,11 +120,12 @@ function WorkTable({ rows, commissions, emptyMessage, showAssigned = false }) {
                 <td>{getIssueNotesStatus(booking)}</td>
                 <td>{getWarrantyStatus(booking)}</td>
                 <td>{commissionStatus}</td>
+                <td><button className="mwRowBtn" type="button" onClick={() => onView?.(booking)}>Details</button></td>
               </tr>
             );
           }) : (
             <tr>
-              <td className="mwEmpty" colSpan={showAssigned ? 10 : 9}>{emptyMessage}</td>
+              <td className="mwEmpty" colSpan={showAssigned ? 11 : 10}>{emptyMessage}</td>
             </tr>
           )}
         </tbody>
@@ -188,6 +190,7 @@ export default function StaffMyWork({ session }) {
   const { bookings, commissions, users } = useAdminData();
   const [personalFilters, setPersonalFilters] = useState(createFilters);
   const [juniorFilters, setJuniorFilters] = useState(createFilters);
+  const [selectedWork, setSelectedWork] = useState(null);
 
   const role = normalize(session?.role);
   const juniorDetailerNames = useMemo(() => getDetailerNamesByRole(users, "Junior Detailer"), [users]);
@@ -236,59 +239,8 @@ export default function StaffMyWork({ session }) {
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "My Work Report",
-      subtitle: "Assigned bookings, service tracking tasks, warranty tasks, and commission history.",
-      sections: [
-        {
-          title: "Assigned Work",
-          columns: ["Booking ID", "Customer", "Service", "Vehicle / Plate", "Date", "Status", "Issue Notes", "Warranty", "Commission"],
-          rows: visiblePersonalBookings.map((booking) => [
-            booking.id,
-            booking.customer,
-            booking.service,
-            getVehicleLabel(booking),
-            booking.date || "-",
-            booking.status || "-",
-            getIssueNotesStatus(booking),
-            getWarrantyStatus(booking),
-            getCommissionStatus(commissions, booking.id),
-          ]),
-          emptyMessage: "No assigned work matched the filters.",
-        },
-        ...(role === "senior detailer" ? [{
-          title: "Junior Detailer Work View",
-          columns: ["Booking ID", "Customer", "Service", "Vehicle / Plate", "Assigned Detailer", "Date", "Status", "Issue Notes", "Warranty", "Commission"],
-          rows: visibleJuniorBookings.map((booking) => [
-            booking.id,
-            booking.customer,
-            booking.service,
-            getVehicleLabel(booking),
-            booking.assigned || "-",
-            booking.date || "-",
-            booking.status || "-",
-            getIssueNotesStatus(booking),
-            getWarrantyStatus(booking),
-            getCommissionStatus(commissions, booking.id),
-          ]),
-          emptyMessage: "No junior detailer work matched the filters.",
-        }] : []),
-        {
-          title: "Commission Audit",
-          columns: ["Commission ID", "Booking ID", "Service", "Rate", "Amount", "Status", "Date Paid"],
-          rows: ownCommissions.map((commission) => [
-            commission.id,
-            commission.bookingId,
-            commission.service,
-            `${commission.rate || 0}%`,
-            `P${Number(commission.earned || 0).toLocaleString("en-PH")}`,
-            commission.status || "Pending",
-            commission.datePaid || "-",
-          ]),
-          emptyMessage: "No commission records yet.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("my-work", "pdf"), "autoflow-my-work-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   return (
     <div className="mwWrap">
@@ -298,7 +250,7 @@ export default function StaffMyWork({ session }) {
           <h2>My Work</h2>
           <p>Review assigned bookings, tracking tasks, warranty progress, and commission status.</p>
         </div>
-        <button className="mwExportBtn" type="button" onClick={exportPdf}>Print / Export PDF</button>
+        <button className="mwExportBtn" type="button" onClick={exportPdf}>Download PDF</button>
       </div>
 
       <section className="mwCard">
@@ -310,7 +262,7 @@ export default function StaffMyWork({ session }) {
           <div className="mwCount">{visiblePersonalBookings.length} shown</div>
         </div>
         <FilterGrid filters={personalFilters} onChange={updatePersonalFilter} />
-        <WorkTable rows={visiblePersonalBookings} commissions={commissions} emptyMessage="No assigned work found." />
+        <WorkTable rows={visiblePersonalBookings} commissions={commissions} emptyMessage="No assigned work found." onView={setSelectedWork} />
       </section>
 
       {role === "senior detailer" && (
@@ -333,6 +285,7 @@ export default function StaffMyWork({ session }) {
             commissions={commissions}
             emptyMessage="No junior detailer work found."
             showAssigned
+            onView={setSelectedWork}
           />
         </section>
       )}
@@ -378,6 +331,30 @@ export default function StaffMyWork({ session }) {
           </table>
         </div>
       </section>
+
+      {selectedWork && (
+        <div className="mwModalOverlay" onClick={() => setSelectedWork(null)}>
+          <div className="mwModalCard" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <button className="mwModalClose" type="button" onClick={() => setSelectedWork(null)}>x</button>
+            <h3>Work Details</h3>
+            <div className="mwDetailGrid">
+              <div><span>Booking</span><strong>{selectedWork.id || "-"}</strong></div>
+              <div><span>Customer</span><strong>{selectedWork.customer || "-"}</strong></div>
+              <div><span>Vehicle</span><strong>{getVehicleLabel(selectedWork)}</strong></div>
+              <div><span>Service</span><strong>{selectedWork.service || "-"}</strong></div>
+              <div><span>Date</span><strong>{selectedWork.date || "-"}</strong></div>
+              <div><span>Time</span><strong>{selectedWork.time || "-"}</strong></div>
+              <div><span>Place Slot</span><strong>{selectedWork.placeSlot || "-"}</strong></div>
+              <div><span>Assigned Worker</span><strong>{selectedWork.assigned || "-"}</strong></div>
+              <div><span>Status</span><strong>{selectedWork.status || "-"}</strong></div>
+              <div><span>Issue Notes</span><strong>{selectedWork.issueNote || getIssueNotesStatus(selectedWork)}</strong></div>
+              <div><span>Warranty</span><strong>{getWarrantyStatus(selectedWork)}</strong></div>
+              <div><span>Completion</span><strong>{normalize(selectedWork.status) === "completed" ? "Completed" : "Not completed"}</strong></div>
+              <div><span>Commission Status</span><strong>{getCommissionStatus(commissions, selectedWork.id)}</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

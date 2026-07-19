@@ -1,7 +1,7 @@
 import "../../styles/css/admin/adminFinancialTrackerStyle.css";
 import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { exportTabularPdf } from "../../utils/exportTabularPdf";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRecognizedRevenue, getRevenueEvents, toAppDateKey } from "../../utils/businessMetrics";
 
@@ -77,7 +77,6 @@ export default function AdminFinancialTracker() {
   );
   const totalRevenue = useMemo(() => paidPayments.reduce((sum, item) => sum + getRecognizedRevenue(item), 0), [paidPayments]);
   const totalExpenses = useMemo(() => activeExpenses.reduce((sum, item) => sum + Number(item.amount || 0), 0), [activeExpenses]);
-  const totalCommissions = useMemo(() => commissions.reduce((sum, item) => sum + Number(item.earned || 0), 0), [commissions]);
   const staffOptions = useMemo(
     () =>
       users
@@ -279,54 +278,8 @@ export default function AdminFinancialTracker() {
   };
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Financial Tracker Report",
-      subtitle: "Revenue, expenses, operational interpretation, and worker commissions.",
-      sections: [
-        {
-          title: "Summary",
-          columns: ["Metric", "Value"],
-          rows: [
-            ["Total Revenue", peso(totalRevenue)],
-            ["Total Expenses", peso(totalExpenses)],
-            ["Total Commissions", peso(totalCommissions)],
-          ],
-        },
-        {
-          title: "Interpretation",
-          columns: ["Insight"],
-          rows: displayedInterpretationLines.map((line) => [line]),
-          emptyMessage: "AI interpretation is temporarily unavailable.",
-        },
-        {
-          title: "Filtered Expenses",
-          columns: ["Date", "Description", "Category", "Amount", "Paid By", "Note"],
-          rows: filteredExpenses.map((item) => [
-            item.date,
-            item.description,
-            item.category,
-            peso(item.amount),
-            item.paidBy,
-            item.note || "-",
-          ]),
-          emptyMessage: "No expenses matched the selected filters.",
-        },
-        {
-          title: "Filtered Worker Commissions",
-          columns: ["Date", "Worker", "Role", "Service", "Service Value", "Rate", "Earned"],
-          rows: filteredCommissions.map((item) => [
-            item.date,
-            item.worker,
-            item.role,
-            item.service,
-            peso(item.serviceValue),
-            `${item.rate}%`,
-            peso(item.earned),
-          ]),
-          emptyMessage: "No commission records matched the selected filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("financial", "pdf", { dateFrom, dateTo }), "autoflow-finance-report.pdf")
+      .catch((error) => window.alert(error.message || "Could not download report."));
 
   const handleExpenseSave = async () => {
     if (!expenseForm.description.trim() || !expenseForm.paidBy.trim()) {

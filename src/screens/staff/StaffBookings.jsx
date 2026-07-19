@@ -23,7 +23,7 @@ import {
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 import { ACTION_KEYS, canPerformAction, getEffectiveRole } from "../../utils/rbac";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -215,13 +215,13 @@ export default function StaffBookings() {
   );
   const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
   const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
-  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
+  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
   const isOwnDetailerBooking = modal === "edit" && isAssignedToCurrentUser(selectedBooking, currentUser);
   const currentEffectiveRole = getEffectiveRole(currentUser);
   const canManageOperationalPlaceSlot = currentEffectiveRole === "general manager";
   const isDetailerUser = currentEffectiveRole === "junior detailer" || currentEffectiveRole === "senior detailer";
   const canEditOwnDetailerPlaceSlot = isDetailerUser && isOwnDetailerBooking && !isCompletedBookingLocked && String(form.status || "").trim().toLowerCase() !== "cancelled" && Boolean(form.date && form.time);
-  const canEditPlaceSlot = (canManageOperationalPlaceSlot && (modal === "add" || isRescheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim())))) || canEditOwnDetailerPlaceSlot;
+  const canEditPlaceSlot = (canManageOperationalPlaceSlot && (modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim())))) || canEditOwnDetailerPlaceSlot;
   const showPlaceSlotPicker = canManageOperationalPlaceSlot || canEditOwnDetailerPlaceSlot;
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
   const disabledStatusOptions = useMemo(() => {
@@ -571,9 +571,16 @@ export default function StaffBookings() {
 
                 setFormError("");
                 const isReschedule = isRescheduledStatus(form.status);
-                const isSchedulingPending = isPendingBookingEdit && String(form.status || "").trim().toLowerCase() === "scheduled";
+                const isScheduledEdit = modal === "edit" && selectedBooking && isScheduledStatus(form.status);
+                const isSchedulingPending = isPendingBookingEdit && isScheduledStatus(form.status);
                 const canPersistScheduleEdit = isReschedule || isSchedulingPending;
-                const requiresTime = modal === "add" || canPersistScheduleEdit;
+                const hasScheduleChanged = isScheduledEdit && (
+                  String(selectedBooking.date || "") !== String(form.date || "") ||
+                  String(selectedBooking.time || "") !== String(form.time || "") ||
+                  String(selectedBooking.placeSlot || "") !== String(form.placeSlot || "")
+                );
+                const canPersistScheduleUpdate = canPersistScheduleEdit || hasScheduleChanged;
+                const requiresTime = modal === "add" || canPersistScheduleEdit || hasScheduleChanged || isScheduledEdit;
 
                 if ((modal === "add" || isReschedule) && form.date && form.date < todayKey) {
                   setFormError("Please select today or a future date for the booking.");
@@ -629,13 +636,13 @@ export default function StaffBookings() {
                   ...form,
                   selectedCar: undefined,
                   placeSlot: showPlaceSlotPicker ? Number(form.placeSlot || 0) : 0,
-                  status: isSchedulingPending ? "Scheduled" : form.status,
+                  status: isSchedulingPending || isReschedule ? "Scheduled" : form.status,
                   customer: resolvedCustomer.name,
                   customerEmail: resolvedCustomer.email || "",
                   originalAmount: Number(resolvedPrice || 0),
                   amount: Number(resolvedPrice || 0),
                 };
-                if (modal === "edit" && selectedBooking && !canPersistScheduleEdit) {
+                if (modal === "edit" && selectedBooking && !canPersistScheduleUpdate) {
                   payload.date = selectedBooking.date;
                   payload.time = selectedBooking.time || "";
                   payload.placeSlot = canEditOwnDetailerPlaceSlot ? Number(form.placeSlot || 0) : selectedBooking.placeSlot || 0;
@@ -657,7 +664,7 @@ export default function StaffBookings() {
                       closeModal();
                     };
                     const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
-                    const needsReschedulePin = isReschedule;
+                    const needsReschedulePin = isReschedule || hasScheduleChanged;
                     if (needsCancelPin || needsReschedulePin) {
                       setSecurityConfirm({
                         mode: "pin",

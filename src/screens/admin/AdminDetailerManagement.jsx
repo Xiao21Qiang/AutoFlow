@@ -2,6 +2,7 @@ import "../../styles/css/admin/adminFinancialTrackerStyle.css";
 import { useMemo, useState } from "react";
 import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { exportTabularPdf } from "../../utils/exportTabularPdf";
 import { ACTION_KEYS, canPerformAction, isAdmin } from "../../utils/rbac";
 import { isDetailerRole } from "../../utils/staffRoles";
@@ -94,29 +95,8 @@ export default function AdminDetailerManagement() {
   }, [bookings, commissions, detailerByName, payments, query, roleFilter, statusFilter, commissionFilter]);
 
   const exportPdf = () =>
-    exportTabularPdf({
-      title: "Detailer Management Report",
-      subtitle: "Assigned bookings, workload, payment status, and commission supervision.",
-      sections: [
-        {
-          title: "Assigned Work",
-          columns: ["Booking ID", "Customer", "Service", "Vehicle / Plate", "Detailer", "Role", "Date", "Status", "Payment", "Commission"],
-          rows: rows.map(({ booking, detailer, payment, commission }) => [
-            booking.id,
-            booking.customer,
-            booking.service,
-            `${booking.vehicle || "-"} / ${booking.plate || "-"}`,
-            booking.assigned || "-",
-            detailer.role || commission.role || "-",
-            booking.date || "-",
-            booking.status || "-",
-            payment.finalPaymentStatus || payment.status || "-",
-            commission.status || "Pending",
-          ]),
-          emptyMessage: "No assigned detailer work matched the filters.",
-        },
-      ],
-    });
+    downloadAuthenticatedFile(buildReportDownloadPath("detailer-management", "pdf"), "autoflow-detailer-work-report.pdf")
+      .catch((error) => setToast({ type: "error", message: error.message || "Could not download report.", id: Date.now() }));
 
   const exportRowPdf = ({ booking, detailer, payment, commission }) =>
     exportTabularPdf({

@@ -26,7 +26,7 @@ import {
 } from "../../utils/warrantyWorkflow";
 import { formatCompletionReadinessMessage, getCompletionReadiness } from "../../utils/completionWorkflow";
 
-const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Rescheduled", "Completed", "Cancelled"];
+const STATUS_OPTIONS = ["Scheduled", "Pending", "In Progress", "Completed", "Cancelled"];
 const ISSUE_TYPES = WARRANTY_ISSUE_TYPES;
 
 function normalizeText(value) {

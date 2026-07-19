@@ -243,6 +243,81 @@
   font-weight: 800;
 }
 
+.mwRowBtn {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.mwModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 18px;
+}
+
+.mwModalCard {
+  position: relative;
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+  padding: 22px;
+}
+
+.mwModalCard h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+}
+
+.mwModalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.mwDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mwDetailGrid div {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.mwDetailGrid span {
+  display: block;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.mwDetailGrid strong {
+  display: block;
+  margin-top: 4px;
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+}
+
 @media (max-width: 1100px) {
   .mwFilters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -269,6 +344,10 @@
   }
 
   .mwFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .mwDetailGrid {
     grid-template-columns: 1fr;
   }
 }
