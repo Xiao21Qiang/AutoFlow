@@ -354,6 +354,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
 
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");
+  const hasNoFilteredServices = filtered.length === 0;
   const getSectionDetails = (title) => {
     const isPackage = title.toLowerCase().includes("package");
     return {
@@ -436,8 +437,14 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       </div>
 
       <div className="svcBoard">
-        {renderServiceSection("Basic Services", pagedBasicServices)}
-        {renderServiceSection("Packages", pagedPackages)}
+        {hasNoFilteredServices ? (
+          <div className="svcEmptyState">No services found.</div>
+        ) : (
+          <>
+            {renderServiceSection("Basic Services", pagedBasicServices)}
+            {renderServiceSection("Packages", pagedPackages)}
+          </>
+        )}
       </div>
 
       <div className="svcPagerRow"><button className="svcPagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button><span className="svcPagerNum">{safePage}</span><button className="svcPagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>

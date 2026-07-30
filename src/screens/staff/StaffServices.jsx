@@ -323,6 +323,7 @@ export default function StaffServices() {
 
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");
+  const hasNoFilteredServices = filtered.length === 0;
   const getSectionDetails = (title) => {
     const isPackage = title.toLowerCase().includes("package");
     return {
@@ -432,8 +433,14 @@ export default function StaffServices() {
       </div>
 
       <div className="stSvcBoard">
-        {renderServiceSection("Basic Services", pagedBasicServices)}
-        {renderServiceSection("Packages", pagedPackages)}
+        {hasNoFilteredServices ? (
+          <div className="stSvcEmptyState">No services found.</div>
+        ) : (
+          <>
+            {renderServiceSection("Basic Services", pagedBasicServices)}
+            {renderServiceSection("Packages", pagedPackages)}
+          </>
+        )}
       </div>
 
       <div className="stSvcPagerRow">
