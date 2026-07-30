@@ -36,7 +36,7 @@ function formatDateTime(dateStr) {
   });
 }
 
-function createEmptyForm(defaultService = "Graphene Coating") {
+function createEmptyForm(defaultService = "") {
   return {
     date: "",
     time: "",
@@ -70,14 +70,39 @@ function requiresDownPayment(service) {
   return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") !== "car wash";
 }
 
-function ModalSelect({ value, options, placeholder, onSelect }) {
+const CUSTOMER_BOOKING_REQUIRED_MESSAGES = {
+  vehicle: "Vehicle is required.",
+  plate: "Plate number is required.",
+  service: "Please select a service.",
+  carSize: "Please select a car size.",
+  date: "Booking date is required.",
+  time: "Please select a preferred time.",
+};
+
+const CUSTOMER_BOOKING_REQUIRED_FIELDS = Object.keys(CUSTOMER_BOOKING_REQUIRED_MESSAGES);
+
+function getCustomerBookingValidationErrors({ form, serviceOptions }) {
+  const errors = {};
+  if (!String(form.vehicle || "").trim()) errors.vehicle = CUSTOMER_BOOKING_REQUIRED_MESSAGES.vehicle;
+  if (!String(form.plate || "").trim()) errors.plate = CUSTOMER_BOOKING_REQUIRED_MESSAGES.plate;
+  if (!serviceOptions.includes(String(form.service || "").trim())) errors.service = CUSTOMER_BOOKING_REQUIRED_MESSAGES.service;
+  if (!CAR_SIZE_OPTIONS.includes(String(form.carSize || "").trim())) errors.carSize = CUSTOMER_BOOKING_REQUIRED_MESSAGES.carSize;
+  if (!String(form.date || "").trim()) errors.date = CUSTOMER_BOOKING_REQUIRED_MESSAGES.date;
+  if (!String(form.time || "").trim()) errors.time = CUSTOMER_BOOKING_REQUIRED_MESSAGES.time;
+  return errors;
+}
+
+function ModalSelect({ value, options, placeholder, onSelect, invalid = false, ariaLabel, ariaDescribedBy, onBlur }) {
   const [open, setOpen] = useState(false);
 
   return (
     <div className="clBookSelectWrap clBookModalSelect">
       <button
-        className="clBookModalSelectTrigger"
+        className={`clBookModalSelectTrigger${invalid ? " clBookFieldInvalidInput" : ""}`}
         type="button"
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        onBlur={onBlur}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span>{value || placeholder}</span>
@@ -138,8 +163,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const [filters, setFilters] = useState({ service: "", assignedTo: "" });
   const [modal, setModal] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
-  const [form, setForm] = useState(createEmptyForm(serviceOptions[0]));
+  const [form, setForm] = useState(createEmptyForm());
   const [formError, setFormError] = useState("");
+  const [touchedFields, setTouchedFields] = useState({});
   const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const todayKey = getTodayKey();
@@ -203,7 +229,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   useEffect(() => {
     setForm((prev) => {
       if (serviceOptions.includes(prev.service)) return prev;
-      return { ...prev, service: serviceOptions[0] || "", time: "" };
+      return { ...prev, service: "", time: "" };
     });
   }, [serviceOptions]);
 
@@ -215,10 +241,12 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
 
   useEffect(() => {
     if (initialAction !== "open-add-booking") return;
-    setForm(createEmptyForm(serviceOptions[0]));
+    setForm(createEmptyForm());
+    setTouchedFields({});
+    setFormError("");
     setModal("add");
     onActionHandled?.();
-  }, [initialAction, onActionHandled, serviceOptions]);
+  }, [initialAction, onActionHandled]);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -246,11 +274,24 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
+  const bookingValidationErrors = useMemo(
+    () => modal === "add" ? getCustomerBookingValidationErrors({ form, serviceOptions }) : {},
+    [form, modal, serviceOptions]
+  );
+  const isCustomerBookingFormValid = modal !== "add" || Object.keys(bookingValidationErrors).length === 0;
+  const markFieldTouched = (field) => {
+    setTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
+  const getTouchedFieldError = (field) => (touchedFields[field] ? bookingValidationErrors[field] || "" : "");
+  const touchAllRequiredFields = () => {
+    setTouchedFields(Object.fromEntries(CUSTOMER_BOOKING_REQUIRED_FIELDS.map((field) => [field, true])));
+  };
 
   const closeModal = () => {
     setModal(null);
     setSelectedBooking(null);
-    setForm(createEmptyForm(serviceOptions[0]));
+    setForm(createEmptyForm());
+    setTouchedFields({});
     setFormError("");
     setShowDownPaymentConfirm(false);
     setIsSubmittingBooking(false);
@@ -258,6 +299,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
 
   const submitCustomerBooking = async () => {
     if (isSubmittingBooking) return;
+    if (!isCustomerBookingFormValid) {
+      touchAllRequiredFields();
+      setFormError(Object.values(bookingValidationErrors)[0] || "Please complete the required booking fields.");
+      return;
+    }
     try {
       setIsSubmittingBooking(true);
       const matchedService = bookableServices.find((service) => service.name === form.service);
@@ -318,7 +364,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
           className="clBookAddBtn"
           type="button"
           onClick={() => {
-            setForm(createEmptyForm(serviceOptions[0]));
+            setForm(createEmptyForm());
+            setTouchedFields({});
+            setFormError("");
             setModal("add");
           }}
         >
@@ -398,6 +446,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   setFormError("");
                   setShowDownPaymentConfirm(false);
 
+                  if (!isCustomerBookingFormValid) {
+                    touchAllRequiredFields();
+                    setFormError(Object.values(bookingValidationErrors)[0] || "Please complete the required booking fields.");
+                    return;
+                  }
                   if (form.date && form.date < todayKey) {
                     setFormError("Please select today or a future date for your booking.");
                     return;
@@ -422,11 +475,17 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <span>Preferred Date</span>
                   <input
                     type="date"
+                    aria-label="Preferred Date"
                     min={todayKey}
                     value={form.date}
+                    onBlur={() => markFieldTouched("date")}
                     onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
+                    className={getTouchedFieldError("date") ? "clBookFieldInvalidInput" : ""}
                     required
+                    aria-invalid={getTouchedFieldError("date") ? "true" : undefined}
+                    aria-describedby={getTouchedFieldError("date") ? "customer-booking-date-error" : undefined}
                   />
+                  {getTouchedFieldError("date") ? <div id="customer-booking-date-error" className="clBookFieldError">{getTouchedFieldError("date")}</div> : null}
                 </label>
 
                 {carOptions.length > 0 && (
@@ -436,6 +495,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.selectedCar}
                       options={carOptions}
                       placeholder="Select saved car"
+                      ariaLabel="Saved Car"
                       onSelect={(option) => {
                         const selectedCar = savedCars.find(
                           (car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}` === option
@@ -456,9 +516,15 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <span>Vehicle Model</span>
                   <input
                     value={form.vehicle}
+                    aria-label="Vehicle Model"
+                    onBlur={() => markFieldTouched("vehicle")}
                     onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }))}
+                    className={getTouchedFieldError("vehicle") ? "clBookFieldInvalidInput" : ""}
                     required
+                    aria-invalid={getTouchedFieldError("vehicle") ? "true" : undefined}
+                    aria-describedby={getTouchedFieldError("vehicle") ? "customer-booking-vehicle-error" : undefined}
                   />
+                  {getTouchedFieldError("vehicle") ? <div id="customer-booking-vehicle-error" className="clBookFieldError">{getTouchedFieldError("vehicle")}</div> : null}
                 </label>
 
                 <div className="clBookFieldGrid">
@@ -466,9 +532,15 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     <span>Plate Number</span>
                     <input
                       value={form.plate}
+                      aria-label="Plate Number"
+                      onBlur={() => markFieldTouched("plate")}
                       onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))}
+                      className={getTouchedFieldError("plate") ? "clBookFieldInvalidInput" : ""}
                       required
+                      aria-invalid={getTouchedFieldError("plate") ? "true" : undefined}
+                      aria-describedby={getTouchedFieldError("plate") ? "customer-booking-plate-error" : undefined}
                     />
+                    {getTouchedFieldError("plate") ? <div id="customer-booking-plate-error" className="clBookFieldError">{getTouchedFieldError("plate")}</div> : null}
                   </label>
 
                   <label className="clBookField">
@@ -477,8 +549,13 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.carSize}
                       options={CAR_SIZE_OPTIONS}
                       placeholder="Select car size"
+                      invalid={Boolean(getTouchedFieldError("carSize"))}
+                      ariaLabel="Car Size"
+                      ariaDescribedBy={getTouchedFieldError("carSize") ? "customer-booking-car-size-error" : undefined}
+                      onBlur={() => markFieldTouched("carSize")}
                       onSelect={(option) => setForm((prev) => ({ ...prev, carSize: option }))}
                     />
+                    {getTouchedFieldError("carSize") ? <div id="customer-booking-car-size-error" className="clBookFieldError">{getTouchedFieldError("carSize")}</div> : null}
                   </label>
 
                   <label className="clBookField">
@@ -487,17 +564,28 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.service}
                       options={serviceOptions}
                       placeholder="Select service"
+                      invalid={Boolean(getTouchedFieldError("service"))}
+                      ariaLabel="Service"
+                      ariaDescribedBy={getTouchedFieldError("service") ? "customer-booking-service-error" : undefined}
+                      onBlur={() => markFieldTouched("service")}
                       onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "" }))}
                     />
+                    {getTouchedFieldError("service") ? <div id="customer-booking-service-error" className="clBookFieldError">{getTouchedFieldError("service")}</div> : null}
                   </label>
                   <label className="clBookField">
-                    <span>Time Slot</span>
+                    <span>Preferred Time</span>
                     <select
                       value={form.time}
+                      aria-label="Preferred Time"
+                      onBlur={() => markFieldTouched("time")}
                       onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
                       disabled={!selectedService}
+                      className={getTouchedFieldError("time") ? "clBookFieldInvalidInput" : ""}
+                      required
+                      aria-invalid={getTouchedFieldError("time") ? "true" : undefined}
+                      aria-describedby={getTouchedFieldError("time") ? "customer-booking-time-error" : undefined}
                     >
-                      <option value="">{selectedService ? "No time selected" : "Select a service first"}</option>
+                      <option value="">{selectedService ? "Select time" : "Select a service first"}</option>
                       {timeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
@@ -511,6 +599,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           : "No available time slots configured for this service."
                         : "Select a service first."}
                     </div>
+                    {getTouchedFieldError("time") ? <div id="customer-booking-time-error" className="clBookFieldError">{getTouchedFieldError("time")}</div> : null}
                   </label>
                   <label className="clBookField">
                     <span>Select Preferred Detailer</span>
@@ -582,8 +671,8 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <button className="clBookTextBtn" type="button" onClick={closeModal}>
                     Cancel
                   </button>
-                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || isSubmittingBooking || !serviceOptions.length}>
-                    {isSubmittingBooking ? "Submitting..." : "Submit Booking"}
+                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || isSubmittingBooking || !serviceOptions.length || !isCustomerBookingFormValid}>
+                    {isSubmittingBooking ? "Submitting..." : "Save Booking"}
                   </button>
                 </div>
               </form>

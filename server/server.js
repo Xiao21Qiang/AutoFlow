@@ -2812,6 +2812,26 @@ async function validateAdminBookingCreateRequirements(req, { customer = null, se
   };
 }
 
+function validateCustomerBookingCreateRequirements(req, { service = null } = {}) {
+  const date = String(req.body.date || "").trim();
+  const time = String(req.body.time || "").trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throwValidationError("Booking date is required.");
+  }
+
+  if (!isValidScheduleTime(time)) {
+    throwValidationError("Please select a preferred time.");
+  }
+
+  const allowedArrivalTimes = normalizeAllowedArrivalTimes(service?.allowedArrivalTimes, service?.mins);
+  if (!allowedArrivalTimes.includes(time)) {
+    throwValidationError("Selected preferred time is not available for this service.");
+  }
+
+  return { date, time };
+}
+
 async function resolveBookingCustomerForRequest(req, { isCustomerRequested = false } = {}) {
   if (isCustomerRequested) {
     const customer = await User.findOne({ id: req.authUser?.id }).lean();
@@ -6584,7 +6604,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
 
     const selectedService = await ensureBookableService(req.body.service);
     const adminSchedule = isCustomerRequested
-      ? null
+      ? validateCustomerBookingCreateRequirements(req, { service: selectedService })
       : await validateAdminBookingCreateRequirements(req, {
           customer: resolvedCustomer,
           service: selectedService,
