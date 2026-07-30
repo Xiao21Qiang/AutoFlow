@@ -603,6 +603,14 @@ function getOverlappingBookingsForSchedule(bookings, durationByService, bookingT
   });
 }
 
+function isSameExactSchedule(booking = {}, { date = "", time = "", placeSlot = 0 } = {}) {
+  return (
+    String(booking.date || "").trim() === String(date || "").trim() &&
+    String(booking.time || "").trim() === String(time || "").trim() &&
+    Number(booking.placeSlot || 0) === Number(placeSlot || 0)
+  );
+}
+
 function getOccupiedPlaceSlots(overlappingBookings) {
   const occupied = new Set();
 
@@ -649,7 +657,6 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     throw error;
   }
 
-  const requestedDuration = Math.max(1, Number(selectedService.mins) || 0);
   const allowedArrivalTimes = normalizeAllowedArrivalTimes(selectedService.allowedArrivalTimes, selectedService.mins);
   if (!allowedArrivalTimes.includes(bookingTime)) {
     const error = new Error("Selected time is not available for this service.");
@@ -663,14 +670,14 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
         ![booking.id, booking.bookingId, booking._id].some((value) => String(value || "").trim() === excludedBookingId)
       )
     : sameDayBookingsRaw;
-  const serviceNames = [...new Set(sameDayBookings.map((booking) => String(booking.service || "").trim()).filter(Boolean))];
-  const sameDayServices = serviceNames.length ? await Service.find({ name: { $in: serviceNames } }).lean() : [];
-  const durationByService = new Map(sameDayServices.map((item) => [item.name, Math.max(1, Number(item.mins) || 0)]));
-  const overlappingBookings = getOverlappingBookingsForSchedule(sameDayBookings, durationByService, bookingTime, requestedDuration);
-  const occupiedSlots = getOccupiedPlaceSlots(overlappingBookings);
+  const conflictingBooking = sameDayBookings.find((booking) => (
+    isBlockingPlaceSlotStatus(booking.status, booking.placeSlot) &&
+    isSameExactSchedule(booking, { date: bookingDate, time: bookingTime, placeSlot: requestedPlaceSlot })
+  ));
 
-  if (occupiedSlots.has(requestedPlaceSlot)) {
+  if (conflictingBooking) {
     const error = new Error("The selected place slot is already occupied for the chosen schedule.");
+    error.message = "That place slot is already booked for the selected date and time.";
     error.statusCode = 409;
     throw error;
   }
@@ -2747,8 +2754,62 @@ function getCustomerCarKey(car = {}) {
 
 function validateVehicleSnapshotFields({ vehicle = "", carSize = "", plate = "" } = {}) {
   if (!String(vehicle || "").trim()) throwValidationError("Vehicle model is required.");
-  if (!String(carSize || "").trim()) throwValidationError("Car size is required.");
+  if (!normalizeCarSizeLabel(carSize)) throwValidationError("Car size is required.");
   if (!normalizePlateNumber(plate)) throwValidationError("Plate number is required.");
+}
+
+async function resolveRequiredAssignedDetailer(value = "") {
+  const requestedDetailer = String(value || "").trim();
+  if (!requestedDetailer) {
+    throwValidationError("Please select an assigned detailer.");
+  }
+
+  const detailer = await User.findOne({
+    $or: [
+      { id: requestedDetailer },
+      { email: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" } },
+      { name: { $regex: `^${escapeRegExp(requestedDetailer)}$`, $options: "i" } },
+    ],
+  }).lean();
+
+  if (!isActiveDetailerUser(detailer)) {
+    throwValidationError("Please choose an active Junior or Senior Detailer.");
+  }
+
+  return detailer.name || requestedDetailer;
+}
+
+async function validateAdminBookingCreateRequirements(req, { customer = null, service = null } = {}) {
+  if (!customer) {
+    throwValidationError("Please select a registered customer from the list.");
+  }
+
+  if (!service || service.enabled === false) {
+    throwValidationError("Please select a service.");
+  }
+
+  const date = String(req.body.date || "").trim();
+  const time = String(req.body.time || "").trim();
+  const placeSlot = Number(req.body.placeSlot || 0);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throwValidationError("Booking date is required.");
+  }
+
+  if (!isValidScheduleTime(time)) {
+    throwValidationError("Please select a time.");
+  }
+
+  if (!PLACE_SLOT_OPTIONS.includes(placeSlot)) {
+    throwValidationError("Please select a place slot.");
+  }
+
+  return {
+    assigned: await resolveRequiredAssignedDetailer(req.body.assigned),
+    date,
+    time,
+    placeSlot,
+  };
 }
 
 async function resolveBookingCustomerForRequest(req, { isCustomerRequested = false } = {}) {
@@ -2772,7 +2833,7 @@ async function resolveBookingCustomerForRequest(req, { isCustomerRequested = fal
 
 async function validateVehicleOwnershipForBooking({ req, customer = null, isCustomerRequested = false }) {
   const vehicle = String(req.body.vehicle || "").trim();
-  const carSize = String(req.body.carSize || "").trim();
+  const carSize = normalizeCarSizeLabel(req.body.carSize);
   const plate = normalizePlateNumber(req.body.plate);
   validateVehicleSnapshotFields({ vehicle, carSize, plate });
 
@@ -6494,7 +6555,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     }
     const isCustomerRequested =
       actorType === "customer";
-    const canCreateWithPlaceSlot = actorType === "admin" || getEffectiveRole(req.authUser) === "general manager";
+    const canCreateWithPlaceSlot = !isCustomerRequested && (actorType === "admin" || canPerformAction(req.authUser, ACTION_KEYS.bookingCreate));
     const bookingTime = String(req.body.time || "").trim();
     const bookingPlaceSlot = canCreateWithPlaceSlot ? Number(req.body.placeSlot || 0) : 0;
     const bookingCustomerEmail = isCustomerRequested
@@ -6522,6 +6583,12 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     }
 
     const selectedService = await ensureBookableService(req.body.service);
+    const adminSchedule = isCustomerRequested
+      ? null
+      : await validateAdminBookingCreateRequirements(req, {
+          customer: resolvedCustomer,
+          service: selectedService,
+        });
 
     if (bookingTime && isCustomerRequested) {
       await validateShopHours({ time: bookingTime, service: req.body.service });
@@ -6585,11 +6652,11 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       plate: vehicleSnapshot.plate,
       service: String(req.body.service || "").trim(),
       serviceId: selectedService.id || "",
-      assigned: isCustomerRequested ? "" : String(req.body.assigned || "").trim(),
+      assigned: isCustomerRequested ? "" : adminSchedule.assigned,
       ...preferredDetailerFields,
       date: bookingDate,
       time: bookingTime,
-      status: "Pending",
+      status: isCustomerRequested ? "Pending" : "Scheduled",
       placeSlot: canCreateWithPlaceSlot && bookingTime ? bookingPlaceSlot : 0,
       ...pricing,
       ...rewardPricing,

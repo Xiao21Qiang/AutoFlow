@@ -43,12 +43,6 @@ function getTodayKey() {
   return `${year}-${month}-${day}`;
 }
 
-function timeToMinutes(value) {
-  const [hours, minutes] = String(value || "").split(":").map(Number);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-  return hours * 60 + minutes;
-}
-
 function normalizeTimeInputValue(value) {
   return /^\d{2}:\d{2}$/.test(String(value || "").trim()) ? String(value).trim() : "";
 }
@@ -75,6 +69,20 @@ function hasRealPlaceSlot(value) {
   return PLACE_SLOT_OPTIONS.includes(Number(value || 0));
 }
 
+const ADD_BOOKING_REQUIRED_MESSAGES = {
+  customer: "Please select a registered customer from the list.",
+  vehicle: "Vehicle is required.",
+  plate: "Plate number is required.",
+  service: "Please select a service.",
+  carSize: "Please select a car size.",
+  assigned: "Please select an assigned detailer.",
+  date: "Booking date is required.",
+  time: "Please select a time.",
+  placeSlot: "Please select a place slot.",
+};
+
+const ADD_BOOKING_REQUIRED_FIELDS = Object.keys(ADD_BOOKING_REQUIRED_MESSAGES);
+
 function isCompletedStatus(status) {
   return String(status || "").trim().toLowerCase() === "completed";
 }
@@ -90,7 +98,43 @@ function normalizeCustomerCars(cars) {
     .filter((car) => car.vehicle && car.plate);
 }
 
-function ModalSelect({ value, options, placeholder, onSelect, itemDetails = null, className = "", disabled = false, disabledOptions = [] }) {
+function getAddBookingValidationErrors({ form, matchedCustomer, availablePlaceSlots, hasNoAvailableSlots }) {
+  const errors = {};
+  if (!matchedCustomer) errors.customer = ADD_BOOKING_REQUIRED_MESSAGES.customer;
+  if (!String(form.vehicle || "").trim()) errors.vehicle = ADD_BOOKING_REQUIRED_MESSAGES.vehicle;
+  if (!String(form.plate || "").trim()) errors.plate = ADD_BOOKING_REQUIRED_MESSAGES.plate;
+  if (!String(form.service || "").trim()) errors.service = ADD_BOOKING_REQUIRED_MESSAGES.service;
+  if (!CAR_SIZE_OPTIONS.includes(String(form.carSize || "").trim())) errors.carSize = ADD_BOOKING_REQUIRED_MESSAGES.carSize;
+  if (!String(form.assigned || "").trim()) errors.assigned = ADD_BOOKING_REQUIRED_MESSAGES.assigned;
+  if (!String(form.date || "").trim()) errors.date = ADD_BOOKING_REQUIRED_MESSAGES.date;
+  if (!String(form.time || "").trim()) errors.time = ADD_BOOKING_REQUIRED_MESSAGES.time;
+
+  const slot = Number(form.placeSlot || 0);
+  if (!PLACE_SLOT_OPTIONS.includes(slot)) {
+    errors.placeSlot = hasNoAvailableSlots
+      ? "No place slots are available for the selected schedule."
+      : ADD_BOOKING_REQUIRED_MESSAGES.placeSlot;
+  } else if (!availablePlaceSlots.includes(slot)) {
+    errors.placeSlot = "That place slot is no longer available. Please choose another one.";
+  }
+
+  return errors;
+}
+
+function ModalSelect({
+  value,
+  options,
+  placeholder,
+  onSelect,
+  itemDetails = null,
+  className = "",
+  disabled = false,
+  disabledOptions = [],
+  invalid = false,
+  ariaDescribedBy,
+  ariaLabel,
+  onBlur,
+}) {
   const [open, setOpen] = useState(false);
   const selectedLabel = value || placeholder;
   const disabledOptionSet = new Set(disabledOptions);
@@ -98,9 +142,12 @@ function ModalSelect({ value, options, placeholder, onSelect, itemDetails = null
   return (
     <div className={`bookSuggestWrap bookModalSelect ${className}`.trim()}>
       <button
-        className="bookModalSelectTrigger"
+        className={`bookModalSelectTrigger${invalid ? " bookFieldInvalidInput" : ""}`}
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        onBlur={onBlur}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span>{selectedLabel}</span>
@@ -139,9 +186,13 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
     [services]
   );
-  const customerOptions = users
-    .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
-    .map((user) => ({ name: user.name, email: user.email || "", cars: Array.isArray(user.cars) ? user.cars : [] }));
+  const customerOptions = useMemo(
+    () =>
+      users
+        .filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer" && user.name)
+        .map((user) => ({ name: user.name, email: user.email || "", cars: Array.isArray(user.cars) ? user.cars : [] })),
+    [users]
+  );
   const staffOptions = useMemo(() => getDetailerStaffOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
@@ -164,7 +215,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const [filters, setFilters] = useState({ service: "", status: "", assigned: "" });
   const [modal, setModal] = useState(null);
   const [selectedBookingId, setSelectedBookingId] = useState(null);
-  const [form, setForm] = useState(createEmptyForm(serviceOptions[0]));
+  const [form, setForm] = useState(createEmptyForm());
   const selectedPromoLabel = useMemo(() => {
     const promo = activePromos.find((entry) => entry.id === form.promoId);
     if (!promo) return "No promo";
@@ -176,6 +227,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [customerFieldError, setCustomerFieldError] = useState("");
+  const [touchedFields, setTouchedFields] = useState({});
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState(null);
   const todayKey = getTodayKey();
@@ -274,23 +326,15 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   const overlappingBookings = useMemo(() => {
     if (!form.date || !form.time) return [];
 
-    const requestedStart = timeToMinutes(form.time);
-    if (requestedStart === null) return [];
-    const requestedEnd = requestedStart + selectedServiceDuration;
-
     return bookings.filter((booking) => {
       if (selectedBooking && booking.id === selectedBooking.id) return false;
       if (String(booking.date || "") !== String(form.date || "")) return false;
+      if (String(booking.time || "") !== String(form.time || "")) return false;
       if (!isScheduleBlockingStatus(booking.status)) return false;
       if (!hasRealPlaceSlot(booking.placeSlot)) return false;
-
-      const bookingStart = timeToMinutes(booking.time);
-      if (bookingStart === null) return false;
-      const bookingDuration = Math.max(1, Number(serviceDurationByName[booking.service] || 0));
-      const bookingEnd = bookingStart + bookingDuration;
-      return requestedStart < bookingEnd && bookingStart < requestedEnd;
+      return true;
     });
-  }, [bookings, form.date, form.time, selectedBooking, selectedServiceDuration, serviceDurationByName]);
+  }, [bookings, form.date, form.time, selectedBooking]);
   const occupiedPlaceSlots = useMemo(() => {
     const occupied = new Set();
 
@@ -308,6 +352,24 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     [occupiedPlaceSlots]
   );
   const hasNoAvailableSlots = Boolean(form.date && form.time) && availablePlaceSlots.length === 0;
+  const placeSlotOptions = useMemo(() => PLACE_SLOT_OPTIONS.map((slot) => `Place Slot ${slot}`), []);
+  const disabledPlaceSlotOptions = useMemo(
+    () => PLACE_SLOT_OPTIONS.filter((slot) => occupiedPlaceSlots.has(slot)).map((slot) => `Place Slot ${slot}`),
+    [occupiedPlaceSlots]
+  );
+  const addBookingErrors = useMemo(
+    () => modal === "add"
+      ? getAddBookingValidationErrors({ form, matchedCustomer, availablePlaceSlots, hasNoAvailableSlots })
+      : {},
+    [availablePlaceSlots, form, hasNoAvailableSlots, matchedCustomer, modal]
+  );
+  const isAddBookingFormValid = modal !== "add" || (Object.keys(addBookingErrors).length === 0 && !customerFieldError);
+  const markFieldTouched = useCallback((field) => {
+    setTouchedFields((prev) => ({ ...prev, [field]: true }));
+  }, []);
+  const getTouchedFieldError = useCallback((field) => (
+    touchedFields[field] ? addBookingErrors[field] || "" : ""
+  ), [addBookingErrors, touchedFields]);
 
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -316,9 +378,12 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
 
   const openAddModal = useCallback(() => {
     setSelectedBookingId(null);
-    setForm(createEmptyForm(serviceOptions[0]));
+    setTouchedFields({});
+    setFormError("");
+    setCustomerFieldError("");
+    setForm(createEmptyForm());
     setModal("add");
-  }, [serviceOptions]);
+  }, []);
 
   useEffect(() => {
     if (initialAction !== "open-add-booking") return;
@@ -329,20 +394,27 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
   useEffect(() => {
     const typedName = String(form.customer || "").trim();
     if (!typedName) {
-      setCustomerFieldError("");
+      if (customerFieldError) {
+        setCustomerFieldError("");
+      }
       return;
     }
 
     if (matchedCustomer) {
-      setCustomerFieldError("");
+      if (customerFieldError) {
+        setCustomerFieldError("");
+      }
       if (form.customerEmail !== matchedCustomer.email) {
         setForm((prev) => ({ ...prev, customer: matchedCustomer.name, customerEmail: matchedCustomer.email || "", selectedCar: "" }));
       }
       return;
     }
 
-    setCustomerFieldError("This customer is not registered yet. Please choose a registered customer from the list.");
-  }, [form.customer, form.customerEmail, matchedCustomer]);
+    const unregisteredMessage = "This customer is not registered yet. Please choose a registered customer from the list.";
+    if (customerFieldError !== unregisteredMessage) {
+      setCustomerFieldError(unregisteredMessage);
+    }
+  }, [customerFieldError, form.customer, form.customerEmail, matchedCustomer]);
   useEffect(() => {
     if (!form.placeSlot) return;
     if (availablePlaceSlots.includes(Number(form.placeSlot))) return;
@@ -374,11 +446,15 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
     setSelectedBookingId(null);
     setIsCustomerMenuOpen(false);
     setCustomerFieldError("");
-    setForm(createEmptyForm(serviceOptions[0]));
+    setTouchedFields({});
+    setFormError("");
+    setForm(createEmptyForm());
   };
 
   const openEditModal = (booking) => {
     setSelectedBookingId(booking.id);
+    setTouchedFields({});
+    setFormError("");
     setForm({ customer: booking.customer, customerEmail: booking.customerEmail || "", selectedCar: "", vehicle: booking.vehicle, carSize: booking.carSize || "", plate: booking.plate || "", service: booking.service, promoId: booking.promoId || "", assigned: booking.assigned, date: booking.date, time: normalizeTimeInputValue(booking.time), placeSlot: booking.placeSlot || "", amount: booking.originalAmount || booking.amount || "", status: booking.status || "Scheduled", issueNote: booking.issueNote || "", issueTypes: booking.issueTypes || [], issueMarkers: booking.issueMarkers && booking.issueMarkers.length > 0 ? booking.issueMarkers.map((marker, index) => ({ id: marker.id || index + 1, x: marker.x, y: marker.y, issueType: marker.issueType || booking.issueTypes?.[index] || "" })) : [{ id: 1, x: 50, y: 50, issueType: "" }] });
     setModal("edit");
   };
@@ -402,6 +478,15 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (modal === "add" && !isAddBookingFormValid) {
+                  setTouchedFields(Object.fromEntries(ADD_BOOKING_REQUIRED_FIELDS.map((field) => [field, true])));
+                  if (addBookingErrors.customer) {
+                    setCustomerFieldError(addBookingErrors.customer);
+                    setIsCustomerMenuOpen(true);
+                  }
+                  setFormError(Object.values(addBookingErrors)[0] || customerFieldError || "Please complete the required booking fields.");
+                  return;
+                }
                 const resolvedCustomer = modal === "edit" && selectedBooking
                   ? { name: selectedBooking.customer, email: selectedBooking.customerEmail || "" }
                   : matchedCustomer;
@@ -538,15 +623,21 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     <input
                       value={form.customer}
                       onFocus={() => setIsCustomerMenuOpen(true)}
-                      onBlur={() => window.setTimeout(() => setIsCustomerMenuOpen(false), 120)}
+                      onBlur={() => {
+                        markFieldTouched("customer");
+                        window.setTimeout(() => setIsCustomerMenuOpen(false), 120);
+                      }}
                       onChange={(e) => {
                         setForm((prev) => ({ ...prev, customer: e.target.value, customerEmail: "" }));
                         setIsCustomerMenuOpen(true);
                       }}
                       placeholder="Choose a registered customer"
-                      className={customerFieldError ? "bookFieldInvalidInput" : ""}
+                      aria-label="Customer Name"
+                      className={(customerFieldError || getTouchedFieldError("customer")) ? "bookFieldInvalidInput" : ""}
                       disabled={modal === "edit"}
                       required
+                      aria-invalid={(customerFieldError || getTouchedFieldError("customer")) ? "true" : undefined}
+                      aria-describedby={(customerFieldError || getTouchedFieldError("customer")) ? "admin-booking-customer-error" : undefined}
                     />
                     {isCustomerMenuOpen && filteredCustomerOptions.length > 0 && (
                       <div className="bookSuggestMenu">
@@ -569,7 +660,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       </div>
                     )}
                   </div>
-                  {customerFieldError && <div className="bookFieldError">{customerFieldError}</div>}
+                  {(customerFieldError || getTouchedFieldError("customer")) && <div id="admin-booking-customer-error" className="bookFieldError">{customerFieldError || getTouchedFieldError("customer")}</div>}
                 </label>
                 <label className="bookField">
                   <span>Vehicle</span>
@@ -578,6 +669,10 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       value={form.selectedCar}
                       options={carOptions}
                       placeholder="Select registered car"
+                      invalid={Boolean(getTouchedFieldError("vehicle"))}
+                      ariaLabel="Vehicle"
+                      ariaDescribedBy={getTouchedFieldError("vehicle") ? "admin-booking-vehicle-error" : undefined}
+                      onBlur={() => markFieldTouched("vehicle")}
                       onSelect={(option) => {
                         const selectedCar = selectedCustomerCars.find((car) => `${car.vehicle} | ${car.plate}` === option);
                         setForm((prev) => ({
@@ -591,11 +686,22 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       disabled={modal === "edit"}
                     />
                   ) : (
-                    <input value={form.vehicle} onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }))} disabled={modal === "edit"} required />
+                    <input
+                      value={form.vehicle}
+                      aria-label="Vehicle"
+                      onBlur={() => markFieldTouched("vehicle")}
+                      onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }))}
+                      disabled={modal === "edit"}
+                      className={getTouchedFieldError("vehicle") ? "bookFieldInvalidInput" : ""}
+                      required
+                      aria-invalid={getTouchedFieldError("vehicle") ? "true" : undefined}
+                      aria-describedby={getTouchedFieldError("vehicle") ? "admin-booking-vehicle-error" : undefined}
+                    />
                   )}
+                  {getTouchedFieldError("vehicle") ? <div id="admin-booking-vehicle-error" className="bookFieldError">{getTouchedFieldError("vehicle")}</div> : null}
                 </label>
-                <label className="bookField"><span>Plate Number</span><input value={form.plate || ""} onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))} disabled={modal === "edit" || carOptions.length > 0} required /></label>
-                <label className="bookField"><span>Service</span><ModalSelect value={form.service} options={serviceOptions} placeholder="Select service" onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "", placeSlot: "" }))} disabled={modal === "edit"} /></label>
+                <label className="bookField"><span>Plate Number</span><input value={form.plate || ""} aria-label="Plate Number" onBlur={() => markFieldTouched("plate")} onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))} disabled={modal === "edit" || carOptions.length > 0} className={getTouchedFieldError("plate") ? "bookFieldInvalidInput" : ""} required aria-invalid={getTouchedFieldError("plate") ? "true" : undefined} aria-describedby={getTouchedFieldError("plate") ? "admin-booking-plate-error" : undefined} />{getTouchedFieldError("plate") ? <div id="admin-booking-plate-error" className="bookFieldError">{getTouchedFieldError("plate")}</div> : null}</label>
+                <label className="bookField"><span>Service</span><ModalSelect value={form.service} options={serviceOptions} placeholder="Select service" invalid={Boolean(getTouchedFieldError("service"))} ariaLabel="Service" ariaDescribedBy={getTouchedFieldError("service") ? "admin-booking-service-error" : undefined} onBlur={() => markFieldTouched("service")} onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "", placeSlot: "" }))} disabled={modal === "edit"} />{getTouchedFieldError("service") ? <div id="admin-booking-service-error" className="bookFieldError">{getTouchedFieldError("service")}</div> : null}</label>
                 {promoOptions.length > 0 && (
                   <label className="bookField">
                     <span>Promo</span>
@@ -626,8 +732,13 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     options={CAR_SIZE_OPTIONS}
                     placeholder="Select car size"
                     disabled={modal === "edit"}
+                    invalid={Boolean(getTouchedFieldError("carSize"))}
+                    ariaLabel="Car Size"
+                    ariaDescribedBy={getTouchedFieldError("carSize") ? "admin-booking-car-size-error" : undefined}
+                    onBlur={() => markFieldTouched("carSize")}
                     onSelect={(option) => setForm((prev) => ({ ...prev, carSize: option }))}
                   />
+                  {getTouchedFieldError("carSize") ? <div id="admin-booking-car-size-error" className="bookFieldError">{getTouchedFieldError("carSize")}</div> : null}
                 </label>
                 {modal === "edit" && (
                   <label className="bookField">
@@ -641,9 +752,14 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     value={form.assigned}
                     options={staffOptions}
                     placeholder="Select detailer"
+                    invalid={Boolean(getTouchedFieldError("assigned"))}
+                    ariaLabel="Assigned Detailer"
+                    ariaDescribedBy={getTouchedFieldError("assigned") ? "admin-booking-assigned-error" : undefined}
+                    onBlur={() => markFieldTouched("assigned")}
                     onSelect={(option) => setForm((prev) => ({ ...prev, assigned: option }))}
                     disabled={assignedStaffLocked}
                   />
+                  {getTouchedFieldError("assigned") ? <div id="admin-booking-assigned-error" className="bookFieldError">{getTouchedFieldError("assigned")}</div> : null}
                   {isPendingBookingEdit && !String(form.assigned || "").trim() ? (
                     <div className="bookFieldError">Assigned staff is required before scheduling this booking.</div>
                   ) : null}
@@ -652,20 +768,31 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   <span>Date</span>
                   <input
                     type="date"
+                    aria-label="Date"
                     min={todayKey}
                     value={form.date}
                     disabled={modal === "edit" && !canEditScheduleFields}
+                    onBlur={() => markFieldTouched("date")}
                     onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value, placeSlot: "" }))}
+                    className={getTouchedFieldError("date") ? "bookFieldInvalidInput" : ""}
                     required
+                    aria-invalid={getTouchedFieldError("date") ? "true" : undefined}
+                    aria-describedby={getTouchedFieldError("date") ? "admin-booking-date-error" : undefined}
                   />
+                  {getTouchedFieldError("date") ? <div id="admin-booking-date-error" className="bookFieldError">{getTouchedFieldError("date")}</div> : null}
                 </label>
                 <label className="bookField">
                   <span>Time</span>
                   <select
                     value={form.time}
+                    aria-label="Time"
                     disabled={modal === "edit" && !canEditScheduleFields}
+                    onBlur={() => markFieldTouched("time")}
                     onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
+                    className={getTouchedFieldError("time") ? "bookFieldInvalidInput" : ""}
                     required={modal === "add" || isRescheduledStatus(form.status) || String(form.status || "").trim().toLowerCase() === "scheduled"}
+                    aria-invalid={getTouchedFieldError("time") ? "true" : undefined}
+                    aria-describedby={getTouchedFieldError("time") ? "admin-booking-time-error" : undefined}
                   >
                     <option value="">Select time</option>
                     {timeOptions.map((option) => (
@@ -674,6 +801,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                       </option>
                     ))}
                   </select>
+                  {getTouchedFieldError("time") ? <div id="admin-booking-time-error" className="bookFieldError">{getTouchedFieldError("time")}</div> : null}
                   {modal === "edit" && isPendingBookingEdit && !downPaymentSatisfied ? (
                     <div className="bookSlotHint">Down payment must be verified as paid before this booking can be scheduled.</div>
                   ) : null}
@@ -699,35 +827,34 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                     <div className="bookSlotHint">{completionReadinessMessage}</div>
                   ) : null}
                 </label>
-                {form.date && form.time && (
-                  <div className="bookSlotField">
-                    <span>Place Slot</span>
-                    <div className="bookPlaceGrid">
-                      {PLACE_SLOT_OPTIONS.map((slot) => {
-                        const occupied = occupiedPlaceSlots.has(slot);
-                        const selected = Number(form.placeSlot || 0) === slot;
-                        return (
-                          <button
-                            key={slot}
-                            type="button"
-                            className={`bookPlaceSlot${occupied ? " occupied" : ""}${selected ? " selected" : ""}`}
-                            disabled={occupied || !canEditPlaceSlot}
-                            onClick={() => setForm((prev) => ({ ...prev, placeSlot: String(slot) }))}
-                          >
-                            {slot}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className={hasNoAvailableSlots ? "bookFieldError" : "bookSlotHint"}>
-                      {hasNoAvailableSlots
-                        ? "All 8 place slots are occupied for this selected schedule."
+                <label className="bookField">
+                  <span>Place Slot</span>
+                  <ModalSelect
+                    value={form.placeSlot ? `Place Slot ${form.placeSlot}` : ""}
+                    options={placeSlotOptions}
+                    placeholder="Select place slot"
+                    disabled={!form.date || !form.time || !canEditPlaceSlot || hasNoAvailableSlots}
+                    disabledOptions={disabledPlaceSlotOptions}
+                    invalid={Boolean(getTouchedFieldError("placeSlot"))}
+                    ariaLabel="Place Slot"
+                    ariaDescribedBy={getTouchedFieldError("placeSlot") ? "admin-booking-place-slot-error" : undefined}
+                    onBlur={() => markFieldTouched("placeSlot")}
+                    onSelect={(option) => {
+                      const slot = Number(String(option).replace(/[^0-9]/g, ""));
+                      setForm((prev) => ({ ...prev, placeSlot: String(slot || "") }));
+                    }}
+                  />
+                  {getTouchedFieldError("placeSlot") ? <div id="admin-booking-place-slot-error" className="bookFieldError">{getTouchedFieldError("placeSlot")}</div> : null}
+                  <div className={hasNoAvailableSlots ? "bookFieldError" : "bookSlotHint"}>
+                    {!form.date || !form.time
+                      ? "Select a date and time before choosing a place slot."
+                      : hasNoAvailableSlots
+                        ? "No place slots are available for the selected schedule."
                         : canEditPlaceSlot
-                          ? `Choose 1 of 8 place slots. Selected service duration: ${selectedServiceDuration} mins.`
+                          ? `Choose an available place slot. Selected service duration: ${selectedServiceDuration} mins.`
                           : "Assign staff and verify the down payment before selecting a place slot."}
-                    </div>
                   </div>
-                )}
+                </label>
               </div>
               {formError ? <div className="bookFieldError bookFormError">{formError}</div> : null}
 
@@ -743,7 +870,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
                   </button>
                 )}
                 <button className="bookTextBtn" type="button" onClick={closeModal}>Cancel</button>
-                <button className="bookPrimaryBtn" type="submit" disabled={modal === "add" && (!matchedCustomer || (carOptions.length > 0 && !form.selectedCar))}>Save Booking</button>
+                <button className="bookPrimaryBtn" type="submit" disabled={modal === "add" && !isAddBookingFormValid}>Save Booking</button>
               </div>
             </form>
           </div>

@@ -402,6 +402,12 @@
   display: block;
 }
 
+.bookModalSelectTrigger:disabled,
+.bookPrimaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .bookModalSelectMenu {
   max-height: 240px;
   overflow-y: auto;
