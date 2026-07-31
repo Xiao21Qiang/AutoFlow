@@ -23,7 +23,8 @@ export function normalizeConsumablesBySize(consumablesBySize = {}, legacyConsuma
     };
   });
 
-  (legacyConsumables || []).forEach((entry) => {
+  const legacyList = Array.isArray(legacyConsumables) ? legacyConsumables : [];
+  legacyList.forEach((entry) => {
     const raw = String(entry || "").trim();
     if (!raw) return;
     const [rawName, ...rawQuantityParts] = raw.split(":");
@@ -41,11 +42,55 @@ export function normalizeConsumablesBySize(consumablesBySize = {}, legacyConsuma
   return normalized;
 }
 
+export function normalizeConsumableNameKey(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function normalizeConsumableDisplayName(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+export function findConsumableEntryKey(consumablesBySize = {}, itemName = "") {
+  const requestedKey = normalizeConsumableNameKey(itemName);
+  if (!requestedKey) return "";
+  return Object.keys(consumablesBySize || {}).find((name) => normalizeConsumableNameKey(name) === requestedKey) || "";
+}
+
+export function countValidConsumables(consumablesBySize = {}, validNameKeys = new Set()) {
+  return Object.keys(consumablesBySize || {}).filter((name) => validNameKeys.has(normalizeConsumableNameKey(name))).length;
+}
+
+export function alignConsumablesToStockItems(consumablesBySize = {}, stockItems = []) {
+  const stockNameByKey = new Map(
+    stockItems
+      .map((item) => normalizeConsumableDisplayName(item?.name))
+      .filter(Boolean)
+      .map((name) => [normalizeConsumableNameKey(name), name])
+  );
+  const aligned = {};
+
+  Object.entries(consumablesBySize || {}).forEach(([name, quantities]) => {
+    const normalizedKey = normalizeConsumableNameKey(name);
+    if (!normalizedKey) return;
+    const canonicalName = stockNameByKey.get(normalizedKey) || normalizeConsumableDisplayName(name);
+    if (!canonicalName) return;
+    aligned[canonicalName] = {
+      ...(aligned[canonicalName] || createEmptyConsumableSizes()),
+      sedanSmallCar: String(quantities?.sedanSmallCar || aligned[canonicalName]?.sedanSmallCar || ""),
+      midsizePickupMpv: String(quantities?.midsizePickupMpv || aligned[canonicalName]?.midsizePickupMpv || ""),
+      suv: String(quantities?.suv || aligned[canonicalName]?.suv || ""),
+      xlVanSemiTruck: String(quantities?.xlVanSemiTruck || aligned[canonicalName]?.xlVanSemiTruck || ""),
+    };
+  });
+
+  return aligned;
+}
+
 export function buildConsumablesBySizePayload(consumablesBySize = {}) {
   const payload = {};
 
   Object.entries(consumablesBySize || {}).forEach(([name, quantities]) => {
-    const itemName = String(name || "").trim();
+    const itemName = normalizeConsumableDisplayName(name);
     if (!itemName) return;
     payload[itemName] = {
       sedanSmallCar: Number(quantities?.sedanSmallCar) || 0,

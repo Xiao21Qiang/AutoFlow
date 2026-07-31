@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AdminServices from "./screens/admin/AdminServices";
+import StaffServices from "./screens/staff/StaffServices";
 
 const mockCreateService = jest.fn();
 const mockUpdateService = jest.fn();
@@ -7,8 +8,9 @@ const mockToggleService = jest.fn();
 const mockDeleteService = jest.fn();
 
 const stockItems = [
-  { id: "STK-1", name: "Soap", currentStock: 12 },
-  { id: "STK-2", name: "Wax", currentStock: 8 },
+  { id: "STK-1", name: "Car Shampoo ", currentStock: 12 },
+  { id: "STK-2", name: " Clay Bar", currentStock: 8 },
+  { id: "STK-3", name: "Wax", currentStock: 6 },
 ];
 
 const services = [
@@ -23,7 +25,10 @@ const services = [
     priceBySize: { sedanSmallCar: 500, midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 },
     mins: 60,
     allowedArrivalTimes: ["08:00", "09:00"],
-    consumablesBySize: { Soap: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 } },
+    consumablesBySize: {
+      "Car Shampoo": { sedanSmallCar: 1, midsizePickupMpv: 2, suv: 3, xlVanSemiTruck: 4 },
+      "Clay Bar": { sedanSmallCar: 2, midsizePickupMpv: 3, suv: 4, xlVanSemiTruck: 5 },
+    },
   },
   {
     id: "SVC-2",
@@ -70,8 +75,17 @@ function renderServices() {
   render(<AdminServices />);
 }
 
+function renderStaffServices() {
+  render(<StaffServices />);
+}
+
 function openEditService(index = 0) {
   renderServices();
+  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[index]);
+}
+
+function openStaffEditService(index = 0) {
+  renderStaffServices();
   fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[index]);
 }
 
@@ -83,11 +97,19 @@ function saveButton() {
   return screen.getByRole("button", { name: "Save Service" });
 }
 
-function consumableCard(name) {
-  return screen.getByText(name).closest("label");
+function consumableCard(name, className = "svcConsumableCard") {
+  return screen.getAllByText(name).find((node) => node.closest(`.${className}`))?.closest("label");
 }
 
-function removeConsumable(name = "Soap") {
+function consumableCheckbox(name, className = "svcConsumableCard") {
+  return within(consumableCard(name, className)).getByRole("checkbox");
+}
+
+function consumableQuantities(name, className = "svcConsumableCard") {
+  return within(consumableCard(name, className)).getAllByRole("spinbutton");
+}
+
+function removeConsumable(name = "Car Shampoo") {
   fireEvent.click(within(consumableCard(name)).getByRole("checkbox"));
 }
 
@@ -108,8 +130,13 @@ beforeEach(() => {
 });
 
 describe("Edit Service validation", () => {
-  test("a valid edit with at least one consumable enables Save Service", () => {
+  test("opening Edit Service preselects two saved consumables and loads quantity-by-size values", () => {
     openEditService();
+    expect(consumableCheckbox("Car Shampoo")).toBeChecked();
+    expect(consumableCheckbox("Clay Bar")).toBeChecked();
+    expect(consumableQuantities("Car Shampoo").map((input) => input.value)).toEqual(["1", "2", "3", "4"]);
+    expect(consumableQuantities("Clay Bar").map((input) => input.value)).toEqual(["2", "3", "4", "5"]);
+    expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
     expect(saveButton()).toBeEnabled();
   });
 
@@ -126,7 +153,8 @@ describe("Edit Service validation", () => {
       name: "Car Wash",
       desc: "Updated exterior wash",
       consumablesBySize: {
-        Soap: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 },
+        "Car Shampoo": { sedanSmallCar: 1, midsizePickupMpv: 2, suv: 3, xlVanSemiTruck: 4 },
+        "Clay Bar": { sedanSmallCar: 2, midsizePickupMpv: 3, suv: 4, xlVanSemiTruck: 5 },
       },
     });
   });
@@ -166,16 +194,28 @@ describe("Edit Service validation", () => {
     expect(mockUpdateService).not.toHaveBeenCalled();
   });
 
-  test("removing all consumables disables Save and shows inline error after interaction", () => {
+  test("unchecking one of two consumables keeps the form valid", () => {
     openEditService();
-    removeConsumable("Soap");
+    removeConsumable("Car Shampoo");
+    expect(consumableCheckbox("Car Shampoo")).not.toBeChecked();
+    expect(consumableCheckbox("Clay Bar")).toBeChecked();
+    expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  test("unchecking the final consumable disables Save and shows inline error after interaction", () => {
+    openEditService();
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
     expect(saveButton()).toBeDisabled();
+    expect(saveButton()).toHaveAttribute("disabled");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
   });
 
   test("selecting a valid consumable removes the missing-consumable error", () => {
     openEditService();
-    removeConsumable("Soap");
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
     selectConsumable("Wax");
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
@@ -184,14 +224,16 @@ describe("Edit Service validation", () => {
 
   test("removing the final selected consumable makes the form invalid again", () => {
     openEditService();
-    removeConsumable("Soap");
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
     expect(saveButton()).toBeDisabled();
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
   });
 
   test("directly submitting with no consumables does not call the update API", () => {
     openEditService();
-    removeConsumable("Soap");
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
     fireEvent.submit(editForm());
     expect(mockUpdateService).not.toHaveBeenCalled();
     expect(screen.getAllByText("Please select at least one consumable.").length).toBeGreaterThan(0);
@@ -216,12 +258,37 @@ describe("Edit Service validation", () => {
 
   test("opening a different service does not retain previous validation state", () => {
     openEditService();
-    removeConsumable("Soap");
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
+    expect(consumableCheckbox("Wax")).toBeChecked();
     expect(saveButton()).toBeEnabled();
+  });
+
+  test("reopening the modal restores persisted consumables rather than stale temporary state", () => {
+    openEditService();
+    removeConsumable("Car Shampoo");
+    removeConsumable("Clay Bar");
+    expect(saveButton()).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    expect(consumableCheckbox("Car Shampoo")).toBeChecked();
+    expect(consumableCheckbox("Clay Bar")).toBeChecked();
+    expect(saveButton()).toBeEnabled();
+  });
+
+  test("Staff Edit Service preselects saved consumables and invalidates after the final removal", () => {
+    openStaffEditService();
+    expect(consumableCheckbox("Car Shampoo", "stSvcConsumableCard")).toBeChecked();
+    expect(consumableCheckbox("Clay Bar", "stSvcConsumableCard")).toBeChecked();
+    fireEvent.click(consumableCheckbox("Car Shampoo", "stSvcConsumableCard"));
+    expect(screen.getByRole("button", { name: "Save Service" })).toBeEnabled();
+    fireEvent.click(consumableCheckbox("Clay Bar", "stSvcConsumableCard"));
+    expect(screen.getByRole("button", { name: "Save Service" })).toBeDisabled();
+    expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
   });
 
   test("existing required-field validation still passes", () => {

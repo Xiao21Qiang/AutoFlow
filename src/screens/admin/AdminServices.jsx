@@ -8,9 +8,14 @@ import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/
 import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
 import {
   buildConsumablesBySizePayload,
+  alignConsumablesToStockItems,
+  countValidConsumables,
   createEmptyConsumableSizes,
+  findConsumableEntryKey,
   formatConsumableSizeLabel,
   normalizeConsumablesBySize,
+  normalizeConsumableDisplayName,
+  normalizeConsumableNameKey,
 } from "../../utils/serviceConsumables";
 import {
   SERVICE_ARRIVAL_TIME_OPTIONS,
@@ -114,18 +119,19 @@ export default function AdminServices({ initialAction = null, onActionHandled })
         .filter((item) => item.name)
         .map((item) => ({
           id: item.id,
-          name: item.name,
+          name: normalizeConsumableDisplayName(item.name),
           stock: Number(item.currentStock || 0),
-        })),
+        }))
+        .filter((item) => item.name),
     [stockMonitoring]
   );
-  const validStockNames = useMemo(
-    () => new Set(stockMonitoringOptions.map((item) => String(item.name || "").trim()).filter(Boolean)),
+  const validStockNameKeys = useMemo(
+    () => new Set(stockMonitoringOptions.map((item) => normalizeConsumableNameKey(item.name)).filter(Boolean)),
     [stockMonitoringOptions]
   );
   const addConsumableCount = useMemo(
-    () => Object.keys(addForm.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
-    [addForm.consumablesBySize, validStockNames]
+    () => countValidConsumables(addForm.consumablesBySize, validStockNameKeys),
+    [addForm.consumablesBySize, validStockNameKeys]
   );
   const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const addDuplicateNameError = useMemo(() => {
@@ -143,8 +149,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
   const editConsumableCount = useMemo(
-    () => Object.keys(form.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
-    [form.consumablesBySize, validStockNames]
+    () => countValidConsumables(form.consumablesBySize, validStockNameKeys),
+    [form.consumablesBySize, validStockNameKeys]
   );
   const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const editDuplicateNameError = useMemo(() => {
@@ -175,7 +181,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       priceBySize: toPriceInputState(service),
       mins: String(service.mins),
       allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
-      consumablesBySize: normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
+      consumablesBySize: alignConsumablesToStockItems(
+        normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
+        stockMonitoringOptions
+      ),
     });
     setServiceFormError("");
     setEditTouchedFields({});
@@ -198,9 +207,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     setter((prev) => {
       const current = prev.consumablesBySize || {};
       const nextConsumables = { ...current };
+      const existingKey = findConsumableEntryKey(nextConsumables, name);
 
-      if (nextConsumables[name]) {
-        delete nextConsumables[name];
+      if (existingKey) {
+        delete nextConsumables[existingKey];
       } else {
         nextConsumables[name] = createEmptyConsumableSizes();
       }
@@ -220,8 +230,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       ...prev,
       consumablesBySize: {
         ...(prev.consumablesBySize || {}),
-        [name]: {
-          ...(prev.consumablesBySize?.[name] || createEmptyConsumableSizes()),
+        [findConsumableEntryKey(prev.consumablesBySize, name) || name]: {
+          ...(prev.consumablesBySize?.[findConsumableEntryKey(prev.consumablesBySize, name) || name] || createEmptyConsumableSizes()),
           [sizeKey]: nextValue,
         },
       },
@@ -237,7 +247,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
           : "";
     const errorId = mode === "edit" ? "edit-service-consumables-error" : "add-service-consumables-error";
     return (
-    <div className="svcConsumablesPanel">
+    <div className="svcConsumablesPanel" aria-invalid={consumablesError ? "true" : undefined} aria-describedby={consumablesError ? errorId : undefined}>
       <div className="svcConsumablesHeader">
         <div>
           <div className="svcConsumablesTitle">Consumables To Be Used</div>
@@ -249,7 +259,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {stockMonitoringOptions.length ? (
         <div className="svcConsumablesGrid">
           {stockMonitoringOptions.map((item) => {
-            const checked = Boolean(selectedConsumables[item.name]);
+            const selectedKey = findConsumableEntryKey(selectedConsumables, item.name);
+            const checked = Boolean(selectedKey);
+            const selectedQuantities = selectedKey ? selectedConsumables[selectedKey] : {};
 
             return (
               <label className={`svcConsumableCard ${checked ? "selected" : ""}`} key={item.id || item.name}>
@@ -285,7 +297,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                             type="number"
                             min="0"
                             step="1"
-                            value={checked ? selectedConsumables[item.name]?.[sizeKey] || "" : ""}
+                            value={checked ? selectedQuantities?.[sizeKey] || "" : ""}
                             onChange={(e) => updateConsumableQty(mode, item.name, sizeKey, e.target.value)}
                             placeholder="0"
                             disabled={!checked}
