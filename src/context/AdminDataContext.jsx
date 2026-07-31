@@ -471,7 +471,7 @@ export function AdminDataProvider({ children, session }) {
       }),
     createService: (payload) => mutate("/api/admin/services", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateService: (id, payload) => mutate("/api/admin/services/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
-    toggleService: (service) => mutate("/api/admin/services/" + service.id, { method: "PUT", body: JSON.stringify({ ...service, enabled: !service.enabled, auditUser }) }),
+    toggleService: (service) => mutate("/api/admin/services/" + service.id, { method: "PUT", body: JSON.stringify({ enabled: !service.enabled, auditUser }) }),
     deleteService: (id) =>
       mutate("/api/admin/services/" + id, {
         method: "DELETE",

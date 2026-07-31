@@ -7536,23 +7536,45 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
       throw error;
     }
 
+    const hasBodyField = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+    const serviceDetailFields = ["name", "desc", "serviceType", "category", "price", "priceBySize", "mins", "allowedArrivalTimes"];
+    const isDetailUpdate = serviceDetailFields.some((field) => hasBodyField(field));
+    const serviceName = hasBodyField("name")
+      ? normalizeServiceDisplayName(req.body.name)
+      : normalizeServiceDisplayName(existingService?.name);
+    if (isDetailUpdate) {
+      await ensureUniqueServiceName(serviceName, { excludeId: req.params.id });
+    }
+
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price ?? existingService?.price);
     const mins = Math.max(0, Number(req.body.mins ?? existingService?.mins) || 0);
-    if (Object.prototype.hasOwnProperty.call(req.body, "allowedArrivalTimes")) {
+    if (hasBodyField("allowedArrivalTimes")) {
       validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
     }
-    const consumablesBySize = buildServiceConsumablesBySize(
-      req.body.consumablesBySize,
-      req.body.consumables ?? existingService?.consumables
-    );
+
+    const isConsumablesReplacement = hasBodyField("consumablesBySize") || hasBodyField("consumables");
+    if (isDetailUpdate && !isConsumablesReplacement) {
+      throwValidationError("Please select at least one consumable.");
+    }
+
+    const consumablesBySize =
+      isDetailUpdate || isConsumablesReplacement
+        ? await validateServiceConsumablesBySize(
+            buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables)
+          )
+        : buildServiceConsumablesBySize(existingService?.consumablesBySize, existingService?.consumables);
+
     const payload = {
       ...req.body,
-      serviceType: normalizeServiceType(req.body.serviceType, req.body.name, req.body.desc),
+      name: serviceName,
+      desc: hasBodyField("desc") ? String(req.body.desc || "").trim() : existingService?.desc || "",
+      serviceType: normalizeServiceType(req.body.serviceType ?? existingService?.serviceType, serviceName, req.body.desc ?? existingService?.desc),
+      category: hasBodyField("category") ? req.body.category : existingService?.category,
       price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
       priceBySize,
       mins,
       allowedArrivalTimes: normalizeAllowedArrivalTimes(
-        Object.prototype.hasOwnProperty.call(req.body, "allowedArrivalTimes") ? req.body.allowedArrivalTimes : existingService?.allowedArrivalTimes,
+        hasBodyField("allowedArrivalTimes") ? req.body.allowedArrivalTimes : existingService?.allowedArrivalTimes,
         mins
       ),
       consumablesBySize,
@@ -7573,6 +7595,10 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
     });
     res.json(hydrateService(service));
   } catch (error) {
+    if (error?.code === 11000) {
+      error.message = "A service with this name already exists.";
+      error.statusCode = 409;
+    }
     next(error);
   }
 });

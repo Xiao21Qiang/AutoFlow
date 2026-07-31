@@ -71,6 +71,7 @@ export default function StaffServices() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addTouchedFields, setAddTouchedFields] = useState({});
+  const [editTouchedFields, setEditTouchedFields] = useState({});
   const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", allowedArrivalTimes: getDefaultArrivalTimesForDuration(0), consumablesBySize: {} });
   const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", allowedArrivalTimes: getDefaultArrivalTimesForDuration(60), consumablesBySize: {} });
   const [serviceFormError, setServiceFormError] = useState("");
@@ -120,6 +121,22 @@ export default function StaffServices() {
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
+  const editConsumableCount = useMemo(
+    () => Object.keys(form.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
+    [form.consumablesBySize, validStockNames]
+  );
+  const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const editDuplicateNameError = useMemo(() => {
+    const requestedKey = normalizeServiceNameKey(form.name);
+    if (!requestedKey || !selectedService) return "";
+    return services.some((service) => {
+      if (String(service.id || "") === String(selectedService.id || "")) return false;
+      return normalizeServiceNameKey(service.name) === requestedKey;
+    })
+      ? DUPLICATE_SERVICE_MESSAGE
+      : "";
+  }, [form.name, selectedService, services]);
+  const isEditServiceReady = editConsumableCount > 0 && !editDuplicateNameError;
 
   const openEditModal = (service) => {
     setSelectedServiceId(service.id);
@@ -134,6 +151,7 @@ export default function StaffServices() {
       consumablesBySize: normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
     });
     setServiceFormError("");
+    setEditTouchedFields({});
     setIsEditOpen(true);
   };
 
@@ -144,6 +162,9 @@ export default function StaffServices() {
     const setter = key === "add" ? setAddForm : setForm;
     if (key === "add") {
       setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
+      setServiceFormError("");
+    } else {
+      setEditTouchedFields((prev) => ({ ...prev, consumables: true }));
       setServiceFormError("");
     }
 
@@ -181,7 +202,13 @@ export default function StaffServices() {
   };
 
   const renderConsumablesPicker = (mode, selectedConsumables) => {
-    const consumablesError = mode === "add" && addTouchedFields.consumables ? addConsumablesError : "";
+    const consumablesError =
+      mode === "add" && addTouchedFields.consumables
+        ? addConsumablesError
+        : mode === "edit" && editTouchedFields.consumables
+          ? editConsumablesError
+          : "";
+    const errorId = mode === "edit" ? "staff-edit-service-consumables-error" : "staff-add-service-consumables-error";
     return (
     <div className="stSvcConsumablesPanel">
       <div className="stSvcConsumablesHeader">
@@ -249,7 +276,7 @@ export default function StaffServices() {
       ) : (
         <div className="stSvcConsumablesEmpty">No stock monitoring items available yet.</div>
       )}
-      {consumablesError ? <div className="stSvcFormError" id="staff-add-service-consumables-error">{consumablesError}</div> : null}
+      {consumablesError ? <div className="stSvcFormError" id={errorId}>{consumablesError}</div> : null}
     </div>
     );
   };
@@ -488,13 +515,22 @@ export default function StaffServices() {
       {isEditOpen && selectedService && (
         <div className="stSvcModalOverlay">
           <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => setIsEditOpen(false)}>
+            <button className="stSvcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>
               x
             </button>
 
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setEditTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
+                if (editDuplicateNameError) {
+                  setServiceFormError(editDuplicateNameError);
+                  return;
+                }
+                if (editConsumablesError) {
+                  setServiceFormError(editConsumablesError);
+                  return;
+                }
                 const priceBySize = buildPriceBySizePayload(form.priceBySize);
                 if (!form.allowedArrivalTimes?.length) {
                   setServiceFormError("Select at least one required time of arrival.");
@@ -502,7 +538,7 @@ export default function StaffServices() {
                 }
                 updateService(selectedService.id, {
                   ...selectedService,
-                  name: form.name.trim(),
+                  name: form.name.trim().replace(/\s+/g, " "),
                   desc: form.desc.trim(),
                   serviceType: form.serviceType,
                   category: form.category,
@@ -512,12 +548,13 @@ export default function StaffServices() {
                   allowedArrivalTimes: form.allowedArrivalTimes,
                   consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
                 });
+                setEditTouchedFields({});
                 setIsEditOpen(false);
               }}
             >
               <div className="stSvcModalTitle">Edit Service</div>
               <div className="stSvcFormSection">
-                <label className="stSvcField"><span>Service Name</span><input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+                <label className="stSvcField"><span>Service Name</span><input value={form.name} onBlur={() => setEditTouchedFields((prev) => ({ ...prev, name: true }))} onChange={(e) => { setServiceFormError(""); setForm((prev) => ({ ...prev, name: e.target.value })); }} className={editTouchedFields.name && editDuplicateNameError ? "stSvcFieldInvalidInput" : ""} required aria-invalid={editTouchedFields.name && editDuplicateNameError ? "true" : undefined} aria-describedby={editTouchedFields.name && editDuplicateNameError ? "staff-edit-service-name-error" : undefined} />{editTouchedFields.name && editDuplicateNameError ? <div className="stSvcFieldError" id="staff-edit-service-name-error">{editDuplicateNameError}</div> : null}</label>
                 <label className="stSvcField"><span>Short Description</span><input value={form.desc} onChange={(e) => setForm((prev) => ({ ...prev, desc: e.target.value }))} required /></label>
                 <div className="stSvcFieldGrid"><label className="stSvcField"><span>Service Type</span><select value={form.serviceType} onChange={(e) => setForm((prev) => ({ ...prev, serviceType: e.target.value }))}>{SERVICE_TYPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><label className="stSvcField"><span>Category</span><select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label></div>
                 {renderPriceFields("edit", form.priceBySize)}
@@ -528,7 +565,7 @@ export default function StaffServices() {
               {renderArrivalTimePicker("edit", Number(form.mins) || 0, form.allowedArrivalTimes)}
               {renderConsumablesPicker("edit", form.consumablesBySize)}
               {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => setIsEditOpen(false)}>Cancel</button><button className="stSvcPrimaryBtn" type="submit">Save Service</button></div>
+              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button></div>
             </form>
           </div>
         </div>

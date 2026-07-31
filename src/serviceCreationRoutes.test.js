@@ -267,3 +267,131 @@ describe("Admin service creation route validation", () => {
     expect(services[0]).toMatchObject({ id: "SVC-1", name: "Car Wash", enabled: false, allowedArrivalTimes: ["09:00"] });
   });
 });
+
+describe("Admin service update route validation", () => {
+  function seedServices() {
+    resetData([
+      {
+        id: "SVC-1",
+        name: "Car Wash",
+        desc: "Exterior wash",
+        serviceType: "Basic Service",
+        category: "Wash",
+        enabled: true,
+        price: 500,
+        priceBySize: { sedanSmallCar: 500, midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 },
+        mins: 60,
+        allowedArrivalTimes: ["08:00"],
+        consumablesBySize: { Soap: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 } },
+        consumables: ["Soap: 1"],
+      },
+      {
+        id: "SVC-2",
+        name: "Motor Coating",
+        desc: "Gloss protection",
+        serviceType: "Package",
+        category: "Coating",
+        enabled: true,
+        price: 1500,
+        priceBySize: { sedanSmallCar: 1500, midsizePickupMpv: 1700, suv: 1900, xlVanSemiTruck: 2100 },
+        mins: 120,
+        allowedArrivalTimes: ["08:00"],
+        consumablesBySize: { Wax: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 } },
+        consumables: ["Wax: 1"],
+      },
+    ]);
+  }
+
+  test("a valid update modifies exactly one existing service and records an audit event", async () => {
+    seedServices();
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      body: basePayload({ name: "Premium Wash", desc: "Updated wash", consumablesBySize: { Soap: { sedanSmallCar: 2, midsizePickupMpv: 2, suv: 2, xlVanSemiTruck: 2 } } }),
+    });
+    expect(response.status).toBe(200);
+    expect(services).toHaveLength(2);
+    expect(services[0]).toMatchObject({ id: "SVC-1", name: "Premium Wash", desc: "Updated wash" });
+    expect(services[1].name).toBe("Motor Coating");
+    expect(auditLogs).toHaveLength(1);
+  });
+
+  test.each(["Car Wash", "car wash", " Car  Wash "])("keeping the same service name %s is allowed and excludes itself", async (name) => {
+    seedServices();
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      body: basePayload({ name }),
+    });
+    expect(response.status).toBe(200);
+    expect(services[0].id).toBe("SVC-1");
+    expect(auditLogs).toHaveLength(1);
+  });
+
+  test.each(["Motor Coating", "motor coating", " Motor  Coating "])("renaming to duplicate %s is rejected safely", async (name) => {
+    seedServices();
+    const original = clone(services[0]);
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      body: basePayload({ name, desc: "Should not save" }),
+    });
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe("A service with this name already exists.");
+    expect(services[0]).toEqual(original);
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  test.each([
+    ["missing consumables", (payload) => {
+      delete payload.consumablesBySize;
+      delete payload.consumables;
+      return payload;
+    }, "Please select at least one consumable."],
+    ["empty consumables", (payload) => ({ ...payload, consumablesBySize: {}, consumables: [] }), "Please select at least one consumable."],
+    ["malformed consumables", (payload) => ({ ...payload, consumablesBySize: "Soap", consumables: "Soap" }), "Please select at least one consumable."],
+    [
+      "unknown consumables",
+      (payload) => ({ ...payload, consumablesBySize: { Unknown: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 } } }),
+      "Please select at least one valid consumable.",
+    ],
+    [
+      "validated consumable list becomes empty",
+      (payload) => ({ ...payload, consumablesBySize: { Missing: { sedanSmallCar: 1 }, "": { sedanSmallCar: 1 } } }),
+      "Please select at least one valid consumable.",
+    ],
+  ])("%s is rejected and leaves the stored service unchanged", async (_label, mutatePayload, message) => {
+    seedServices();
+    const original = clone(services[0]);
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      body: mutatePayload(basePayload({ name: "Updated Wash" })),
+    });
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(message);
+    expect(services[0]).toEqual(original);
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  test("unauthenticated update is rejected", async () => {
+    seedServices();
+    const response = await request("/api/admin/services/SVC-1", { method: "PUT", token: "", body: basePayload() });
+    expect(response.status).toBe(401);
+    expect(services[0].name).toBe("Car Wash");
+  });
+
+  test("customer update is rejected", async () => {
+    seedServices();
+    const response = await request("/api/admin/services/SVC-1", { method: "PUT", token: auth(customerUser), body: basePayload() });
+    expect(response.status).toBe(403);
+    expect(services[0].name).toBe("Car Wash");
+  });
+
+  test("existing enable and disable action remains functional without service detail edits", async () => {
+    resetData([{ id: "SVC-1", name: "Legacy Wash", enabled: true, consumablesBySize: {}, consumables: [] }]);
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      body: { enabled: false, auditUser: "admin@example.com" },
+    });
+    expect(response.status).toBe(200);
+    expect(services[0]).toMatchObject({ id: "SVC-1", name: "Legacy Wash", enabled: false });
+    expect(auditLogs).toHaveLength(1);
+  });
+});

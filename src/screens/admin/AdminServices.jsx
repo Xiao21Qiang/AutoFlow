@@ -75,6 +75,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [addTouchedFields, setAddTouchedFields] = useState({});
+  const [editTouchedFields, setEditTouchedFields] = useState({});
   const [form, setForm] = useState({
     name: "",
     desc: "",
@@ -141,6 +142,22 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
+  const editConsumableCount = useMemo(
+    () => Object.keys(form.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
+    [form.consumablesBySize, validStockNames]
+  );
+  const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const editDuplicateNameError = useMemo(() => {
+    const requestedKey = normalizeServiceNameKey(form.name);
+    if (!requestedKey || !selectedService) return "";
+    return services.some((service) => {
+      if (String(service.id || "") === String(selectedService.id || "")) return false;
+      return normalizeServiceNameKey(service.name) === requestedKey;
+    })
+      ? DUPLICATE_SERVICE_MESSAGE
+      : "";
+  }, [form.name, selectedService, services]);
+  const isEditServiceReady = editConsumableCount > 0 && !editDuplicateNameError;
 
   useEffect(() => {
     if (initialAction !== "open-add-service") return;
@@ -161,6 +178,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       consumablesBySize: normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
     });
     setServiceFormError("");
+    setEditTouchedFields({});
     setIsEditOpen(true);
   };
 
@@ -171,6 +189,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     const setter = key === "add" ? setAddForm : setForm;
     if (key === "add") {
       setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
+      setServiceFormError("");
+    } else {
+      setEditTouchedFields((prev) => ({ ...prev, consumables: true }));
       setServiceFormError("");
     }
 
@@ -208,7 +229,13 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   };
 
   const renderConsumablesPicker = (mode, selectedConsumables) => {
-    const consumablesError = mode === "add" && addTouchedFields.consumables ? addConsumablesError : "";
+    const consumablesError =
+      mode === "add" && addTouchedFields.consumables
+        ? addConsumablesError
+        : mode === "edit" && editTouchedFields.consumables
+          ? editConsumablesError
+          : "";
+    const errorId = mode === "edit" ? "edit-service-consumables-error" : "add-service-consumables-error";
     return (
     <div className="svcConsumablesPanel">
       <div className="svcConsumablesHeader">
@@ -276,7 +303,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       ) : (
         <div className="svcConsumablesEmpty">No stock monitoring items available yet.</div>
       )}
-      {consumablesError ? <div className="svcFormError" id="add-service-consumables-error">{consumablesError}</div> : null}
+      {consumablesError ? <div className="svcFormError" id={errorId}>{consumablesError}</div> : null}
     </div>
     );
   };
@@ -484,10 +511,19 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {isEditOpen && selectedService && (
         <div className="svcModalOverlay">
           <div className="svcModalCard svcModalCardWide" role="dialog" aria-modal="true">
-            <button className="svcModalClose" type="button" onClick={() => setIsEditOpen(false)}>x</button>
+            <button className="svcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>x</button>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setEditTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
+                if (editDuplicateNameError) {
+                  setServiceFormError(editDuplicateNameError);
+                  return;
+                }
+                if (editConsumablesError) {
+                  setServiceFormError(editConsumablesError);
+                  return;
+                }
                 const priceBySize = buildPriceBySizePayload(form.priceBySize);
                 if (!form.allowedArrivalTimes?.length) {
                   setServiceFormError("Select at least one required time of arrival.");
@@ -495,7 +531,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 }
                 const payload = {
                   ...selectedService,
-                  name: form.name.trim(),
+                  name: form.name.trim().replace(/\s+/g, " "),
                   desc: form.desc.trim(),
                   serviceType: form.serviceType,
                   category: form.category,
@@ -505,14 +541,26 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   allowedArrivalTimes: form.allowedArrivalTimes,
                   consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
                 };
-                setSecurityConfirm({ mode: "pin", title: "Save Service Changes", message: "Enter the special PIN before saving service edits.", onConfirm: async () => { await updateService(selectedService.id, payload); setSecurityConfirm(null); setIsEditOpen(false); } });
+                setSecurityConfirm({ mode: "pin", title: "Save Service Changes", message: "Enter the special PIN before saving service edits.", onConfirm: async () => { await updateService(selectedService.id, payload); setSecurityConfirm(null); setEditTouchedFields({}); setIsEditOpen(false); } });
               }}
             >
               <div className="svcModalTitle">Edit Service</div>
               <div className="svcFormSection">
                 <label className="svcField">
                   <span>Service Name</span>
-                  <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} required />
+                  <input
+                    value={form.name}
+                    onBlur={() => setEditTouchedFields((prev) => ({ ...prev, name: true }))}
+                    onChange={(e) => {
+                      setServiceFormError("");
+                      setForm((prev) => ({ ...prev, name: e.target.value }));
+                    }}
+                    className={editTouchedFields.name && editDuplicateNameError ? "svcFieldInvalidInput" : ""}
+                    required
+                    aria-invalid={editTouchedFields.name && editDuplicateNameError ? "true" : undefined}
+                    aria-describedby={editTouchedFields.name && editDuplicateNameError ? "edit-service-name-error" : undefined}
+                  />
+                  {editTouchedFields.name && editDuplicateNameError ? <div className="svcFieldError" id="edit-service-name-error">{editDuplicateNameError}</div> : null}
                 </label>
                 <label className="svcField">
                   <span>Short Description</span>
@@ -546,8 +594,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
               <div className="svcModalActions svcModalActionsSplit">
                 <button className="svcDangerBtn" type="button" onClick={() => setIsDeleteConfirmOpen(true)}>Delete Service</button>
                 <div className="svcModalActionsRight">
-                  <button className="svcTextBtn" type="button" onClick={() => setIsEditOpen(false)}>Cancel</button>
-                  <button className="svcPrimaryBtn" type="submit">Save Service</button>
+                  <button className="svcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button>
+                  <button className="svcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button>
                 </div>
               </div>
             </form>
