@@ -243,9 +243,14 @@ describe("Edit Service validation", () => {
     removeConsumable("Car Shampoo");
     removeConsumable("Clay Bar");
     expect(selectedBadge()).toHaveTextContent("0 selected");
+    expect(consumableCheckboxes().filter((checkbox) => checkbox.checked)).toHaveLength(0);
     expect(saveButton()).toBeDisabled();
     expect(saveButton()).toHaveAttribute("disabled");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
+    fireEvent.click(saveButton());
+    expect(screen.queryByRole("dialog", { name: "Save Service Changes" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Edit Service").length).toBeGreaterThan(0);
+    expect(mockUpdateService).not.toHaveBeenCalled();
   });
 
   test("selecting a valid consumable removes the missing-consumable error", () => {
@@ -271,8 +276,11 @@ describe("Edit Service validation", () => {
     openEditService();
     removeConsumable("Car Shampoo");
     removeConsumable("Clay Bar");
+    expect(consumableCheckboxes().filter((checkbox) => checkbox.checked)).toHaveLength(0);
     fireEvent.submit(editForm());
     expect(mockUpdateService).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Save Service Changes" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Edit Service").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Please select at least one consumable.").length).toBeGreaterThan(0);
   });
 
@@ -331,8 +339,11 @@ describe("Edit Service validation", () => {
     expect(screen.getByRole("button", { name: "Save Service" })).toBeEnabled();
     fireEvent.click(consumableCheckbox("Clay Bar", "stSvcConsumableCard"));
     expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("0 selected");
+    expect(consumableCheckboxes("stSvcConsumablesPanel").filter((checkbox) => checkbox.checked)).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Save Service" })).toBeDisabled();
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
+    fireEvent.submit(screen.getByRole("button", { name: "Save Service" }).closest("form"));
+    expect(mockUpdateService).not.toHaveBeenCalled();
   });
 
   test("existing required-field validation still passes", () => {

@@ -14,7 +14,6 @@ import {
   filterConsumablesBySelectedKeys,
   findConsumableEntryKey,
   formatConsumableSizeLabel,
-  getConsumableSelectionKeyForName,
   getStockConsumableKey,
   normalizeConsumablesBySize,
   normalizeConsumableDisplayName,
@@ -102,6 +101,7 @@ export default function StaffServices() {
         .filter((item) => item.name)
         .map((item) => ({
           id: item.id,
+          _id: item._id,
           name: normalizeConsumableDisplayName(item.name),
           stock: Number(item.currentStock || 0),
         }))
@@ -109,7 +109,8 @@ export default function StaffServices() {
     [stockMonitoring]
   );
   const addConsumableCount = addSelectedConsumableKeys.length;
-  const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const hasAddSelectedConsumable = addConsumableCount > 0;
+  const addConsumablesError = hasAddSelectedConsumable ? "" : MISSING_CONSUMABLE_MESSAGE;
   const addDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(addForm.name);
     if (!requestedKey) return "";
@@ -117,7 +118,7 @@ export default function StaffServices() {
       ? DUPLICATE_SERVICE_MESSAGE
       : "";
   }, [addForm.name, services]);
-  const isAddServiceReady = addConsumableCount > 0 && !addDuplicateNameError;
+  const isAddServiceReady = hasAddSelectedConsumable && !addDuplicateNameError;
 
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -125,7 +126,8 @@ export default function StaffServices() {
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
   const editConsumableCount = editSelectedConsumableKeys.length;
-  const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const hasEditSelectedConsumable = editConsumableCount > 0;
+  const editConsumablesError = hasEditSelectedConsumable ? "" : MISSING_CONSUMABLE_MESSAGE;
   const editDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(form.name);
     if (!requestedKey || !selectedService) return "";
@@ -136,7 +138,7 @@ export default function StaffServices() {
       ? DUPLICATE_SERVICE_MESSAGE
       : "";
   }, [form.name, selectedService, services]);
-  const isEditServiceReady = editConsumableCount > 0 && !editDuplicateNameError;
+  const isEditServiceReady = hasEditSelectedConsumable && !editDuplicateNameError;
 
   const openEditModal = (service) => {
     setSelectedServiceId(service.id);
@@ -160,13 +162,13 @@ export default function StaffServices() {
     setIsEditOpen(true);
   };
 
-  const toggleConsumable = (key, itemName) => {
-    const name = String(itemName || "").trim();
-    if (!name) return;
+  const toggleConsumable = (key, item) => {
+    const name = normalizeConsumableDisplayName(item?.name);
+    const selectionKey = getStockConsumableKey(item);
+    if (!name || !selectionKey) return;
 
     const setter = key === "add" ? setAddForm : setForm;
     const selectionSetter = key === "add" ? setAddSelectedConsumableKeys : setEditSelectedConsumableKeys;
-    const selectionKey = getConsumableSelectionKeyForName(name, stockMonitoringOptions);
     if (key === "add") {
       setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
       setServiceFormError("");
@@ -175,11 +177,12 @@ export default function StaffServices() {
       setServiceFormError("");
     }
 
-    selectionSetter((prev) =>
-      prev.includes(selectionKey)
-        ? prev.filter((keyValue) => keyValue !== selectionKey)
-        : [...prev, selectionKey].filter(Boolean)
-    );
+    selectionSetter((prev) => {
+      const current = [...new Set((prev || []).filter(Boolean))];
+      return current.includes(selectionKey)
+        ? current.filter((keyValue) => keyValue !== selectionKey)
+        : [...current, selectionKey];
+    });
 
     setter((prev) => {
       const current = prev.consumablesBySize || {};
@@ -241,13 +244,13 @@ export default function StaffServices() {
             const selectedQuantities = selectedKey ? selectedConsumables[selectedKey] : {};
 
             return (
-              <label className={`stSvcConsumableCard ${checked ? "selected" : ""}`} key={item.id || item.name}>
+              <label className={`stSvcConsumableCard ${checked ? "selected" : ""}`} key={item.id || item._id || item.name}>
                 <div className="stSvcConsumableMain">
                   <input
                     className="stSvcConsumableCheckbox"
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggleConsumable(mode, item.name)}
+                    onChange={() => toggleConsumable(mode, item)}
                   />
                   <div className="stSvcConsumableInfo">
                     <div className="stSvcConsumableName">{item.name}</div>
