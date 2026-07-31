@@ -2,6 +2,7 @@ import "../../styles/css/staff/staffServicesStyle.css";
 
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -76,6 +77,7 @@ export default function StaffServices() {
   const [selectedServiceId, setSelectedServiceId] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [securityConfirm, setSecurityConfirm] = useState(null);
   const [addTouchedFields, setAddTouchedFields] = useState({});
   const [editTouchedFields, setEditTouchedFields] = useState({});
   const [addSelectedConsumableKeys, setAddSelectedConsumableKeys] = useState([]);
@@ -469,7 +471,24 @@ export default function StaffServices() {
                 {canManageServices ? (
                   <>
                     <button className="stSvcSmallBtn stSvcSmallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button>
-                    <button className="stSvcSmallBtn stSvcSmallBtnOutline" type="button" onClick={() => toggleService(service)}>{service.enabled ? "Disable" : "Enable"}</button>
+                    <button
+                      className="stSvcSmallBtn stSvcSmallBtnOutline"
+                      type="button"
+                      onClick={() =>
+                        setSecurityConfirm({
+                          mode: "pin",
+                          title: "Change Service Status",
+                          message: "Enter the special PIN before changing this service status.",
+                          actionKey: ACTION_KEYS.servicesManage,
+                          onConfirm: async () => {
+                            await toggleService(service);
+                            setSecurityConfirm(null);
+                          },
+                        })
+                      }
+                    >
+                      {service.enabled ? "Disable" : "Enable"}
+                    </button>
                   </>
                 ) : (
                   <span className="stSvcSmallBtn stSvcSmallBtnView">View Only</span>
@@ -677,6 +696,17 @@ export default function StaffServices() {
           setFilters({ category: "", enabled: "" });
           setPage(1);
         }}
+      />
+      <SecurityConfirmModal
+        open={Boolean(securityConfirm)}
+        mode={securityConfirm?.mode || "pin"}
+        title={securityConfirm?.title}
+        message={securityConfirm?.message}
+        currentUser={currentUser}
+        scope="staff"
+        onClose={() => setSecurityConfirm(null)}
+        actionKey={securityConfirm?.actionKey}
+        onConfirm={securityConfirm?.onConfirm}
       />
     </div>
   );
