@@ -56,8 +56,48 @@ export function findConsumableEntryKey(consumablesBySize = {}, itemName = "") {
   return Object.keys(consumablesBySize || {}).find((name) => normalizeConsumableNameKey(name) === requestedKey) || "";
 }
 
-export function countValidConsumables(consumablesBySize = {}, validNameKeys = new Set()) {
-  return Object.keys(consumablesBySize || {}).filter((name) => validNameKeys.has(normalizeConsumableNameKey(name))).length;
+export function getStockConsumableKey(item = {}) {
+  const id = String(item?.id || item?._id || "").trim();
+  if (id) return `id:${id}`;
+  const nameKey = normalizeConsumableNameKey(item?.name);
+  return nameKey ? `name:${nameKey}` : "";
+}
+
+export function getConsumableSelectionKeyForName(name = "", stockItems = []) {
+  const nameKey = normalizeConsumableNameKey(name);
+  if (!nameKey) return "";
+  const stockItem = stockItems.find((item) => normalizeConsumableNameKey(item?.name) === nameKey);
+  return stockItem ? getStockConsumableKey(stockItem) : `name:${nameKey}`;
+}
+
+function hasPositiveConsumableQuantity(quantities = {}) {
+  return Object.values(PRICE_BY_SIZE_KEYS).some((key) => Number(quantities?.[key] || 0) > 0);
+}
+
+export function createSelectedConsumableKeys(consumablesBySize = {}, stockItems = []) {
+  const stockNameKeys = new Set(stockItems.map((item) => normalizeConsumableNameKey(item?.name)).filter(Boolean));
+  return Object.entries(consumablesBySize || {})
+    .filter(([name, quantities]) => {
+      const nameKey = normalizeConsumableNameKey(name);
+      return nameKey && stockNameKeys.has(nameKey) && hasPositiveConsumableQuantity(quantities);
+    })
+    .map(([name]) => getConsumableSelectionKeyForName(name, stockItems))
+    .filter(Boolean);
+}
+
+export function filterConsumablesBySelectedKeys(consumablesBySize = {}, selectedKeys = [], stockItems = []) {
+  const selectedSet = new Set(selectedKeys);
+  const payload = {};
+
+  Object.entries(consumablesBySize || {}).forEach(([name, quantities]) => {
+    const selectionKey = getConsumableSelectionKeyForName(name, stockItems);
+    if (!selectionKey || !selectedSet.has(selectionKey)) return;
+    const itemName = normalizeConsumableDisplayName(name);
+    if (!itemName) return;
+    payload[itemName] = quantities || createEmptyConsumableSizes();
+  });
+
+  return payload;
 }
 
 export function alignConsumablesToStockItems(consumablesBySize = {}, stockItems = []) {

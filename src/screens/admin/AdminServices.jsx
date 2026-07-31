@@ -9,13 +9,15 @@ import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getSer
 import {
   buildConsumablesBySizePayload,
   alignConsumablesToStockItems,
-  countValidConsumables,
   createEmptyConsumableSizes,
+  createSelectedConsumableKeys,
+  filterConsumablesBySelectedKeys,
   findConsumableEntryKey,
   formatConsumableSizeLabel,
+  getConsumableSelectionKeyForName,
+  getStockConsumableKey,
   normalizeConsumablesBySize,
   normalizeConsumableDisplayName,
-  normalizeConsumableNameKey,
 } from "../../utils/serviceConsumables";
 import {
   SERVICE_ARRIVAL_TIME_OPTIONS,
@@ -81,6 +83,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [addTouchedFields, setAddTouchedFields] = useState({});
   const [editTouchedFields, setEditTouchedFields] = useState({});
+  const [addSelectedConsumableKeys, setAddSelectedConsumableKeys] = useState([]);
+  const [editSelectedConsumableKeys, setEditSelectedConsumableKeys] = useState([]);
   const [form, setForm] = useState({
     name: "",
     desc: "",
@@ -125,14 +129,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
         .filter((item) => item.name),
     [stockMonitoring]
   );
-  const validStockNameKeys = useMemo(
-    () => new Set(stockMonitoringOptions.map((item) => normalizeConsumableNameKey(item.name)).filter(Boolean)),
-    [stockMonitoringOptions]
-  );
-  const addConsumableCount = useMemo(
-    () => countValidConsumables(addForm.consumablesBySize, validStockNameKeys),
-    [addForm.consumablesBySize, validStockNameKeys]
-  );
+  const addConsumableCount = addSelectedConsumableKeys.length;
   const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const addDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(addForm.name);
@@ -148,10 +145,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
-  const editConsumableCount = useMemo(
-    () => countValidConsumables(form.consumablesBySize, validStockNameKeys),
-    [form.consumablesBySize, validStockNameKeys]
-  );
+  const editConsumableCount = editSelectedConsumableKeys.length;
   const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const editDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(form.name);
@@ -173,6 +167,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
 
   const openEditModal = (service) => {
     setSelectedServiceId(service.id);
+    const consumablesBySize = alignConsumablesToStockItems(
+      normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
+      stockMonitoringOptions
+    );
     setForm({
       name: service.name,
       desc: service.desc,
@@ -181,13 +179,11 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       priceBySize: toPriceInputState(service),
       mins: String(service.mins),
       allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
-      consumablesBySize: alignConsumablesToStockItems(
-        normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
-        stockMonitoringOptions
-      ),
+      consumablesBySize,
     });
     setServiceFormError("");
     setEditTouchedFields({});
+    setEditSelectedConsumableKeys(createSelectedConsumableKeys(consumablesBySize, stockMonitoringOptions));
     setIsEditOpen(true);
   };
 
@@ -196,6 +192,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     if (!name) return;
 
     const setter = key === "add" ? setAddForm : setForm;
+    const selectionSetter = key === "add" ? setAddSelectedConsumableKeys : setEditSelectedConsumableKeys;
+    const selectionKey = getConsumableSelectionKeyForName(name, stockMonitoringOptions);
     if (key === "add") {
       setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
       setServiceFormError("");
@@ -204,14 +202,18 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       setServiceFormError("");
     }
 
+    selectionSetter((prev) =>
+      prev.includes(selectionKey)
+        ? prev.filter((keyValue) => keyValue !== selectionKey)
+        : [...prev, selectionKey].filter(Boolean)
+    );
+
     setter((prev) => {
       const current = prev.consumablesBySize || {};
       const nextConsumables = { ...current };
       const existingKey = findConsumableEntryKey(nextConsumables, name);
 
-      if (existingKey) {
-        delete nextConsumables[existingKey];
-      } else {
+      if (!existingKey) {
         nextConsumables[name] = createEmptyConsumableSizes();
       }
 
@@ -238,7 +240,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     }));
   };
 
-  const renderConsumablesPicker = (mode, selectedConsumables) => {
+  const renderConsumablesPicker = (mode, selectedConsumables, selectedConsumableKeys = []) => {
+    const selectedKeySet = new Set(selectedConsumableKeys);
+    const selectedCount = selectedConsumableKeys.length;
     const consumablesError =
       mode === "add" && addTouchedFields.consumables
         ? addConsumablesError
@@ -253,14 +257,14 @@ export default function AdminServices({ initialAction = null, onActionHandled })
           <div className="svcConsumablesTitle">Consumables To Be Used</div>
           <div className="svcConsumablesHint">Select stock monitoring items and set how many each service uses.</div>
         </div>
-        <div className="svcConsumablesCount">{Object.keys(selectedConsumables || {}).length} selected</div>
+        <div className="svcConsumablesCount">{selectedCount} selected</div>
       </div>
 
       {stockMonitoringOptions.length ? (
         <div className="svcConsumablesGrid">
           {stockMonitoringOptions.map((item) => {
             const selectedKey = findConsumableEntryKey(selectedConsumables, item.name);
-            const checked = Boolean(selectedKey);
+            const checked = selectedKeySet.has(getStockConsumableKey(item));
             const selectedQuantities = selectedKey ? selectedConsumables[selectedKey] : {};
 
             return (
@@ -504,7 +508,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       <div className="servicesRow">
         <div className="svcSearchBox"><img className="svcSearchIcon" src={icoSearch} alt="" /><input className="svcSearchInput" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Services..." /></div>
         <button className="svcFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img className="svcFilterIcon" src={icoFilter} alt="" /></button>
-        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setIsAddOpen(true); }}>Add New Service</button></div>
+        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setIsAddOpen(true); }}>Add New Service</button></div>
       </div>
 
       <div className="svcBoard">
@@ -523,7 +527,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {isEditOpen && selectedService && (
         <div className="svcModalOverlay">
           <div className="svcModalCard svcModalCardWide" role="dialog" aria-modal="true">
-            <button className="svcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>x</button>
+            <button className="svcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>x</button>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -551,9 +555,11 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   priceBySize,
                   mins: Number(form.mins) || 0,
                   allowedArrivalTimes: form.allowedArrivalTimes,
-                  consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
+                  consumablesBySize: buildConsumablesBySizePayload(
+                    filterConsumablesBySelectedKeys(form.consumablesBySize, editSelectedConsumableKeys, stockMonitoringOptions)
+                  ),
                 };
-                setSecurityConfirm({ mode: "pin", title: "Save Service Changes", message: "Enter the special PIN before saving service edits.", onConfirm: async () => { await updateService(selectedService.id, payload); setSecurityConfirm(null); setEditTouchedFields({}); setIsEditOpen(false); } });
+                setSecurityConfirm({ mode: "pin", title: "Save Service Changes", message: "Enter the special PIN before saving service edits.", onConfirm: async () => { await updateService(selectedService.id, payload); setSecurityConfirm(null); setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setIsEditOpen(false); } });
               }}
             >
               <div className="svcModalTitle">Edit Service</div>
@@ -601,12 +607,12 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 </div>
               </div>
               {renderArrivalTimePicker("edit", Number(form.mins) || 0, form.allowedArrivalTimes)}
-              {renderConsumablesPicker("edit", form.consumablesBySize)}
+              {renderConsumablesPicker("edit", form.consumablesBySize, editSelectedConsumableKeys)}
               {serviceFormError ? <div className="svcFormError">{serviceFormError}</div> : null}
               <div className="svcModalActions svcModalActionsSplit">
                 <button className="svcDangerBtn" type="button" onClick={() => setIsDeleteConfirmOpen(true)}>Delete Service</button>
                 <div className="svcModalActionsRight">
-                  <button className="svcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button>
+                  <button className="svcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button>
                   <button className="svcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button>
                 </div>
               </div>
@@ -618,7 +624,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {isAddOpen && (
         <div className="svcModalOverlay">
           <div className="svcModalCard svcModalCardWide" role="dialog" aria-modal="true">
-            <button className="svcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>x</button>
+            <button className="svcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>x</button>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -647,9 +653,11 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   mins,
                   allowedArrivalTimes: addForm.allowedArrivalTimes,
                   enabled: addForm.status === "Active",
-                  consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
+                  consumablesBySize: buildConsumablesBySizePayload(
+                    filterConsumablesBySelectedKeys(addForm.consumablesBySize, addSelectedConsumableKeys, stockMonitoringOptions)
+                  ),
                 };
-                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); setAddTouchedFields({}); } });
+                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); } });
               }}
             >
               <div className="svcModalTitle">Add Service</div>
@@ -702,10 +710,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 </div>
               </div>
               {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
-              {renderConsumablesPicker("add", addForm.consumablesBySize)}
+              {renderConsumablesPicker("add", addForm.consumablesBySize, addSelectedConsumableKeys)}
               {serviceFormError ? <div className="svcFormError">{serviceFormError}</div> : null}
               <div className="svcModalActions">
-                <button className="svcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button>
+                <button className="svcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button>
                 <button className="svcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button>
               </div>
             </form>

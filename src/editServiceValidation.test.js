@@ -10,7 +10,14 @@ const mockDeleteService = jest.fn();
 const stockItems = [
   { id: "STK-1", name: "Car Shampoo ", currentStock: 12 },
   { id: "STK-2", name: " Clay Bar", currentStock: 8 },
-  { id: "STK-3", name: "Wax", currentStock: 6 },
+  { id: "STK-3", name: "Tire Dressing", currentStock: 6 },
+  { id: "STK-4", name: "Glass Cleaner", currentStock: 6 },
+  { id: "STK-5", name: "Microfiber Towel", currentStock: 6 },
+  { id: "STK-6", name: "Wheel Brush", currentStock: 6 },
+  { id: "STK-7", name: "Degreaser", currentStock: 6 },
+  { id: "STK-8", name: "Wax", currentStock: 6 },
+  { id: "STK-9", name: "Interior Cleaner", currentStock: 6 },
+  { id: "STK-10", name: "Applicator Pad", currentStock: 6 },
 ];
 
 const services = [
@@ -28,6 +35,14 @@ const services = [
     consumablesBySize: {
       "Car Shampoo": { sedanSmallCar: 1, midsizePickupMpv: 2, suv: 3, xlVanSemiTruck: 4 },
       "Clay Bar": { sedanSmallCar: 2, midsizePickupMpv: 3, suv: 4, xlVanSemiTruck: 5 },
+      "Tire Dressing": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      "Glass Cleaner": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      "Microfiber Towel": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      "Wheel Brush": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      Degreaser: { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      Wax: { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      "Interior Cleaner": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
+      "Applicator Pad": { sedanSmallCar: 0, midsizePickupMpv: 0, suv: 0, xlVanSemiTruck: 0 },
     },
   },
   {
@@ -97,6 +112,18 @@ function saveButton() {
   return screen.getByRole("button", { name: "Save Service" });
 }
 
+function consumablesPanel(className = "svcConsumablesPanel") {
+  return screen.getByText("Consumables To Be Used").closest(`.${className}`);
+}
+
+function selectedBadge(className = "svcConsumablesPanel") {
+  return within(consumablesPanel(className)).getByText(/^\d+ selected$/);
+}
+
+function consumableCheckboxes(className = "svcConsumablesPanel") {
+  return within(consumablesPanel(className)).getAllByRole("checkbox");
+}
+
 function consumableCard(name, className = "svcConsumableCard") {
   return screen.getAllByText(name).find((node) => node.closest(`.${className}`))?.closest("label");
 }
@@ -130,12 +157,18 @@ beforeEach(() => {
 });
 
 describe("Edit Service validation", () => {
-  test("opening Edit Service preselects two saved consumables and loads quantity-by-size values", () => {
+  test("opening Edit Service with 10 stock items preselects only two saved consumables and loads their quantities", () => {
     openEditService();
+    expect(selectedBadge()).toHaveTextContent("2 selected");
+    expect(consumableCheckboxes().filter((checkbox) => checkbox.checked)).toHaveLength(2);
     expect(consumableCheckbox("Car Shampoo")).toBeChecked();
     expect(consumableCheckbox("Clay Bar")).toBeChecked();
+    ["Tire Dressing", "Glass Cleaner", "Microfiber Towel", "Wheel Brush", "Degreaser", "Wax", "Interior Cleaner", "Applicator Pad"].forEach((name) => {
+      expect(consumableCheckbox(name)).not.toBeChecked();
+    });
     expect(consumableQuantities("Car Shampoo").map((input) => input.value)).toEqual(["1", "2", "3", "4"]);
     expect(consumableQuantities("Clay Bar").map((input) => input.value)).toEqual(["2", "3", "4", "5"]);
+    expect(consumableQuantities("Tire Dressing").map((input) => input.value)).toEqual(["", "", "", ""]);
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
     expect(saveButton()).toBeEnabled();
   });
@@ -157,6 +190,7 @@ describe("Edit Service validation", () => {
         "Clay Bar": { sedanSmallCar: 2, midsizePickupMpv: 3, suv: 4, xlVanSemiTruck: 5 },
       },
     });
+    expect(Object.keys(mockUpdateService.mock.calls[0][1].consumablesBySize)).toEqual(["Car Shampoo", "Clay Bar"]);
   });
 
   test("keeping the current service name is allowed", () => {
@@ -197,6 +231,7 @@ describe("Edit Service validation", () => {
   test("unchecking one of two consumables keeps the form valid", () => {
     openEditService();
     removeConsumable("Car Shampoo");
+    expect(selectedBadge()).toHaveTextContent("1 selected");
     expect(consumableCheckbox("Car Shampoo")).not.toBeChecked();
     expect(consumableCheckbox("Clay Bar")).toBeChecked();
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
@@ -207,6 +242,7 @@ describe("Edit Service validation", () => {
     openEditService();
     removeConsumable("Car Shampoo");
     removeConsumable("Clay Bar");
+    expect(selectedBadge()).toHaveTextContent("0 selected");
     expect(saveButton()).toBeDisabled();
     expect(saveButton()).toHaveAttribute("disabled");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
@@ -218,6 +254,7 @@ describe("Edit Service validation", () => {
     removeConsumable("Clay Bar");
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
     selectConsumable("Wax");
+    expect(selectedBadge()).toHaveTextContent("1 selected");
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
     expect(saveButton()).toBeEnabled();
   });
@@ -265,6 +302,9 @@ describe("Edit Service validation", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]);
     expect(screen.queryByText("Please select at least one consumable.")).not.toBeInTheDocument();
     expect(consumableCheckbox("Wax")).toBeChecked();
+    expect(consumableCheckbox("Car Shampoo")).not.toBeChecked();
+    expect(consumableCheckbox("Clay Bar")).not.toBeChecked();
+    expect(selectedBadge()).toHaveTextContent("1 selected");
     expect(saveButton()).toBeEnabled();
   });
 
@@ -275,6 +315,7 @@ describe("Edit Service validation", () => {
     expect(saveButton()).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+    expect(selectedBadge()).toHaveTextContent("2 selected");
     expect(consumableCheckbox("Car Shampoo")).toBeChecked();
     expect(consumableCheckbox("Clay Bar")).toBeChecked();
     expect(saveButton()).toBeEnabled();
@@ -284,9 +325,12 @@ describe("Edit Service validation", () => {
     openStaffEditService();
     expect(consumableCheckbox("Car Shampoo", "stSvcConsumableCard")).toBeChecked();
     expect(consumableCheckbox("Clay Bar", "stSvcConsumableCard")).toBeChecked();
+    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("2 selected");
     fireEvent.click(consumableCheckbox("Car Shampoo", "stSvcConsumableCard"));
+    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("1 selected");
     expect(screen.getByRole("button", { name: "Save Service" })).toBeEnabled();
     fireEvent.click(consumableCheckbox("Clay Bar", "stSvcConsumableCard"));
+    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("0 selected");
     expect(screen.getByRole("button", { name: "Save Service" })).toBeDisabled();
     expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
   });

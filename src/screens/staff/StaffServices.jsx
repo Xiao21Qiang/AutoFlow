@@ -9,13 +9,15 @@ import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getSer
 import {
   buildConsumablesBySizePayload,
   alignConsumablesToStockItems,
-  countValidConsumables,
   createEmptyConsumableSizes,
+  createSelectedConsumableKeys,
+  filterConsumablesBySelectedKeys,
   findConsumableEntryKey,
   formatConsumableSizeLabel,
+  getConsumableSelectionKeyForName,
+  getStockConsumableKey,
   normalizeConsumablesBySize,
   normalizeConsumableDisplayName,
-  normalizeConsumableNameKey,
 } from "../../utils/serviceConsumables";
 import {
   SERVICE_ARRIVAL_TIME_OPTIONS,
@@ -77,6 +79,8 @@ export default function StaffServices() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addTouchedFields, setAddTouchedFields] = useState({});
   const [editTouchedFields, setEditTouchedFields] = useState({});
+  const [addSelectedConsumableKeys, setAddSelectedConsumableKeys] = useState([]);
+  const [editSelectedConsumableKeys, setEditSelectedConsumableKeys] = useState([]);
   const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", allowedArrivalTimes: getDefaultArrivalTimesForDuration(0), consumablesBySize: {} });
   const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", allowedArrivalTimes: getDefaultArrivalTimesForDuration(60), consumablesBySize: {} });
   const [serviceFormError, setServiceFormError] = useState("");
@@ -104,14 +108,7 @@ export default function StaffServices() {
         .filter((item) => item.name),
     [stockMonitoring]
   );
-  const validStockNameKeys = useMemo(
-    () => new Set(stockMonitoringOptions.map((item) => normalizeConsumableNameKey(item.name)).filter(Boolean)),
-    [stockMonitoringOptions]
-  );
-  const addConsumableCount = useMemo(
-    () => countValidConsumables(addForm.consumablesBySize, validStockNameKeys),
-    [addForm.consumablesBySize, validStockNameKeys]
-  );
+  const addConsumableCount = addSelectedConsumableKeys.length;
   const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const addDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(addForm.name);
@@ -127,10 +124,7 @@ export default function StaffServices() {
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedService = services.find((service) => service.id === selectedServiceId) || null;
-  const editConsumableCount = useMemo(
-    () => countValidConsumables(form.consumablesBySize, validStockNameKeys),
-    [form.consumablesBySize, validStockNameKeys]
-  );
+  const editConsumableCount = editSelectedConsumableKeys.length;
   const editConsumablesError = editConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
   const editDuplicateNameError = useMemo(() => {
     const requestedKey = normalizeServiceNameKey(form.name);
@@ -146,6 +140,10 @@ export default function StaffServices() {
 
   const openEditModal = (service) => {
     setSelectedServiceId(service.id);
+    const consumablesBySize = alignConsumablesToStockItems(
+      normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
+      stockMonitoringOptions
+    );
     setForm({
       name: service.name,
       desc: service.desc,
@@ -154,13 +152,11 @@ export default function StaffServices() {
       priceBySize: toPriceInputState(service),
       mins: String(service.mins || ""),
       allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
-      consumablesBySize: alignConsumablesToStockItems(
-        normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
-        stockMonitoringOptions
-      ),
+      consumablesBySize,
     });
     setServiceFormError("");
     setEditTouchedFields({});
+    setEditSelectedConsumableKeys(createSelectedConsumableKeys(consumablesBySize, stockMonitoringOptions));
     setIsEditOpen(true);
   };
 
@@ -169,6 +165,8 @@ export default function StaffServices() {
     if (!name) return;
 
     const setter = key === "add" ? setAddForm : setForm;
+    const selectionSetter = key === "add" ? setAddSelectedConsumableKeys : setEditSelectedConsumableKeys;
+    const selectionKey = getConsumableSelectionKeyForName(name, stockMonitoringOptions);
     if (key === "add") {
       setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
       setServiceFormError("");
@@ -177,14 +175,18 @@ export default function StaffServices() {
       setServiceFormError("");
     }
 
+    selectionSetter((prev) =>
+      prev.includes(selectionKey)
+        ? prev.filter((keyValue) => keyValue !== selectionKey)
+        : [...prev, selectionKey].filter(Boolean)
+    );
+
     setter((prev) => {
       const current = prev.consumablesBySize || {};
       const nextConsumables = { ...current };
       const existingKey = findConsumableEntryKey(nextConsumables, name);
 
-      if (existingKey) {
-        delete nextConsumables[existingKey];
-      } else {
+      if (!existingKey) {
         nextConsumables[name] = createEmptyConsumableSizes();
       }
 
@@ -211,7 +213,9 @@ export default function StaffServices() {
     }));
   };
 
-  const renderConsumablesPicker = (mode, selectedConsumables) => {
+  const renderConsumablesPicker = (mode, selectedConsumables, selectedConsumableKeys = []) => {
+    const selectedKeySet = new Set(selectedConsumableKeys);
+    const selectedCount = selectedConsumableKeys.length;
     const consumablesError =
       mode === "add" && addTouchedFields.consumables
         ? addConsumablesError
@@ -226,14 +230,14 @@ export default function StaffServices() {
           <div className="stSvcConsumablesTitle">Consumables To Be Used</div>
           <div className="stSvcConsumablesHint">Select stock monitoring items and set how many each service uses.</div>
         </div>
-        <div className="stSvcConsumablesCount">{Object.keys(selectedConsumables || {}).length} selected</div>
+        <div className="stSvcConsumablesCount">{selectedCount} selected</div>
       </div>
 
       {stockMonitoringOptions.length ? (
         <div className="stSvcConsumablesGrid">
           {stockMonitoringOptions.map((item) => {
             const selectedKey = findConsumableEntryKey(selectedConsumables, item.name);
-            const checked = Boolean(selectedKey);
+            const checked = selectedKeySet.has(getStockConsumableKey(item));
             const selectedQuantities = selectedKey ? selectedConsumables[selectedKey] : {};
 
             return (
@@ -496,7 +500,7 @@ export default function StaffServices() {
 
         <div className="stSvcActionBtns">
           {canManageServices ? (
-            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setIsAddOpen(true); }}>
+            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setIsAddOpen(true); }}>
               Add New Service
             </button>
           ) : null}
@@ -527,7 +531,7 @@ export default function StaffServices() {
       {isEditOpen && selectedService && (
         <div className="stSvcModalOverlay">
           <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>
+            <button className="stSvcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>
               x
             </button>
 
@@ -558,9 +562,12 @@ export default function StaffServices() {
                   priceBySize,
                   mins: Number(form.mins) || 0,
                   allowedArrivalTimes: form.allowedArrivalTimes,
-                  consumablesBySize: buildConsumablesBySizePayload(form.consumablesBySize),
+                  consumablesBySize: buildConsumablesBySizePayload(
+                    filterConsumablesBySelectedKeys(form.consumablesBySize, editSelectedConsumableKeys, stockMonitoringOptions)
+                  ),
                 });
                 setEditTouchedFields({});
+                setEditSelectedConsumableKeys([]);
                 setIsEditOpen(false);
               }}
             >
@@ -575,9 +582,9 @@ export default function StaffServices() {
                 </div>
               </div>
               {renderArrivalTimePicker("edit", Number(form.mins) || 0, form.allowedArrivalTimes)}
-              {renderConsumablesPicker("edit", form.consumablesBySize)}
+              {renderConsumablesPicker("edit", form.consumablesBySize, editSelectedConsumableKeys)}
               {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button></div>
+              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button></div>
             </form>
           </div>
         </div>
@@ -586,7 +593,7 @@ export default function StaffServices() {
       {isAddOpen && (
         <div className="stSvcModalOverlay">
           <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>
+            <button className="stSvcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>
               x
             </button>
 
@@ -617,10 +624,13 @@ export default function StaffServices() {
                   mins: (Number(addForm.durationHours) || 0) * 60,
                   allowedArrivalTimes: addForm.allowedArrivalTimes,
                   enabled: addForm.status === "Active",
-                  consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
+                  consumablesBySize: buildConsumablesBySizePayload(
+                    filterConsumablesBySelectedKeys(addForm.consumablesBySize, addSelectedConsumableKeys, stockMonitoringOptions)
+                  ),
                 });
                 setPage(1);
                 setAddTouchedFields({});
+                setAddSelectedConsumableKeys([]);
                 setIsAddOpen(false);
               }}
             >
@@ -638,9 +648,9 @@ export default function StaffServices() {
                 </div>
               </div>
               {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
-              {renderConsumablesPicker("add", addForm.consumablesBySize)}
+              {renderConsumablesPicker("add", addForm.consumablesBySize, addSelectedConsumableKeys)}
               {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button></div>
+              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button></div>
             </form>
           </div>
         </div>
