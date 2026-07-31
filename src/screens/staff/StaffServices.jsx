@@ -22,6 +22,12 @@ import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"];
 const SERVICE_TYPE_OPTIONS = ["Basic Service", "Package"];
+const DUPLICATE_SERVICE_MESSAGE = "A service with this name already exists.";
+const MISSING_CONSUMABLE_MESSAGE = "Please select at least one consumable.";
+
+function normalizeServiceNameKey(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 function getServiceType(service) {
   const raw = String(service?.serviceType || "").trim().toLowerCase();
@@ -64,6 +70,7 @@ export default function StaffServices() {
   const [selectedServiceId, setSelectedServiceId] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [addTouchedFields, setAddTouchedFields] = useState({});
   const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", allowedArrivalTimes: getDefaultArrivalTimesForDuration(0), consumablesBySize: {} });
   const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", allowedArrivalTimes: getDefaultArrivalTimesForDuration(60), consumablesBySize: {} });
   const [serviceFormError, setServiceFormError] = useState("");
@@ -90,6 +97,23 @@ export default function StaffServices() {
         })),
     [stockMonitoring]
   );
+  const validStockNames = useMemo(
+    () => new Set(stockMonitoringOptions.map((item) => String(item.name || "").trim()).filter(Boolean)),
+    [stockMonitoringOptions]
+  );
+  const addConsumableCount = useMemo(
+    () => Object.keys(addForm.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
+    [addForm.consumablesBySize, validStockNames]
+  );
+  const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const addDuplicateNameError = useMemo(() => {
+    const requestedKey = normalizeServiceNameKey(addForm.name);
+    if (!requestedKey) return "";
+    return services.some((service) => normalizeServiceNameKey(service.name) === requestedKey)
+      ? DUPLICATE_SERVICE_MESSAGE
+      : "";
+  }, [addForm.name, services]);
+  const isAddServiceReady = addConsumableCount > 0 && !addDuplicateNameError;
 
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -118,6 +142,10 @@ export default function StaffServices() {
     if (!name) return;
 
     const setter = key === "add" ? setAddForm : setForm;
+    if (key === "add") {
+      setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
+      setServiceFormError("");
+    }
 
     setter((prev) => {
       const current = prev.consumablesBySize || {};
@@ -152,7 +180,9 @@ export default function StaffServices() {
     }));
   };
 
-  const renderConsumablesPicker = (mode, selectedConsumables) => (
+  const renderConsumablesPicker = (mode, selectedConsumables) => {
+    const consumablesError = mode === "add" && addTouchedFields.consumables ? addConsumablesError : "";
+    return (
     <div className="stSvcConsumablesPanel">
       <div className="stSvcConsumablesHeader">
         <div>
@@ -219,8 +249,10 @@ export default function StaffServices() {
       ) : (
         <div className="stSvcConsumablesEmpty">No stock monitoring items available yet.</div>
       )}
+      {consumablesError ? <div className="stSvcFormError" id="staff-add-service-consumables-error">{consumablesError}</div> : null}
     </div>
-  );
+    );
+  };
 
   const renderPriceFields = (mode, priceBySize) => {
     const setter = mode === "add" ? setAddForm : setForm;
@@ -425,7 +457,7 @@ export default function StaffServices() {
 
         <div className="stSvcActionBtns">
           {canManageServices ? (
-            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setIsAddOpen(true); }}>
+            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setIsAddOpen(true); }}>
               Add New Service
             </button>
           ) : null}
@@ -505,20 +537,29 @@ export default function StaffServices() {
       {isAddOpen && (
         <div className="stSvcModalOverlay">
           <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => setIsAddOpen(false)}>
+            <button className="stSvcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>
               x
             </button>
 
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setAddTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
+                if (addDuplicateNameError) {
+                  setServiceFormError(addDuplicateNameError);
+                  return;
+                }
+                if (addConsumablesError) {
+                  setServiceFormError(addConsumablesError);
+                  return;
+                }
                 const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
                 if (!addForm.allowedArrivalTimes?.length) {
                   setServiceFormError("Select at least one required time of arrival.");
                   return;
                 }
                 createService({
-                  name: addForm.name.trim(),
+                  name: addForm.name.trim().replace(/\s+/g, " "),
                   desc: "",
                   serviceType: addForm.serviceType,
                   category: addForm.category,
@@ -530,12 +571,13 @@ export default function StaffServices() {
                   consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
                 });
                 setPage(1);
+                setAddTouchedFields({});
                 setIsAddOpen(false);
               }}
             >
               <div className="stSvcModalTitle">Add Service</div>
               <div className="stSvcFormSection">
-                <label className="stSvcField"><span>Service Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+                <label className="stSvcField"><span>Service Name</span><input value={addForm.name} onBlur={() => setAddTouchedFields((prev) => ({ ...prev, name: true }))} onChange={(e) => { setServiceFormError(""); setAddForm((prev) => ({ ...prev, name: e.target.value })); }} className={addTouchedFields.name && addDuplicateNameError ? "stSvcFieldInvalidInput" : ""} required aria-invalid={addTouchedFields.name && addDuplicateNameError ? "true" : undefined} aria-describedby={addTouchedFields.name && addDuplicateNameError ? "staff-add-service-name-error" : undefined} />{addTouchedFields.name && addDuplicateNameError ? <div className="stSvcFieldError" id="staff-add-service-name-error">{addDuplicateNameError}</div> : null}</label>
                 <div className="stSvcFieldGrid">
                   <label className="stSvcField"><span>Service Type</span><select value={addForm.serviceType} onChange={(e) => setAddForm((prev) => ({ ...prev, serviceType: e.target.value }))}>{SERVICE_TYPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
                   <label className="stSvcField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
@@ -549,7 +591,7 @@ export default function StaffServices() {
               {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
               {renderConsumablesPicker("add", addForm.consumablesBySize)}
               {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => setIsAddOpen(false)}>Cancel</button><button className="stSvcPrimaryBtn" type="submit">Add Service</button></div>
+              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button></div>
             </form>
           </div>
         </div>

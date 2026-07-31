@@ -3531,7 +3531,8 @@ function buildServiceConsumablesBySize(consumablesBySize, legacyConsumables = []
     };
   });
 
-  (legacyConsumables || []).forEach((entry) => {
+  const legacyList = Array.isArray(legacyConsumables) ? legacyConsumables : [];
+  legacyList.forEach((entry) => {
     const parsed = parseConsumableQuantity(entry);
     if (!parsed || normalized[parsed.name]) return;
     normalized[parsed.name] = {
@@ -3543,6 +3544,66 @@ function buildServiceConsumablesBySize(consumablesBySize, legacyConsumables = []
   });
 
   return normalized;
+}
+
+function normalizeServiceDisplayName(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeServiceNameKey(value = "") {
+  return normalizeServiceDisplayName(value).toLowerCase();
+}
+
+async function ensureUniqueServiceName(name, { excludeId = "" } = {}) {
+  const requestedKey = normalizeServiceNameKey(name);
+  if (!requestedKey) {
+    throwValidationError("Service name is required.");
+  }
+
+  const services = await Service.find({}).lean();
+  const duplicate = services.find((service) => {
+    if (excludeId && String(service.id || service._id || "").trim() === String(excludeId).trim()) return false;
+    return normalizeServiceNameKey(service.name) === requestedKey;
+  });
+
+  if (duplicate) {
+    throwValidationError("A service with this name already exists.", 409);
+  }
+}
+
+async function validateServiceConsumablesBySize(consumablesBySize = {}) {
+  const submittedEntries = Object.entries(consumablesBySize || {})
+    .map(([name, quantities]) => [String(name || "").trim(), quantities])
+    .filter(([name]) => Boolean(name));
+
+  if (!submittedEntries.length) {
+    throwValidationError("Please select at least one consumable.");
+  }
+
+  const stockItems = await StockMonitoringItem.find({}).lean();
+  const stockByNameKey = new Map(
+    stockItems
+      .filter((item) => String(item?.name || "").trim())
+      .map((item) => [String(item.name || "").trim().toLowerCase(), String(item.name || "").trim()])
+  );
+  const validated = {};
+
+  submittedEntries.forEach(([name, quantities]) => {
+    const canonicalName = stockByNameKey.get(name.toLowerCase());
+    if (!canonicalName || validated[canonicalName]) return;
+    validated[canonicalName] = {
+      sedanSmallCar: Math.max(0, Number(quantities?.sedanSmallCar) || 0),
+      midsizePickupMpv: Math.max(0, Number(quantities?.midsizePickupMpv) || 0),
+      suv: Math.max(0, Number(quantities?.suv) || 0),
+      xlVanSemiTruck: Math.max(0, Number(quantities?.xlVanSemiTruck) || 0),
+    };
+  });
+
+  if (!Object.keys(validated).length) {
+    throwValidationError("Please select at least one valid consumable.");
+  }
+
+  return validated;
 }
 
 function buildLegacyConsumables(consumablesBySize = {}) {
@@ -7434,13 +7495,18 @@ app.patch("/api/admin/bookings/:id/public-access/:purpose", requireAdminUser, as
 
 app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
   try {
+    const serviceName = normalizeServiceDisplayName(req.body.name);
+    await ensureUniqueServiceName(serviceName);
     const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
-    const consumablesBySize = buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables);
+    const consumablesBySize = await validateServiceConsumablesBySize(
+      buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables)
+    );
     const mins = Math.max(0, Number(req.body.mins) || 0);
     validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
     const payload = {
       ...req.body,
-      serviceType: normalizeServiceType(req.body.serviceType, req.body.name, req.body.desc),
+      name: serviceName,
+      serviceType: normalizeServiceType(req.body.serviceType, serviceName, req.body.desc),
       price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
       priceBySize,
       mins,
@@ -7452,6 +7518,10 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
     await recordAudit(req.body.auditUser, "Created service", service.id, { name: service.name });
     res.status(201).json(hydrateService(service));
   } catch (error) {
+    if (error?.code === 11000) {
+      error.message = "A service with this name already exists.";
+      error.statusCode = 409;
+    }
     next(error);
   }
 });

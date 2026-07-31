@@ -573,6 +573,21 @@
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+.stSvcFieldError {
+  margin-top: -2px;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.stSvcField input.stSvcFieldInvalidInput,
+.stSvcField select.stSvcFieldInvalidInput,
+.stSvcField textarea.stSvcFieldInvalidInput {
+  border-color: #dc2626;
+  background: #fff7f7;
+}
+
 .stSvcFieldGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -845,6 +860,11 @@
 .stSvcPrimaryBtn {
   background: var(--accent);
   color: #fff;
+}
+
+.stSvcPrimaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1180px) {

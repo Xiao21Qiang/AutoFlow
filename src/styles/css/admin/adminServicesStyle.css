@@ -819,6 +819,17 @@
   font-weight: 800;
 }
 
+.svcFieldError {
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.svcFieldInvalidInput {
+  border-color: #fca5a5 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important;
+}
+
 .svcModalActions {
   display: flex;
   justify-content: flex-end;
@@ -859,6 +870,11 @@
 .svcPrimaryBtn {
   background: var(--accent);
   color: #fff;
+}
+
+.svcPrimaryBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .svcDangerBtn {

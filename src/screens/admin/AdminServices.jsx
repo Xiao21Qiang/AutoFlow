@@ -24,6 +24,12 @@ import icoFilter from "../../styles/icons/filter.png";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"];
 const SERVICE_TYPE_OPTIONS = ["Basic Service", "Package"];
+const DUPLICATE_SERVICE_MESSAGE = "A service with this name already exists.";
+const MISSING_CONSUMABLE_MESSAGE = "Please select at least one consumable.";
+
+function normalizeServiceNameKey(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 function getServiceType(service) {
   const raw = String(service?.serviceType || "").trim().toLowerCase();
@@ -68,6 +74,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [securityConfirm, setSecurityConfirm] = useState(null);
+  const [addTouchedFields, setAddTouchedFields] = useState({});
   const [form, setForm] = useState({
     name: "",
     desc: "",
@@ -111,6 +118,23 @@ export default function AdminServices({ initialAction = null, onActionHandled })
         })),
     [stockMonitoring]
   );
+  const validStockNames = useMemo(
+    () => new Set(stockMonitoringOptions.map((item) => String(item.name || "").trim()).filter(Boolean)),
+    [stockMonitoringOptions]
+  );
+  const addConsumableCount = useMemo(
+    () => Object.keys(addForm.consumablesBySize || {}).filter((name) => validStockNames.has(name)).length,
+    [addForm.consumablesBySize, validStockNames]
+  );
+  const addConsumablesError = addConsumableCount > 0 ? "" : MISSING_CONSUMABLE_MESSAGE;
+  const addDuplicateNameError = useMemo(() => {
+    const requestedKey = normalizeServiceNameKey(addForm.name);
+    if (!requestedKey) return "";
+    return services.some((service) => normalizeServiceNameKey(service.name) === requestedKey)
+      ? DUPLICATE_SERVICE_MESSAGE
+      : "";
+  }, [addForm.name, services]);
+  const isAddServiceReady = addConsumableCount > 0 && !addDuplicateNameError;
 
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -145,6 +169,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     if (!name) return;
 
     const setter = key === "add" ? setAddForm : setForm;
+    if (key === "add") {
+      setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
+      setServiceFormError("");
+    }
 
     setter((prev) => {
       const current = prev.consumablesBySize || {};
@@ -179,7 +207,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     }));
   };
 
-  const renderConsumablesPicker = (mode, selectedConsumables) => (
+  const renderConsumablesPicker = (mode, selectedConsumables) => {
+    const consumablesError = mode === "add" && addTouchedFields.consumables ? addConsumablesError : "";
+    return (
     <div className="svcConsumablesPanel">
       <div className="svcConsumablesHeader">
         <div>
@@ -246,8 +276,10 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       ) : (
         <div className="svcConsumablesEmpty">No stock monitoring items available yet.</div>
       )}
+      {consumablesError ? <div className="svcFormError" id="add-service-consumables-error">{consumablesError}</div> : null}
     </div>
-  );
+    );
+  };
 
   const renderPriceFields = (mode, priceBySize) => {
     const setter = mode === "add" ? setAddForm : setForm;
@@ -433,7 +465,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       <div className="servicesRow">
         <div className="svcSearchBox"><img className="svcSearchIcon" src={icoSearch} alt="" /><input className="svcSearchInput" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Services..." /></div>
         <button className="svcFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img className="svcFilterIcon" src={icoFilter} alt="" /></button>
-        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { setServiceFormError(""); setIsAddOpen(true); }}>Add New Service</button></div>
+        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setIsAddOpen(true); }}>Add New Service</button></div>
       </div>
 
       <div className="svcBoard">
@@ -526,10 +558,19 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {isAddOpen && (
         <div className="svcModalOverlay">
           <div className="svcModalCard svcModalCardWide" role="dialog" aria-modal="true">
-            <button className="svcModalClose" type="button" onClick={() => setIsAddOpen(false)}>x</button>
+            <button className="svcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>x</button>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                setAddTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
+                if (addDuplicateNameError) {
+                  setServiceFormError(addDuplicateNameError);
+                  return;
+                }
+                if (addConsumablesError) {
+                  setServiceFormError(addConsumablesError);
+                  return;
+                }
                 const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
                 if (!addForm.allowedArrivalTimes?.length) {
                   setServiceFormError("Select at least one required time of arrival.");
@@ -537,7 +578,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 }
                 const mins = (Number(addForm.durationHours) || 0) * 60;
                 const payload = {
-                  name: addForm.name.trim(),
+                  name: addForm.name.trim().replace(/\s+/g, " "),
                   desc: "",
                   serviceType: addForm.serviceType,
                   category: addForm.category,
@@ -548,14 +589,26 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   enabled: addForm.status === "Active",
                   consumablesBySize: buildConsumablesBySizePayload(addForm.consumablesBySize),
                 };
-                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); } });
+                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); setAddTouchedFields({}); } });
               }}
             >
               <div className="svcModalTitle">Add Service</div>
               <div className="svcFormSection">
                 <label className="svcField">
                   <span>Service Name</span>
-                  <input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required />
+                  <input
+                    value={addForm.name}
+                    onBlur={() => setAddTouchedFields((prev) => ({ ...prev, name: true }))}
+                    onChange={(e) => {
+                      setServiceFormError("");
+                      setAddForm((prev) => ({ ...prev, name: e.target.value }));
+                    }}
+                    className={addTouchedFields.name && addDuplicateNameError ? "svcFieldInvalidInput" : ""}
+                    required
+                    aria-invalid={addTouchedFields.name && addDuplicateNameError ? "true" : undefined}
+                    aria-describedby={addTouchedFields.name && addDuplicateNameError ? "add-service-name-error" : undefined}
+                  />
+                  {addTouchedFields.name && addDuplicateNameError ? <div className="svcFieldError" id="add-service-name-error">{addDuplicateNameError}</div> : null}
                 </label>
                 <div className="svcFieldGrid">
                   <label className="svcField">
@@ -592,8 +645,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
               {renderConsumablesPicker("add", addForm.consumablesBySize)}
               {serviceFormError ? <div className="svcFormError">{serviceFormError}</div> : null}
               <div className="svcModalActions">
-                <button className="svcTextBtn" type="button" onClick={() => setIsAddOpen(false)}>Cancel</button>
-                <button className="svcPrimaryBtn" type="submit">Add Service</button>
+                <button className="svcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button>
+                <button className="svcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button>
               </div>
             </form>
           </div>
