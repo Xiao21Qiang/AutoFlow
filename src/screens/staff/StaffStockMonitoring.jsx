@@ -6,6 +6,7 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { ACTION_KEYS } from "../../utils/rbac";
 import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
+import { getRestockFieldErrors, isRestockFormReady, parsePositiveFiniteNumber } from "../../utils/stockRestockValidation";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -122,6 +123,9 @@ export default function StaffStockMonitoring() {
     supplier: "",
     notes: "",
   });
+  const [restockTouchedFields, setRestockTouchedFields] = useState({});
+  const [restockSubmitAttempted, setRestockSubmitAttempted] = useState(false);
+  const [isRestockSubmitting, setIsRestockSubmitting] = useState(false);
   const [addForm, setAddForm] = useState({
     name: "",
     category: "Coating",
@@ -163,6 +167,9 @@ export default function StaffStockMonitoring() {
   const closeModal = () => {
     setModal(null);
     setSelectedItemId(null);
+    setRestockTouchedFields({});
+    setRestockSubmitAttempted(false);
+    setIsRestockSubmitting(false);
   };
 
   const openEditModal = (item) => {
@@ -190,6 +197,9 @@ export default function StaffStockMonitoring() {
       supplier: "",
       notes: "",
     });
+    setRestockTouchedFields({});
+    setRestockSubmitAttempted(false);
+    setIsRestockSubmitting(false);
     setModal("restock");
   };
 
@@ -216,6 +226,15 @@ export default function StaffStockMonitoring() {
   };
 
   const getErrorMessage = (error, fallback) => error?.message || fallback;
+
+  const markRestockFieldTouched = (field) => {
+    setRestockTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const restockFieldErrors = getRestockFieldErrors(restockForm);
+  const restockQuantityError = restockTouchedFields.qtyToAdd || restockSubmitAttempted ? restockFieldErrors.qtyToAdd : "";
+  const restockUnitCostError = restockTouchedFields.costPerUnit || restockSubmitAttempted ? restockFieldErrors.costPerUnit : "";
+  const isSaveRestockDisabled = isRestockSubmitting || !isRestockFormReady(restockForm);
 
   const handleEditSubmit = async (event) => {
     event.preventDefault();
@@ -279,6 +298,11 @@ export default function StaffStockMonitoring() {
 
   const handleRestockSubmit = async (event) => {
     event.preventDefault();
+    setRestockSubmitAttempted(true);
+    setRestockTouchedFields({ qtyToAdd: true, costPerUnit: true });
+    if (!isRestockFormReady(restockForm)) {
+      return;
+    }
     try {
       const validationMessage = validateStockLimit({
         currentStock: selectedItem?.currentStock,
@@ -290,10 +314,11 @@ export default function StaffStockMonitoring() {
         return;
       }
 
+      setIsRestockSubmitting(true);
       await restockStockMonitoringItem(selectedItem.id, {
         ...restockForm,
-        qtyToAdd: clampNumber(restockForm.qtyToAdd),
-        costPerUnit: clampNumber(restockForm.costPerUnit),
+        qtyToAdd: parsePositiveFiniteNumber(restockForm.qtyToAdd).value,
+        costPerUnit: parsePositiveFiniteNumber(restockForm.costPerUnit).value,
         supplier: "",
         notes: "",
       });
@@ -301,6 +326,8 @@ export default function StaffStockMonitoring() {
       closeModal();
     } catch (error) {
       showToast("error", getErrorMessage(error, "Could not restock item."));
+    } finally {
+      setIsRestockSubmitting(false);
     }
   };
 
@@ -696,9 +723,13 @@ export default function StaffStockMonitoring() {
                       type="number"
                       min="1"
                       value={restockForm.qtyToAdd}
+                      onBlur={() => markRestockFieldTouched("qtyToAdd")}
                       onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))}
+                      aria-invalid={restockQuantityError ? "true" : undefined}
+                      aria-describedby={restockQuantityError ? "staff-restock-quantity-error" : undefined}
                       required
                     />
+                    {restockQuantityError ? <div className="stInvFieldError" id="staff-restock-quantity-error">{restockQuantityError}</div> : null}
                   </label>
                 </div>
 
@@ -715,16 +746,20 @@ export default function StaffStockMonitoring() {
                   </label>
 
                   <label className="stInvField">
-                    <span>Cost Per Unit (P)</span>
+                    <span>Unit Cost</span>
                     <input
                       type="number"
                       min="0"
                       value={restockForm.costPerUnit}
+                      onBlur={() => markRestockFieldTouched("costPerUnit")}
                       onChange={(e) =>
                         setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))
                       }
+                      aria-invalid={restockUnitCostError ? "true" : undefined}
+                      aria-describedby={restockUnitCostError ? "staff-restock-unit-cost-error" : undefined}
                       required
                     />
+                    {restockUnitCostError ? <div className="stInvFieldError" id="staff-restock-unit-cost-error">{restockUnitCostError}</div> : null}
                   </label>
                 </div>
 
@@ -732,7 +767,7 @@ export default function StaffStockMonitoring() {
                   <button className="stInvTextBtn" type="button" onClick={closeModal}>
                     Cancel
                   </button>
-                  <button className="stInvPrimaryBtn" type="submit">
+                  <button className="stInvPrimaryBtn" type="submit" disabled={isSaveRestockDisabled}>
                     Save Restock
                   </button>
                 </div>

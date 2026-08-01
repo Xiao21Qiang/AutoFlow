@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
+import { getRestockFieldErrors, isRestockFormReady, parsePositiveFiniteNumber } from "../../utils/stockRestockValidation";
 
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -99,6 +100,9 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const [toast, setToast] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", category: "", currentStock: "", maxStock: "", reorderLevel: "", pricePerUnit: "" });
   const [restockForm, setRestockForm] = useState({ date: formatDateInput(), itemName: "", currentStock: "", qtyToAdd: "", restockedBy: "Admin", costPerUnit: "", supplier: "", notes: "" });
+  const [restockTouchedFields, setRestockTouchedFields] = useState({});
+  const [restockSubmitAttempted, setRestockSubmitAttempted] = useState(false);
+  const [isRestockSubmitting, setIsRestockSubmitting] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", category: "Coating", currentStock: "0", maxStock: "0", reorderLevel: "0", pricePerUnit: "0" });
 
   const selectedItem = stockMonitoring.find((item) => item.id === selectedItemId) || null;
@@ -133,6 +137,33 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
 
   const getErrorMessage = (error, fallback) => error?.message || fallback;
 
+  const resetRestockValidation = () => {
+    setRestockTouchedFields({});
+    setRestockSubmitAttempted(false);
+    setIsRestockSubmitting(false);
+  };
+
+  const closeModal = () => {
+    setModal(null);
+    resetRestockValidation();
+  };
+
+  const openRestockModal = (item) => {
+    setSelectedItemId(item.id);
+    setRestockForm({ date: formatDateInput(), itemName: item.name, currentStock: String(item.currentStock), qtyToAdd: "", restockedBy: "Admin", costPerUnit: String(item.pricePerUnit), supplier: "", notes: "" });
+    resetRestockValidation();
+    setModal("restock");
+  };
+
+  const markRestockFieldTouched = (field) => {
+    setRestockTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const restockFieldErrors = getRestockFieldErrors(restockForm);
+  const restockQuantityError = restockTouchedFields.qtyToAdd || restockSubmitAttempted ? restockFieldErrors.qtyToAdd : "";
+  const restockUnitCostError = restockTouchedFields.costPerUnit || restockSubmitAttempted ? restockFieldErrors.costPerUnit : "";
+  const isSaveRestockDisabled = isRestockSubmitting || !isRestockFormReady(restockForm);
+
   const handleEditSubmit = async (event) => {
     event.preventDefault();
     try {
@@ -157,6 +188,11 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
 
   const handleRestockSubmit = async (event) => {
     event.preventDefault();
+    setRestockSubmitAttempted(true);
+    setRestockTouchedFields({ qtyToAdd: true, costPerUnit: true });
+    if (!isRestockFormReady(restockForm)) {
+      return;
+    }
     try {
       const validationMessage = validateStockLimit({
         currentStock: selectedItem?.currentStock,
@@ -168,11 +204,14 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
         return;
       }
 
-      await restockStockMonitoringItem(selectedItem.id, { ...restockForm, qtyToAdd: clampNumber(restockForm.qtyToAdd), costPerUnit: clampNumber(restockForm.costPerUnit), supplier: "", notes: "" });
+      setIsRestockSubmitting(true);
+      await restockStockMonitoringItem(selectedItem.id, { ...restockForm, qtyToAdd: parsePositiveFiniteNumber(restockForm.qtyToAdd).value, costPerUnit: parsePositiveFiniteNumber(restockForm.costPerUnit).value, supplier: "", notes: "" });
       showToast("success", "Stock item restocked.");
-      setModal(null);
+      closeModal();
     } catch (error) {
       showToast("error", getErrorMessage(error, "Could not restock item."));
+    } finally {
+      setIsRestockSubmitting(false);
     }
   };
 
@@ -208,7 +247,7 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
       </div>
 
       <div className="invBoard">
-        <table className="invTable"><thead><tr className="invGuideHeadRow"><th colSpan={8}><div className="invGuidePanel"><div className="invGuideCopy"><div className="invGuideEyebrow">Stock Status Guide</div><div className="invGuideText">Use the indicator color to quickly understand whether an item is critical, low, or still healthy.</div></div><div className="invLegendList">{STOCK_LEGEND.map((item) => (<div key={item.tone} className={`invLegendItem ${item.tone}`}><div className="invLegendBar" aria-hidden="true"><span className={`invLegendBarFill ${item.tone}`} /></div><div className="invLegendMeta"><span className="invLegendLabel">{item.label}</span><span className="invLegendRange">{item.range}</span><span className="invLegendNote">{item.note}</span></div></div>))}</div></div></th></tr><tr><th>Item ID</th><th>Item Name</th><th>Category</th><th>Current Stock (Qty)</th><th>Max Stock (Qty)</th><th>Stocks Percentage</th><th>Last Restocked</th><th>Actions</th></tr></thead><tbody>{paged.map((item) => { const percent = getStockPercent(item); const tone = getStockTone(item); return <tr key={item.id}><td>{item.id}</td><td>{item.name}</td><td>{item.category}</td><td className={`invStockValue ${tone}`}>{item.currentStock}</td><td>{item.maxStock}</td><td><div className="invPercentCell"><div className="invPercentTrack"><div className={`invPercentFill ${tone}`} style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td><td>{item.lastRestocked}</td><td><div className="invActionStack"><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setEditForm({ name: item.name, category: item.category, currentStock: String(item.currentStock), maxStock: String(item.maxStock), pricePerUnit: String(item.pricePerUnit) }); setModal("edit"); }}>Edit</button><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setRestockForm({ date: formatDateInput(), itemName: item.name, currentStock: String(item.currentStock), qtyToAdd: "", restockedBy: "Admin", costPerUnit: String(item.pricePerUnit), supplier: "", notes: "" }); setModal("restock"); }}>Restock</button><button className="invMiniBtn invMiniBtnDanger" type="button" onClick={() => { setSelectedItemId(item.id); setModal("delete"); }}>Delete</button></div></td></tr>; })}{paged.length === 0 && <tr><td colSpan={8} className="invEmptyRow">No items found.</td></tr>}</tbody></table></div>
+        <table className="invTable"><thead><tr className="invGuideHeadRow"><th colSpan={8}><div className="invGuidePanel"><div className="invGuideCopy"><div className="invGuideEyebrow">Stock Status Guide</div><div className="invGuideText">Use the indicator color to quickly understand whether an item is critical, low, or still healthy.</div></div><div className="invLegendList">{STOCK_LEGEND.map((item) => (<div key={item.tone} className={`invLegendItem ${item.tone}`}><div className="invLegendBar" aria-hidden="true"><span className={`invLegendBarFill ${item.tone}`} /></div><div className="invLegendMeta"><span className="invLegendLabel">{item.label}</span><span className="invLegendRange">{item.range}</span><span className="invLegendNote">{item.note}</span></div></div>))}</div></div></th></tr><tr><th>Item ID</th><th>Item Name</th><th>Category</th><th>Current Stock (Qty)</th><th>Max Stock (Qty)</th><th>Stocks Percentage</th><th>Last Restocked</th><th>Actions</th></tr></thead><tbody>{paged.map((item) => { const percent = getStockPercent(item); const tone = getStockTone(item); return <tr key={item.id}><td>{item.id}</td><td>{item.name}</td><td>{item.category}</td><td className={`invStockValue ${tone}`}>{item.currentStock}</td><td>{item.maxStock}</td><td><div className="invPercentCell"><div className="invPercentTrack"><div className={`invPercentFill ${tone}`} style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td><td>{item.lastRestocked}</td><td><div className="invActionStack"><button className="invMiniBtn" type="button" onClick={() => { setSelectedItemId(item.id); setEditForm({ name: item.name, category: item.category, currentStock: String(item.currentStock), maxStock: String(item.maxStock), pricePerUnit: String(item.pricePerUnit) }); setModal("edit"); }}>Edit</button><button className="invMiniBtn" type="button" onClick={() => openRestockModal(item)}>Restock</button><button className="invMiniBtn invMiniBtnDanger" type="button" onClick={() => { setSelectedItemId(item.id); setModal("delete"); }}>Delete</button></div></td></tr>; })}{paged.length === 0 && <tr><td colSpan={8} className="invEmptyRow">No items found.</td></tr>}</tbody></table></div>
 
       <div className="invPagerRow"><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button><span className="invPagerNum">{safePage}</span><button className="invPagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>
 
@@ -232,7 +271,7 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
         </div>
       )}
 
-      {modal === "restock" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button><form onSubmit={handleRestockSubmit}><div className="invModalTitle">Restock Item</div><label className="invField"><span>Date</span><input type="date" value={restockForm.date} readOnly /></label><label className="invField"><span>Quantity to Add</span><input type="number" value={restockForm.qtyToAdd} onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))} /></label><label className="invField"><span>Unit Cost</span><input type="number" value={restockForm.costPerUnit} onChange={(e) => setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))} /></label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Save Restock</button></div></form></div></div>}
+      {modal === "restock" && selectedItem && <div className="invModalOverlay"><div className="invModalCard"><button className="invModalClose" type="button" onClick={closeModal}>x</button><form onSubmit={handleRestockSubmit}><div className="invModalTitle">Restock Item</div><label className="invField"><span>Date</span><input type="date" value={restockForm.date} readOnly /></label><label className="invField"><span>Quantity to Add</span><input type="number" value={restockForm.qtyToAdd} onBlur={() => markRestockFieldTouched("qtyToAdd")} onChange={(e) => setRestockForm((prev) => ({ ...prev, qtyToAdd: e.target.value }))} aria-invalid={restockQuantityError ? "true" : undefined} aria-describedby={restockQuantityError ? "admin-restock-quantity-error" : undefined} />{restockQuantityError ? <div className="invFieldError" id="admin-restock-quantity-error">{restockQuantityError}</div> : null}</label><label className="invField"><span>Unit Cost</span><input type="number" value={restockForm.costPerUnit} onBlur={() => markRestockFieldTouched("costPerUnit")} onChange={(e) => setRestockForm((prev) => ({ ...prev, costPerUnit: e.target.value }))} aria-invalid={restockUnitCostError ? "true" : undefined} aria-describedby={restockUnitCostError ? "admin-restock-unit-cost-error" : undefined} />{restockUnitCostError ? <div className="invFieldError" id="admin-restock-unit-cost-error">{restockUnitCostError}</div> : null}</label><div className="invModalActions"><button className="invTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="invPrimaryBtn" type="submit" disabled={isSaveRestockDisabled}>Save Restock</button></div></form></div></div>}
 
       {modal === "add" && (
         <div className="invModalOverlay">

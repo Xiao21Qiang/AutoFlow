@@ -1,8 +1,24 @@
 const { toFiniteNumber } = require("./money");
 
+const RESTOCK_UNIT_COST_ERROR = "Unit Cost must be greater than zero.";
+
 function normalizeStockQuantity(value) {
   const number = toFiniteNumber(value, 0);
   return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeRestockUnitCost(value) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return NaN;
+
+  const number = Number(rawValue);
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function validateRestockUnitCost(value) {
+  const number = normalizeRestockUnitCost(value);
+  if (!Number.isFinite(number) || number <= 0) return RESTOCK_UNIT_COST_ERROR;
+  return "";
 }
 
 function deriveFallbackReorderLevel(maxStock) {
@@ -91,7 +107,9 @@ module.exports = {
   getEffectiveReorderLevel,
   getStockPercent,
   getStockStatus,
+  normalizeRestockUnitCost,
   normalizeStockPayload,
   normalizeStockQuantity,
+  validateRestockUnitCost,
   validateStockPayload,
 };

@@ -7962,16 +7962,22 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
       res.status(400).json({ message: validationMessage });
       return;
     }
+    const unitCostValidationMessage = stockDomain.validateRestockUnitCost(req.body.costPerUnit);
+    if (unitCostValidationMessage) {
+      res.status(400).json({ message: unitCostValidationMessage });
+      return;
+    }
+    const costPerUnit = stockDomain.normalizeRestockUnitCost(req.body.costPerUnit);
 
     item.currentStock = normalizeStockQuantityValue(item.currentStock) + qtyToAdd;
-    item.pricePerUnit = Number(req.body.costPerUnit || item.pricePerUnit || 0);
+    item.pricePerUnit = costPerUnit;
     item.lastRestocked = req.body.date || item.lastRestocked;
     item.restockHistory.unshift({
       date: req.body.date || "",
       time: req.body.time || "",
       qtyToAdd,
       restockedBy: req.body.restockedBy || "",
-      costPerUnit: Number(req.body.costPerUnit || 0),
+      costPerUnit,
       supplier: req.body.supplier || "",
       notes: req.body.notes || "",
       restockedAt: ((req.body.date || "") + " " + (req.body.time || "")).trim(),
@@ -7986,7 +7992,7 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
         description: "Restock: " + item.name,
         note: req.body.notes || "",
         category: "Supplies",
-        amount: qtyToAdd * Number(req.body.costPerUnit || 0),
+        amount: qtyToAdd * costPerUnit,
         paidBy: req.body.restockedBy || "Admin",
       });
     }
