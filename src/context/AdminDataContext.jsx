@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../services/api";
 import { isValidStaffRole, normalizeStaffRole } from "../utils/staffRoles";
 
@@ -251,6 +251,21 @@ function resetPasswordWithOtp(payload) {
   });
 }
 
+function getStoredBootstrapToken() {
+  if (typeof window === "undefined" || !window.localStorage) return "";
+  return localStorage.getItem("token") || "";
+}
+
+function buildBootstrapSessionKey(session) {
+  return [
+    getStoredBootstrapToken(),
+    String(session?.id || "").trim(),
+    String(session?.email || "").trim().toLowerCase(),
+    normalizeUserType(session?.userType, session?.role),
+    String(session?.role || "").trim().toLowerCase(),
+  ].join("|");
+}
+
 export function AdminDataProvider({ children, session }) {
   const [data, setData] = useState(INITIAL_DATA);
   const [loading, setLoading] = useState(true);
@@ -261,9 +276,12 @@ export function AdminDataProvider({ children, session }) {
   const [lastReadNotificationId, setLastReadNotificationId] = useState("");
   const notificationsBootstrappedRef = useRef(false);
   const previousNotificationIdsRef = useRef([]);
+  const inFlightBootstrapRef = useRef(null);
+  const latestBootstrapRequestIdRef = useRef(0);
 
   const auditUser = session?.email || session?.name || "admin@allprotec.com";
   const currentRole = normalizeUserType(session?.userType, session?.role);
+  const bootstrapSessionKey = buildBootstrapSessionKey(session);
   const notificationStorageKey = useMemo(
     () => `autoflow:last-read-notification:${String(session?.email || currentRole || "guest").toLowerCase()}`,
     [session?.email, currentRole]
@@ -342,24 +360,92 @@ export function AdminDataProvider({ children, session }) {
     }
   }, [visibleNotifications, notificationStorageKey, session?.email]);
 
-  const loadAdminData = async ({ silent = false } = {}) => {
+  const startBootstrapRequest = useCallback(({ silent = false } = {}) => {
+    const requestId = latestBootstrapRequestIdRef.current + 1;
+    latestBootstrapRequestIdRef.current = requestId;
+    const activeRequest = {
+      requestId,
+      sessionKey: bootstrapSessionKey,
+      showLoading: !silent,
+      promise: null,
+      followUpPromise: null,
+    };
+
     if (!silent) {
       setLoading(true);
     }
-    try {
-      const payload = await apiRequest("/api/admin/bootstrap");
-      setData({ ...INITIAL_DATA, ...payload });
-      setError("");
-    } catch (err) {
-      setError(err.message || "Failed to load admin data.");
-    } finally {
+
+    const promise = apiRequest("/api/admin/bootstrap")
+      .then((payload) => {
+        if (
+          latestBootstrapRequestIdRef.current === requestId &&
+          inFlightBootstrapRef.current?.sessionKey === bootstrapSessionKey
+        ) {
+          setData({ ...INITIAL_DATA, ...payload });
+          setError("");
+        }
+        return payload;
+      })
+      .catch((err) => {
+        if (
+          latestBootstrapRequestIdRef.current === requestId &&
+          inFlightBootstrapRef.current?.sessionKey === bootstrapSessionKey
+        ) {
+          setError(err.message || "Failed to load admin data.");
+        }
+        return null;
+      })
+      .finally(() => {
+        if (
+          inFlightBootstrapRef.current?.requestId === requestId &&
+          inFlightBootstrapRef.current?.sessionKey === bootstrapSessionKey
+        ) {
+          if (inFlightBootstrapRef.current.showLoading) {
+            setLoading(false);
+          }
+          inFlightBootstrapRef.current = null;
+        }
+      });
+
+    activeRequest.promise = promise;
+    inFlightBootstrapRef.current = activeRequest;
+    return promise;
+  }, [bootstrapSessionKey]);
+
+  const loadAdminData = useCallback(({ silent = false, ensureFresh = false } = {}) => {
+    const activeRequest = inFlightBootstrapRef.current;
+    if (activeRequest?.sessionKey === bootstrapSessionKey) {
       if (!silent) {
-        setLoading(false);
+        activeRequest.showLoading = true;
+        setLoading(true);
       }
+
+      if (!ensureFresh) {
+        return activeRequest.promise;
+      }
+
+      if (!activeRequest.followUpPromise) {
+        activeRequest.followUpPromise = activeRequest.promise.then(() => {
+          if (inFlightBootstrapRef.current || bootstrapSessionKey !== buildBootstrapSessionKey(session)) {
+            return inFlightBootstrapRef.current?.promise || null;
+          }
+          return startBootstrapRequest({ silent });
+        });
+      }
+
+      return activeRequest.followUpPromise;
     }
-  };
+
+    return startBootstrapRequest({ silent });
+  }, [bootstrapSessionKey, session, startBootstrapRequest]);
 
   useEffect(() => {
+    inFlightBootstrapRef.current = null;
+    latestBootstrapRequestIdRef.current += 1;
+    notificationsBootstrappedRef.current = false;
+    previousNotificationIdsRef.current = [];
+    setData(INITIAL_DATA);
+    setError("");
     loadAdminData();
 
     const refreshFromDatabase = () => {
@@ -386,13 +472,23 @@ export function AdminDataProvider({ children, session }) {
       window.removeEventListener("focus", refreshFromDatabase);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [bootstrapSessionKey, loadAdminData]);
 
-  const mutate = async (path, options = {}) => {
+  const mutate = async (path, options = {}, syncOptions = {}) => {
     const result = await apiRequest(path, options);
-    await loadAdminData();
+    if (typeof syncOptions.applyResult === "function") {
+      setData((currentData) => syncOptions.applyResult(currentData, result));
+    }
+    if (syncOptions.refresh !== false) {
+      await loadAdminData({ ensureFresh: true });
+    }
     return result;
   };
+
+  const withServices = (updater) => (currentData, result) => ({
+    ...currentData,
+    services: updater(Array.isArray(currentData.services) ? currentData.services : [], result),
+  });
 
   const currentUser = useMemo(() => {
     const foundUser = data.users.find((user) => user.email === session?.email);
@@ -469,13 +565,40 @@ export function AdminDataProvider({ children, session }) {
         method: "DELETE",
         body: JSON.stringify({ ...payload, auditUser }),
       }),
-    createService: (payload) => mutate("/api/admin/services", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
-    updateService: (id, payload) => mutate("/api/admin/services/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
-    toggleService: (service) => mutate("/api/admin/services/" + service.id, { method: "PUT", body: JSON.stringify({ enabled: !service.enabled, auditUser }) }),
+    createService: (payload) =>
+      mutate(
+        "/api/admin/services",
+        { method: "POST", body: JSON.stringify({ ...payload, auditUser }) },
+        {
+          refresh: false,
+          applyResult: withServices((services, service) => [service, ...services]),
+        }
+      ),
+    updateService: (id, payload) =>
+      mutate(
+        "/api/admin/services/" + id,
+        { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) },
+        {
+          refresh: false,
+          applyResult: withServices((services, result) => services.map((service) => service.id === id ? result : service)),
+        }
+      ),
+    toggleService: (service) =>
+      mutate(
+        "/api/admin/services/" + service.id,
+        { method: "PUT", body: JSON.stringify({ enabled: !service.enabled, auditUser }) },
+        {
+          refresh: false,
+          applyResult: withServices((services, result) => services.map((item) => item.id === service.id ? result : item)),
+        }
+      ),
     deleteService: (id) =>
       mutate("/api/admin/services/" + id, {
         method: "DELETE",
         body: JSON.stringify({ auditUser }),
+      }, {
+        refresh: false,
+        applyResult: withServices((services) => services.filter((service) => service.id !== id)),
       }),
     createStockMonitoringItem: (payload) => mutate("/api/admin/stock-monitoring", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateStockMonitoringItem: (id, payload) => mutate("/api/admin/stock-monitoring/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),

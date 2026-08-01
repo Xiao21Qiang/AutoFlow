@@ -3,6 +3,7 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 const path = require("path");
+const { performance } = require("perf_hooks");
 const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
@@ -78,6 +79,8 @@ const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const GROQ_MODEL = String(process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
 const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BOOTSTRAP_PERF_LOGS = String(process.env.BOOTSTRAP_PERF_LOGS || "").trim().toLowerCase() === "true";
+let bootstrapPerfRequestCounter = 0;
 const vehicleReferenceCache = new Map();
 let smtpMailTransportPromise = null;
 let testBootstrapDataOverride = null;
@@ -5300,29 +5303,87 @@ async function migrateStockMonitoringCollection() {
   await db.db.collection(legacyCollection).drop();
 }
 
-async function loadBootstrapData() {
+function createAdminBootstrapProfiler(enabled = BOOTSTRAP_PERF_LOGS) {
+  const requestId = `${Date.now().toString(36)}-${++bootstrapPerfRequestCounter}`;
+  const startedAt = performance.now();
+  return {
+    enabled,
+    requestId,
+    log(section, durationMs, count) {
+      if (!enabled) return;
+      const countText = Number.isFinite(count) ? ` count=${count}` : "";
+      console.info(`[admin-bootstrap:${requestId}] ${section}=${durationMs.toFixed(1)}ms${countText}`);
+    },
+    finish(payloadBytes) {
+      if (!enabled) return;
+      const bytesText = Number.isFinite(payloadBytes) ? ` payloadBytes=${payloadBytes}` : "";
+      console.info(`[admin-bootstrap:${requestId}] total=${(performance.now() - startedAt).toFixed(1)}ms${bytesText}`);
+    },
+  };
+}
+
+async function timeBootstrapSection(profiler, section, work, getCount = (value) => Array.isArray(value) ? value.length : undefined) {
+  const startedAt = performance.now();
+  const result = await work;
+  profiler?.log(section, performance.now() - startedAt, getCount(result));
+  return result;
+}
+
+function buildPaidPaymentByRewardId(payments = []) {
+  const lookup = new Map();
+  for (const payment of payments || []) {
+    const rewardId = String(payment?.rewardId || "").trim();
+    if (!rewardId || lookup.has(rewardId) || !paymentDomain.isPaidStatus(payment?.status)) continue;
+    lookup.set(rewardId, payment);
+  }
+  return lookup;
+}
+
+function hydrateCustomerRewardForBootstrap(customerReward = {}, paidPaymentByRewardId = new Map(), now = new Date()) {
+  const source = customerReward?.toObject ? customerReward.toObject() : { ...(customerReward || {}) };
+  const paidPayment = paidPaymentByRewardId.get(String(source.id || "").trim());
+  const expired = isRewardExpired(source, now);
+  const status = paidPayment
+    ? "Used"
+    : expired && !["Used", "Cancelled"].includes(getCustomerRewardUsageStatus(source))
+      ? "Expired"
+      : getCustomerRewardUsageStatus(source);
+  return {
+    ...source,
+    status,
+    dateGranted: source.dateGranted || source.dateEarned || "",
+    dateEarned: source.dateEarned || source.dateGranted || "",
+    milestoneNumber: Math.max(0, Number(source.milestoneNumber || 0) || 0),
+    linkedBookingId: source.linkedBookingId || source.reservedBookingId || paidPayment?.bookingId || "",
+    linkedPaymentId: source.linkedPaymentId || paidPayment?.id || "",
+    usedAt: source.usedAt || (paidPayment ? paidPayment.updatedAt || paidPayment.createdAt || "" : ""),
+  };
+}
+
+async function loadBootstrapData({ profiler = null } = {}) {
   if (typeof testBootstrapDataOverride === "function") {
     return testBootstrapDataOverride();
   }
 
   const [bookings, services, stockMonitoring, payments, users, auditLogs, archivedAuditLogs, reviews, promos, quoteRequests, expenses, commissions, rewards, customerRewards, securitySetting] = await Promise.all([
-    Booking.find().sort({ createdAt: -1 }).lean(),
-    Service.find().sort({ createdAt: -1 }).lean(),
-    StockMonitoringItem.find().sort({ createdAt: -1 }).lean(),
-    Payment.find().sort({ createdAt: -1 }).lean(),
-    User.find().sort({ createdAt: -1 }).lean(),
-    AuditLog.find({ archived: { $ne: true } }).sort({ createdAt: -1 }).limit(100).lean(),
-    AuditLog.find({ archived: true }).sort({ archivedAt: -1, createdAt: -1 }).limit(100).lean(),
-    Review.find().sort({ createdAt: -1 }).lean(),
-    Promo.find().sort({ createdAt: -1 }).lean(),
-    QuoteRequest.find().sort({ createdAt: -1 }).lean(),
-    Expense.find().sort({ date: -1, createdAt: -1 }).lean(),
-    Commission.find().sort({ date: -1, createdAt: -1 }).lean(),
-    Reward.find().sort({ createdAt: -1 }).lean(),
-    CustomerReward.find().sort({ createdAt: -1 }).lean(),
-    getOrCreateSecuritySetting(),
+    timeBootstrapSection(profiler, "bookings", Booking.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "services", Service.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "stock", StockMonitoringItem.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "payments", Payment.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "users", User.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "audits", AuditLog.find({ archived: { $ne: true } }).sort({ createdAt: -1 }).limit(100).lean()),
+    timeBootstrapSection(profiler, "archivedAudits", AuditLog.find({ archived: true }).sort({ archivedAt: -1, createdAt: -1 }).limit(100).lean()),
+    timeBootstrapSection(profiler, "reviews", Review.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "promos", Promo.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "quoteRequests", QuoteRequest.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "expenses", Expense.find().sort({ date: -1, createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "commissions", Commission.find().sort({ date: -1, createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "rewards", Reward.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "customerRewards", CustomerReward.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "securitySetting", getOrCreateSecuritySetting(), () => undefined),
   ]);
 
+  const transformationStartedAt = performance.now();
   const bookingById = new Map(bookings.map((booking) => [String(booking.id || "").trim(), booking]));
   const normalizedPayments = payments.map((payment) => {
     const booking = bookingById.get(String(payment.bookingId || "").trim()) || {};
@@ -5333,6 +5394,7 @@ async function loadBootstrapData() {
       invoice: invoiceDomain.buildInvoiceDto(normalizedPayment, booking),
     };
   });
+  const paidPaymentByRewardId = buildPaidPaymentByRewardId(normalizedPayments);
   const normalizedStockMonitoring = stockMonitoring.map((item) => {
     const stockStatus = stockDomain.getStockStatus(item);
     return {
@@ -5362,7 +5424,7 @@ async function loadBootstrapData() {
     alerts.push({ title: "All systems good", description: "No urgent admin alerts right now." });
   }
 
-  return {
+  const payload = {
     bookings: bookings.map((booking) => appendBookingAccessLinks(booking)),
     services: services.map((service) => hydrateService(service)),
     stockMonitoring: normalizedStockMonitoring,
@@ -5376,7 +5438,7 @@ async function loadBootstrapData() {
     expenses,
     commissions,
     rewards,
-    customerRewards: customerRewards.map((reward) => hydrateCustomerReward(reward, normalizedPayments)),
+    customerRewards: customerRewards.map((reward) => hydrateCustomerRewardForBootstrap(reward, paidPaymentByRewardId)),
     settings: getSafeSecuritySettings(securitySetting),
     alerts,
     financialReport: invoiceDomain.buildFinancialReportDto({
@@ -5401,6 +5463,8 @@ async function loadBootstrapData() {
       quoteRequestCount: businessSummary.quoteRequestCount,
     },
   };
+  profiler?.log("transformation", performance.now() - transformationStartedAt);
+  return payload;
 }
 
 function normalizeAuditIdentity(value) {
@@ -5964,8 +6028,23 @@ app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
 });
 
 app.get("/api/admin/bootstrap", async (_req, res, next) => {
+  const profiler = createAdminBootstrapProfiler();
   try {
-    res.json(filterBootstrapDataForRole(await loadBootstrapData(), _req.authUser));
+    const data = await loadBootstrapData({ profiler });
+    const roleFilterStartedAt = performance.now();
+    const scopedData = filterBootstrapDataForRole(data, _req.authUser);
+    profiler.log("roleFilter", performance.now() - roleFilterStartedAt);
+
+    if (profiler.enabled) {
+      const serializationStartedAt = performance.now();
+      const payload = JSON.stringify(scopedData);
+      profiler.log("serialization", performance.now() - serializationStartedAt);
+      profiler.finish(Buffer.byteLength(payload, "utf8"));
+      res.type("json").send(payload);
+      return;
+    }
+
+    res.json(scopedData);
   } catch (error) {
     next(error);
   }
@@ -9403,6 +9482,7 @@ module.exports = {
   createBookingAccessToken,
   filterBootstrapDataForRole,
   getBookingAccessVersion,
+  loadBootstrapData,
   parseExportFilters,
   isBookingAccessRevoked,
   isActiveAccount,
