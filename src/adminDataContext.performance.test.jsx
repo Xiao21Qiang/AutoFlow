@@ -86,6 +86,7 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
   });
 
@@ -197,6 +198,81 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
     expect(screen.getByTestId("loading")).toHaveTextContent("ready");
   });
 
+  test("focus during initial bootstrap reuses the pending request without a follow-up", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(requests).toHaveLength(1);
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(1);
+  });
+
+  test("visibility during initial bootstrap reuses the pending request without a follow-up", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(requests).toHaveLength(1);
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(1);
+  });
+
+  test("poll during pending bootstrap does not overlap or queue a passive follow-up", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    act(() => {
+      context.reload({ silent: true, reason: "poll" });
+    });
+
+    expect(requests).toHaveLength(1);
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(1);
+  });
+
+  test("several passive triggers during one request still produce only one request", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      context.reload({ silent: true, reason: "poll" });
+    });
+
+    expect(requests).toHaveLength(1);
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+    expect(requests).toHaveLength(1);
+  });
+
   test("service updates use the mutation response without a full bootstrap refresh", async () => {
     await renderAndResolveInitial({ services: [{ id: "SVC-1", name: "Old Service", enabled: true }] });
 
@@ -212,6 +288,31 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
       expect.objectContaining({ method: "PUT" })
     );
     expect(screen.getByTestId("serviceNames")).toHaveTextContent("New Service");
+  });
+
+  test("service create, toggle, and delete stay local without bootstrap refresh", async () => {
+    await renderAndResolveInitial({ services: [{ id: "SVC-1", name: "Existing Service", enabled: true }] });
+
+    apiRequest
+      .mockImplementationOnce(async () => ({ id: "SVC-2", name: "Created Service", enabled: true }))
+      .mockImplementationOnce(async () => ({ id: "SVC-2", name: "Created Service", enabled: false }))
+      .mockImplementationOnce(async () => null);
+
+    await act(async () => {
+      await context.createService({ name: "Created Service" });
+      await context.toggleService({ id: "SVC-2", enabled: true });
+      await context.deleteService("SVC-2");
+    });
+
+    expect(apiRequest).toHaveBeenCalledTimes(3);
+    expect(apiRequest.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/services",
+      "/api/admin/services/SVC-2",
+      "/api/admin/services/SVC-2",
+    ]);
+    expect(apiRequest.mock.calls.some(([path]) => path === "/api/admin/bootstrap")).toBe(false);
+    expect(screen.getByTestId("serviceNames")).toHaveTextContent("Existing Service");
+    expect(screen.getByTestId("serviceNames")).not.toHaveTextContent("Created Service");
   });
 
   test("successful sensitive mutations perform at most one bootstrap synchronization", async () => {
@@ -230,6 +331,82 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
       "/api/admin/payments/PAY-1",
       "/api/admin/bootstrap",
     ]);
+  });
+
+  test("authoritative mutation during pending bootstrap queues one fresh follow-up", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    let mutationPromise;
+    act(() => {
+      mutationPromise = context.updatePayment("PAY-1", { status: "Paid" });
+    });
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    await act(async () => {
+      requests[1].resolve({ id: "PAY-1", status: "Paid" });
+      await requests[1].promise;
+    });
+    expect(requests).toHaveLength(2);
+
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+    expect(requests).toHaveLength(3);
+    expect(requests[2].path).toBe("/api/admin/bootstrap");
+
+    await act(async () => {
+      requests[2].resolve(buildPayload({ payments: [{ id: "PAY-1", status: "Paid" }] }));
+      await mutationPromise;
+    });
+  });
+
+  test("several mutation refreshes during one active bootstrap coalesce into one follow-up", async () => {
+    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    let firstMutation;
+    let secondMutation;
+    act(() => {
+      firstMutation = context.updatePayment("PAY-1", { status: "Paid" });
+      secondMutation = context.updateBooking("BK-1", { status: "Completed" });
+    });
+    await waitFor(() => expect(requests).toHaveLength(3));
+
+    await act(async () => {
+      requests[1].resolve({ id: "PAY-1", status: "Paid" });
+      requests[2].resolve({ id: "BK-1", status: "Completed" });
+      await Promise.all([requests[1].promise, requests[2].promise]);
+    });
+
+    await act(async () => {
+      requests[0].resolve(buildPayload());
+      await requests[0].promise;
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(4);
+    expect(requests[3].path).toBe("/api/admin/bootstrap");
+
+    await act(async () => {
+      requests[3].resolve(buildPayload());
+      await Promise.all([firstMutation, secondMutation]);
+    });
+  });
+
+  test("on-demand proof loading fetches only the selected payment proof", async () => {
+    await renderAndResolveInitial();
+
+    apiRequest.mockResolvedValueOnce({ id: "PAY-1", stage: "downPayment", proofImage: "data:image/jpeg;base64,abc" });
+
+    await act(async () => {
+      await context.loadPaymentProof("PAY-1", "downPayment");
+    });
+
+    expect(apiRequest).toHaveBeenCalledTimes(1);
+    expect(apiRequest).toHaveBeenCalledWith("/api/admin/payments/PAY-1/proof?stage=downPayment");
   });
 });
 

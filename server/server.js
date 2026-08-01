@@ -81,6 +81,87 @@ const VEHICLE_API_BASE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles";
 const VEHICLE_REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOTSTRAP_PERF_LOGS = String(process.env.BOOTSTRAP_PERF_LOGS || "").trim().toLowerCase() === "true";
 let bootstrapPerfRequestCounter = 0;
+const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
+  id: 1,
+  bookingId: 1,
+  date: 1,
+  customer: 1,
+  customerEmail: 1,
+  service: 1,
+  serviceId: 1,
+  amount: 1,
+  originalAmount: 1,
+  promoId: 1,
+  promoCode: 1,
+  promoTitle: 1,
+  promoDiscountType: 1,
+  promoDiscountValue: 1,
+  promoDiscountPercent: 1,
+  promoDiscountAmount: 1,
+  rewardId: 1,
+  rewardName: 1,
+  rewardType: 1,
+  rewardDiscountType: 1,
+  rewardValue: 1,
+  rewardClaimCode: 1,
+  rewardDiscountAmount: 1,
+  discountAmount: 1,
+  subtotalAfterDiscount: 1,
+  taxAmount: 1,
+  finalAmount: 1,
+  status: 1,
+  method: 1,
+  reference: 1,
+  notes: 1,
+  proofSubmittedAt: 1,
+  proofFileName: 1,
+  reviewedAt: 1,
+  reviewedBy: 1,
+  downPaymentRequired: 1,
+  downPaymentAmount: 1,
+  downPaymentStatus: 1,
+  downPaymentMethod: 1,
+  downPaymentReference: 1,
+  downPaymentProofName: 1,
+  downPaymentProofSubmittedAt: 1,
+  downPaymentReferenceCheckStatus: 1,
+  downPaymentReferenceCheckedAt: 1,
+  downPaymentOcrAdvisoryStatus: 1,
+  downPaymentReviewStatus: 1,
+  downPaymentVerifiedAt: 1,
+  downPaymentVerifiedBy: 1,
+  downPaymentRejectedAt: 1,
+  downPaymentRejectedBy: 1,
+  downPaymentRejectionReason: 1,
+  downPaymentNotes: 1,
+  downPaymentDueAt: 1,
+  downPaymentReminderSentAt: 1,
+  downPaymentFinalReminderSentAt: 1,
+  downPaymentExpiredAt: 1,
+  downPaymentVerifiedNotificationSentAt: 1,
+  autoCancelledForNoDownPaymentProof: 1,
+  cancellationReason: 1,
+  totalAmount: 1,
+  amountPaid: 1,
+  remainingBalance: 1,
+  finalPaymentStatus: 1,
+  finalPaymentMethod: 1,
+  finalPaymentReference: 1,
+  finalPaymentProofName: 1,
+  finalPaymentProofSubmittedAt: 1,
+  finalPaymentReferenceCheckStatus: 1,
+  finalPaymentReferenceCheckedAt: 1,
+  finalPaymentOcrAdvisoryStatus: 1,
+  finalPaymentReviewStatus: 1,
+  finalPaymentVerifiedAt: 1,
+  finalPaymentVerifiedBy: 1,
+  finalPaymentRejectedAt: 1,
+  finalPaymentRejectedBy: 1,
+  finalPaymentRejectionReason: 1,
+  finalPaymentNotes: 1,
+  createdAt: 1,
+  updatedAt: 1,
+});
 const vehicleReferenceCache = new Map();
 let smtpMailTransportPromise = null;
 let testBootstrapDataOverride = null;
@@ -3842,6 +3923,39 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
   };
 }
 
+function hasSubmittedPaymentProofMetadata(payment = {}, stage = "downPayment") {
+  if (stage === "finalPayment") {
+    return Boolean(
+      String(payment.finalPaymentProofName || "").trim() ||
+      payment.finalPaymentProofSubmittedAt ||
+      String(payment.finalPaymentReferenceCheckStatus || "").trim() ||
+      String(payment.finalPaymentOcrAdvisoryStatus || "").trim()
+    );
+  }
+
+  return Boolean(
+    String(payment.downPaymentProofName || payment.proofFileName || "").trim() ||
+    payment.downPaymentProofSubmittedAt ||
+    payment.proofSubmittedAt ||
+    String(payment.downPaymentReferenceCheckStatus || "").trim() ||
+    String(payment.downPaymentOcrAdvisoryStatus || "").trim()
+  );
+}
+
+function compactBootstrapPayment(payment = {}) {
+  return {
+    ...payment,
+    proofImage: "",
+    downPaymentProofUrl: "",
+    finalPaymentProofUrl: "",
+    downPaymentOcrAdvisoryText: "",
+    finalPaymentOcrAdvisoryText: "",
+    proofAvailable: hasSubmittedPaymentProofMetadata(payment, "downPayment"),
+    downPaymentProofAvailable: hasSubmittedPaymentProofMetadata(payment, "downPayment"),
+    finalPaymentProofAvailable: hasSubmittedPaymentProofMetadata(payment, "finalPayment"),
+  };
+}
+
 function getPaymentStageFields(payment = {}) {
   const normalized = normalizePaymentStageFields(payment);
   return {
@@ -3920,13 +4034,76 @@ function hasCustomerFinalPaymentSubmission(payment = {}) {
       isCashPaymentMethod(method) ||
       Boolean(String(payment.finalPaymentReference || "").trim()) ||
       Boolean(String(payment.finalPaymentProofUrl || "").trim()) ||
-      Boolean(String(payment.finalPaymentProofName || "").trim())
+      Boolean(String(payment.finalPaymentProofName || "").trim()) ||
+      payment.finalPaymentProofAvailable === true
     )
   );
 }
 
 function canReviewFinalPaymentStage(payment = {}) {
   return isDownPaymentSatisfiedForFinalReview(payment) && hasCustomerFinalPaymentSubmission(payment);
+}
+
+function normalizePaymentProofStage(value) {
+  const stage = String(value || "downPayment").trim().toLowerCase();
+  if (stage === "final" || stage === "final-payment" || stage === "finalpayment") return "finalPayment";
+  if (stage === "down" || stage === "down-payment" || stage === "downpayment") return "downPayment";
+  return "";
+}
+
+function getPaymentProofPayload(payment = {}, stage = "downPayment") {
+  if (stage === "finalPayment") {
+    return {
+      id: payment.id || "",
+      bookingId: payment.bookingId || "",
+      stage,
+      proofImage: payment.finalPaymentProofUrl || "",
+      proofUrl: payment.finalPaymentProofUrl || "",
+      proofFileName: payment.finalPaymentProofName || "",
+      proofName: payment.finalPaymentProofName || "",
+      submittedAt: payment.finalPaymentProofSubmittedAt || "",
+      method: payment.finalPaymentMethod || "",
+      referenceCheckStatus: payment.finalPaymentReferenceCheckStatus || "",
+      referenceCheckedAt: payment.finalPaymentReferenceCheckedAt || null,
+      ocrAdvisoryStatus: payment.finalPaymentOcrAdvisoryStatus || "",
+    };
+  }
+
+  return {
+    id: payment.id || "",
+    bookingId: payment.bookingId || "",
+    stage,
+    proofImage: payment.downPaymentProofUrl || payment.proofImage || "",
+    proofUrl: payment.downPaymentProofUrl || payment.proofImage || "",
+    proofFileName: payment.downPaymentProofName || payment.proofFileName || "",
+    proofName: payment.downPaymentProofName || payment.proofFileName || "",
+    submittedAt: payment.downPaymentProofSubmittedAt || payment.proofSubmittedAt || "",
+    method: payment.downPaymentMethod || payment.method || "",
+    referenceCheckStatus: payment.downPaymentReferenceCheckStatus || "",
+    referenceCheckedAt: payment.downPaymentReferenceCheckedAt || null,
+    ocrAdvisoryStatus: payment.downPaymentOcrAdvisoryStatus || "",
+  };
+}
+
+async function canViewPaymentProof(req, payment = {}) {
+  const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+  if (actorType === "admin") return true;
+  if (actorType === "staff") return canAccessModule(req.authUser, MODULE_KEYS.paymentTracking);
+
+  if (actorType !== "customer") return false;
+  const actorEmail = String(req.authUser?.email || "").trim().toLowerCase();
+  const actorId = String(req.authUser?.id || "").trim();
+  const paymentEmail = String(payment.customerEmail || "").trim().toLowerCase();
+  if (actorEmail && paymentEmail && actorEmail === paymentEmail) return true;
+
+  if (!payment.bookingId) return false;
+  const booking = await Booking.findOne({ id: payment.bookingId }).lean();
+  const bookingEmail = String(booking?.customerEmail || "").trim().toLowerCase();
+  const bookingCustomerId = String(booking?.customerId || "").trim();
+  return Boolean(
+    (actorEmail && bookingEmail && actorEmail === bookingEmail) ||
+    (actorId && bookingCustomerId && actorId === bookingCustomerId)
+  );
 }
 
 function getPaymentStageSnapshot(payment = {}, stage = "finalPayment") {
@@ -5369,7 +5546,7 @@ async function loadBootstrapData({ profiler = null } = {}) {
     timeBootstrapSection(profiler, "bookings", Booking.find().sort({ createdAt: -1 }).lean()),
     timeBootstrapSection(profiler, "services", Service.find().sort({ createdAt: -1 }).lean()),
     timeBootstrapSection(profiler, "stock", StockMonitoringItem.find().sort({ createdAt: -1 }).lean()),
-    timeBootstrapSection(profiler, "payments", Payment.find().sort({ createdAt: -1 }).lean()),
+    timeBootstrapSection(profiler, "payments", Payment.find({}, BOOTSTRAP_PAYMENT_PROJECTION).sort({ createdAt: -1 }).lean()),
     timeBootstrapSection(profiler, "users", User.find().sort({ createdAt: -1 }).lean()),
     timeBootstrapSection(profiler, "audits", AuditLog.find({ archived: { $ne: true } }).sort({ createdAt: -1 }).limit(100).lean()),
     timeBootstrapSection(profiler, "archivedAudits", AuditLog.find({ archived: true }).sort({ archivedAt: -1, createdAt: -1 }).limit(100).lean()),
@@ -5387,12 +5564,12 @@ async function loadBootstrapData({ profiler = null } = {}) {
   const bookingById = new Map(bookings.map((booking) => [String(booking.id || "").trim(), booking]));
   const normalizedPayments = payments.map((payment) => {
     const booking = bookingById.get(String(payment.bookingId || "").trim()) || {};
-    const normalizedPayment = normalizePaymentStageFields(payment, booking);
-    return {
+    const normalizedPayment = compactBootstrapPayment(normalizePaymentStageFields(payment, booking));
+    return compactBootstrapPayment({
       ...normalizedPayment,
       recognizedRevenueEvents: paymentDomain.getVerifiedRevenueEventsForPayment(normalizedPayment, booking),
       invoice: invoiceDomain.buildInvoiceDto(normalizedPayment, booking),
-    };
+    });
   });
   const paidPaymentByRewardId = buildPaidPaymentByRewardId(normalizedPayments);
   const normalizedStockMonitoring = stockMonitoring.map((item) => {
@@ -7835,6 +8012,40 @@ app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), as
     }
     await recordAudit(req.body?.auditUser || req.query.auditUser, "Deleted stock monitoring item", req.params.id);
     res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/payments/:id/proof", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
+  try {
+    const paymentId = String(req.params.id || "").trim();
+    const stage = normalizePaymentProofStage(req.query.stage || "downPayment");
+    if (!paymentId || /[<>/\\]/.test(paymentId)) {
+      res.status(400).json({ message: "Invalid payment ID." });
+      return;
+    }
+    if (!stage) {
+      res.status(400).json({ message: "Invalid payment proof stage." });
+      return;
+    }
+
+    const payment = await Payment.findOne({ $or: [{ id: paymentId }, { bookingId: paymentId }] }).lean();
+    if (!payment) {
+      res.status(404).json({ message: "Payment not found." });
+      return;
+    }
+    if (!(await canViewPaymentProof(req, payment))) {
+      res.status(403).json({ message: "You do not have permission to view this payment proof." });
+      return;
+    }
+
+    const payload = getPaymentProofPayload(payment, stage);
+    if (!String(payload.proofImage || "").trim() && !String(payload.proofFileName || "").trim()) {
+      res.status(404).json({ message: "Payment proof was not found." });
+      return;
+    }
+    res.json(payload);
   } catch (error) {
     next(error);
   }

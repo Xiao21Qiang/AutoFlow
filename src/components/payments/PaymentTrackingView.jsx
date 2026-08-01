@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import FilterModal from "../common/FilterModal";
 import SecurityConfirmModal from "../common/SecurityConfirmModal";
 import ToastMessage from "../common/ToastMessage";
@@ -152,9 +152,49 @@ function formatSubmittedValue(value) {
   return text || "Not provided";
 }
 
+function hasProofMetadata(payment, stage) {
+  if (!payment) return false;
+  if (stage === "finalPayment") {
+    return Boolean(
+      payment.finalPaymentProofAvailable ||
+      payment.finalPaymentProofUrl ||
+      payment.finalPaymentProofName ||
+      payment.finalPaymentProofSubmittedAt
+    );
+  }
+  return Boolean(
+    payment.downPaymentProofAvailable ||
+    payment.proofAvailable ||
+    payment.downPaymentProofUrl ||
+    payment.proofImage ||
+    payment.downPaymentProofName ||
+    payment.proofFileName ||
+    payment.downPaymentProofSubmittedAt ||
+    payment.proofSubmittedAt
+  );
+}
+
+function mergeProofIntoPayment(payment, proof, stage) {
+  if (!proof) return payment;
+  if (stage === "finalPayment") {
+    return {
+      ...payment,
+      finalPaymentProofUrl: proof.proofImage || proof.proofUrl || payment.finalPaymentProofUrl || "",
+      finalPaymentProofName: proof.proofFileName || proof.proofName || payment.finalPaymentProofName || "",
+    };
+  }
+  return {
+    ...payment,
+    proofImage: proof.proofImage || proof.proofUrl || payment.proofImage || "",
+    downPaymentProofUrl: proof.proofImage || proof.proofUrl || payment.downPaymentProofUrl || "",
+    proofFileName: proof.proofFileName || proof.proofName || payment.proofFileName || "",
+    downPaymentProofName: proof.proofFileName || proof.proofName || payment.downPaymentProofName || "",
+  };
+}
+
 export default function PaymentTrackingView({ role = "admin" }) {
   const classes = CLASS_NAMES[role] || CLASS_NAMES.admin;
-  const { payments, updatePayment, users, currentUser } = useAdminData();
+  const { payments, updatePayment, users, currentUser, loadPaymentProof } = useAdminData();
   const canVerifyPayments = canPerformAction(currentUser, ACTION_KEYS.paymentVerify);
   const customerNameByEmail = useMemo(() => {
     const map = new Map();
@@ -177,6 +217,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const [form, setForm] = useState(getPaymentFormDefaults());
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  const [proofDetails, setProofDetails] = useState({ paymentId: "", loading: false, error: "", downPayment: null, finalPayment: null });
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -206,6 +247,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const openPayment = (payment) => {
     setSelectedPayment(payment);
     setForm(getPaymentFormDefaults(payment));
+    setProofDetails({ paymentId: payment.id || payment.bookingId || "", loading: false, error: "", downPayment: null, finalPayment: null });
   };
 
   const downloadInvoicePdf = (payment) =>
@@ -224,8 +266,55 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const finalPaymentEnabled = selectedWithForm ? isDownPaymentSatisfied(selectedWithForm) : false;
   const finalPaymentReviewable = selectedPayment ? canReviewFinalPaymentStage(selectedPayment) : false;
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
+  const selectedPaymentWithProof = useMemo(() => {
+    if (!selectedPayment) return null;
+    return mergeProofIntoPayment(
+      mergeProofIntoPayment(selectedPayment, proofDetails.downPayment, "downPayment"),
+      proofDetails.finalPayment,
+      "finalPayment"
+    );
+  }, [selectedPayment, proofDetails.downPayment, proofDetails.finalPayment]);
+
+  useEffect(() => {
+    if (!selectedPayment) return;
+    const paymentId = selectedPayment.id || selectedPayment.bookingId || "";
+    const stages = ["downPayment", "finalPayment"].filter((stage) => hasProofMetadata(selectedPayment, stage));
+    if (!paymentId || !stages.length) return;
+
+    let cancelled = false;
+    setProofDetails((current) => ({ ...current, paymentId, loading: true, error: "" }));
+    Promise.all(
+      stages.map((stage) =>
+        loadPaymentProof(paymentId, stage)
+          .then((proof) => ({ stage, proof }))
+          .catch((error) => ({ stage, error }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const nextDetails = { paymentId, loading: false, error: "", downPayment: null, finalPayment: null };
+      results.forEach((result) => {
+        if (result.error) {
+          nextDetails.error = result.error.message || "Could not load payment proof.";
+          return;
+        }
+        if (result.stage === "finalPayment") {
+          nextDetails.finalPayment = result.proof;
+        } else {
+          nextDetails.downPayment = result.proof;
+        }
+      });
+      setProofDetails(nextDetails);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPayment, loadPaymentProof]);
 
   const renderProof = (src, fileName, label, { noProofRequired = false } = {}) => {
+    if (proofDetails.loading) {
+      return <div className={classes.hint}>Loading {label.toLowerCase()} proof...</div>;
+    }
     if (!src && !fileName) {
       return <div className={classes.hint}>{noProofRequired ? "Cash payment - no proof required." : `No ${label.toLowerCase()} proof uploaded yet.`}</div>;
     }
@@ -237,12 +326,12 @@ export default function PaymentTrackingView({ role = "admin" }) {
     );
   };
 
-  const getReferenceValidationDisplay = ({ method, reference, proofImage, status, advisoryStatus }) => {
+  const getReferenceValidationDisplay = ({ method, reference, proofImage, proofAvailable, status, advisoryStatus }) => {
     const normalizedMethod = String(method || "").trim().toLowerCase();
     if (normalizedMethod === "cash" || status === "cash_not_required") {
       return { status: "cash", message: "Cash payment - reference check not required." };
     }
-    if (!String(proofImage || "").trim()) {
+    if (!String(proofImage || "").trim() && !proofAvailable) {
       return { status: "no-proof", message: "No payment proof available for reference checking." };
     }
     if (!String(reference || "").trim()) {
@@ -254,8 +343,8 @@ export default function PaymentTrackingView({ role = "admin" }) {
     return { status: "legacy-not-checked", message: "Reference validation not available for legacy records." };
   };
 
-  const renderReferenceValidation = ({ method, reference, proofImage, status, advisoryStatus, checkedAt }) => {
-    const result = getReferenceValidationDisplay({ method, reference, proofImage, status, advisoryStatus });
+  const renderReferenceValidation = ({ method, reference, proofImage, proofAvailable, status, advisoryStatus, checkedAt }) => {
+    const result = getReferenceValidationDisplay({ method, reference, proofImage, proofAvailable, status, advisoryStatus });
 
     return (
       <div className={classes.referenceChecker}>
@@ -432,7 +521,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                 </div>
                 {renderProof(
-                  selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
+                  selectedPaymentWithProof?.downPaymentProofUrl || selectedPaymentWithProof?.proofImage,
                   selectedPayment.downPaymentProofName || selectedPayment.proofFileName,
                   "Down payment",
                   { noProofRequired: String(selectedPayment.downPaymentMethod || selectedPayment.method || "").trim().toLowerCase() === "cash" }
@@ -440,7 +529,8 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 {renderReferenceValidation({
                   method: selectedPayment.downPaymentMethod || selectedPayment.method,
                   reference: selectedPayment.downPaymentReference || selectedPayment.reference,
-                  proofImage: selectedPayment.downPaymentProofUrl || selectedPayment.proofImage,
+                  proofImage: selectedPaymentWithProof?.downPaymentProofUrl || selectedPaymentWithProof?.proofImage,
+                  proofAvailable: hasProofMetadata(selectedPayment, "downPayment"),
                   status: selectedPayment.downPaymentReferenceCheckStatus,
                   advisoryStatus: selectedPayment.downPaymentOcrAdvisoryStatus,
                   checkedAt: selectedPayment.downPaymentReferenceCheckedAt,
@@ -476,7 +566,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                 </div>
                 {renderProof(
-                  selectedPayment.finalPaymentProofUrl,
+                  selectedPaymentWithProof?.finalPaymentProofUrl,
                   selectedPayment.finalPaymentProofName,
                   "Full payment",
                   { noProofRequired: String(selectedPayment.finalPaymentMethod || "").trim().toLowerCase() === "cash" }
@@ -484,11 +574,13 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 {renderReferenceValidation({
                   method: selectedPayment.finalPaymentMethod,
                   reference: selectedPayment.finalPaymentReference,
-                  proofImage: selectedPayment.finalPaymentProofUrl,
+                  proofImage: selectedPaymentWithProof?.finalPaymentProofUrl,
+                  proofAvailable: hasProofMetadata(selectedPayment, "finalPayment"),
                   status: selectedPayment.finalPaymentReferenceCheckStatus,
                   advisoryStatus: selectedPayment.finalPaymentOcrAdvisoryStatus,
                   checkedAt: selectedPayment.finalPaymentReferenceCheckedAt,
                 })}
+                {proofDetails.error ? <div className={classes.hint}>{proofDetails.error}</div> : null}
               </div>
 
               <div className={classes.modalActions}>

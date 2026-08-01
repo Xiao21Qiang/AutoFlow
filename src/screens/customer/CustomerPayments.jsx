@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerPaymentsStyle.css";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import { downloadAuthenticatedFile } from "../../utils/downloadExport";
@@ -133,6 +133,19 @@ function getInvoiceBreakdown(payment) {
   };
 }
 
+function hasDownPaymentProofMetadata(payment = {}) {
+  return Boolean(
+    payment.downPaymentProofAvailable ||
+    payment.proofAvailable ||
+    payment.downPaymentProofUrl ||
+    payment.proofImage ||
+    payment.downPaymentProofName ||
+    payment.proofFileName ||
+    payment.downPaymentProofSubmittedAt ||
+    payment.proofSubmittedAt
+  );
+}
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -169,7 +182,7 @@ async function compressImageFile(file) {
 }
 
 export default function CustomerPayments() {
-  const { payments, currentUser, submitPaymentProof } = useAdminData();
+  const { payments, currentUser, submitPaymentProof, loadPaymentProof } = useAdminData();
   const customerName = String(currentUser?.name || "").trim().toLowerCase();
   const customerEmail = String(currentUser?.email || "").trim().toLowerCase();
   const data = useMemo(
@@ -197,6 +210,7 @@ export default function CustomerPayments() {
   });
   const [proofError, setProofError] = useState("");
   const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [proofPreview, setProofPreview] = useState({ paymentId: "", loading: false, error: "", downPayment: null });
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -230,6 +244,7 @@ export default function CustomerPayments() {
     setProofForm({ reference: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
     setProofSubmitting(false);
+    setProofPreview({ paymentId: "", loading: false, error: "", downPayment: null });
   };
 
   const openProofModal = (payment, mode) => {
@@ -249,6 +264,30 @@ export default function CustomerPayments() {
     setProofError("");
     setModal("proof");
   };
+
+  useEffect(() => {
+    if (modal !== "invoice" || !selectedPayment || !hasDownPaymentProofMetadata(selectedPayment)) return;
+    const paymentId = selectedPayment.id || selectedPayment.bookingId || "";
+    if (!paymentId) return;
+
+    let cancelled = false;
+    setProofPreview({ paymentId, loading: true, error: "", downPayment: null });
+    loadPaymentProof(paymentId, "downPayment")
+      .then((proof) => {
+        if (!cancelled) {
+          setProofPreview({ paymentId, loading: false, error: "", downPayment: proof });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setProofPreview({ paymentId, loading: false, error: error.message || "Could not load payment proof.", downPayment: null });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modal, selectedPayment, loadPaymentProof]);
 
   const downloadInvoicePdf = (payment) =>
     downloadAuthenticatedFile(`/api/admin/invoices/${encodeURIComponent(payment.id || payment.bookingId)}/pdf`, `autoflow-invoice-${payment.bookingId || payment.id}.pdf`)
@@ -313,6 +352,7 @@ export default function CustomerPayments() {
                     type="button"
                     onClick={() => {
                       setSelectedPayment(row);
+                      setProofPreview({ paymentId: row.id || row.bookingId || "", loading: false, error: "", downPayment: null });
                       setModal("invoice");
                     }}
                   >
@@ -468,10 +508,22 @@ export default function CustomerPayments() {
                     )}
                   </div>
 
-                  {(selectedPayment.downPaymentProofUrl || selectedPayment.proofImage) && (
+                  {proofPreview.loading && (
                     <div className="clPayProofPreviewWrap">
                       <strong>Down Payment Proof:</strong>
-                      <img className="clPayProofPreview" src={selectedPayment.downPaymentProofUrl || selectedPayment.proofImage} alt="Payment proof" />
+                      <div className="clPayProofFile">Loading payment proof...</div>
+                    </div>
+                  )}
+                  {proofPreview.error && (
+                    <div className="clPayProofPreviewWrap">
+                      <strong>Down Payment Proof:</strong>
+                      <div className="clPayProofFile">{proofPreview.error}</div>
+                    </div>
+                  )}
+                  {(proofPreview.downPayment?.proofImage || proofPreview.downPayment?.proofUrl || selectedPayment.downPaymentProofUrl || selectedPayment.proofImage) && (
+                    <div className="clPayProofPreviewWrap">
+                      <strong>Down Payment Proof:</strong>
+                      <img className="clPayProofPreview" src={proofPreview.downPayment?.proofImage || proofPreview.downPayment?.proofUrl || selectedPayment.downPaymentProofUrl || selectedPayment.proofImage} alt="Payment proof" />
                     </div>
                   )}
                 </div>

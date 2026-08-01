@@ -3,6 +3,9 @@ import { apiRequest } from "../services/api";
 import { isValidStaffRole, normalizeStaffRole } from "../utils/staffRoles";
 
 const AdminDataContext = createContext(null);
+const PASSIVE_BOOTSTRAP_REFRESH_REASONS = new Set(["poll", "focus", "visibility"]);
+const FRESH_AFTER_CURRENT_REASONS = new Set(["mutation"]);
+const PASSIVE_REFRESH_MIN_AGE_MS = 30000;
 
 const INITIAL_DATA = {
   bookings: [],
@@ -266,6 +269,16 @@ function buildBootstrapSessionKey(session) {
   ].join("|");
 }
 
+function isBootstrapRefreshLoggingEnabled() {
+  if (String(process.env.REACT_APP_BOOTSTRAP_PERF_LOGS || "").trim().toLowerCase() === "true") return true;
+  return typeof window !== "undefined" && window.localStorage?.getItem("BOOTSTRAP_PERF_LOGS") === "true";
+}
+
+function logBootstrapRefresh(reason, action) {
+  if (!isBootstrapRefreshLoggingEnabled()) return;
+  console.info(`[bootstrap-refresh] reason=${reason} action=${action}`);
+}
+
 export function AdminDataProvider({ children, session }) {
   const [data, setData] = useState(INITIAL_DATA);
   const [loading, setLoading] = useState(true);
@@ -278,6 +291,7 @@ export function AdminDataProvider({ children, session }) {
   const previousNotificationIdsRef = useRef([]);
   const inFlightBootstrapRef = useRef(null);
   const latestBootstrapRequestIdRef = useRef(0);
+  const lastSuccessfulBootstrapAtRef = useRef(0);
 
   const auditUser = session?.email || session?.name || "admin@allprotec.com";
   const currentRole = normalizeUserType(session?.userType, session?.role);
@@ -360,9 +374,10 @@ export function AdminDataProvider({ children, session }) {
     }
   }, [visibleNotifications, notificationStorageKey, session?.email]);
 
-  const startBootstrapRequest = useCallback(({ silent = false } = {}) => {
+  const startBootstrapRequest = useCallback(({ silent = false, reason = "manual" } = {}) => {
     const requestId = latestBootstrapRequestIdRef.current + 1;
     latestBootstrapRequestIdRef.current = requestId;
+    logBootstrapRefresh(reason, "start");
     const activeRequest = {
       requestId,
       sessionKey: bootstrapSessionKey,
@@ -381,6 +396,7 @@ export function AdminDataProvider({ children, session }) {
           latestBootstrapRequestIdRef.current === requestId &&
           inFlightBootstrapRef.current?.sessionKey === bootstrapSessionKey
         ) {
+          lastSuccessfulBootstrapAtRef.current = Date.now();
           setData({ ...INITIAL_DATA, ...payload });
           setError("");
         }
@@ -412,7 +428,9 @@ export function AdminDataProvider({ children, session }) {
     return promise;
   }, [bootstrapSessionKey]);
 
-  const loadAdminData = useCallback(({ silent = false, ensureFresh = false } = {}) => {
+  const loadAdminData = useCallback(({ silent = false, ensureFresh, reason = "manual" } = {}) => {
+    const passiveRefresh = PASSIVE_BOOTSTRAP_REFRESH_REASONS.has(reason);
+    const requireFreshAfterCurrent = ensureFresh ?? FRESH_AFTER_CURRENT_REASONS.has(reason);
     const activeRequest = inFlightBootstrapRef.current;
     if (activeRequest?.sessionKey === bootstrapSessionKey) {
       if (!silent) {
@@ -420,56 +438,68 @@ export function AdminDataProvider({ children, session }) {
         setLoading(true);
       }
 
-      if (!ensureFresh) {
+      if (!requireFreshAfterCurrent) {
+        logBootstrapRefresh(reason, passiveRefresh ? "reuse-in-flight" : "reuse-in-flight");
         return activeRequest.promise;
       }
 
       if (!activeRequest.followUpPromise) {
+        logBootstrapRefresh(reason, "queue-one-follow-up");
         activeRequest.followUpPromise = activeRequest.promise.then(() => {
           if (inFlightBootstrapRef.current || bootstrapSessionKey !== buildBootstrapSessionKey(session)) {
             return inFlightBootstrapRef.current?.promise || null;
           }
-          return startBootstrapRequest({ silent });
+          return startBootstrapRequest({ silent, reason });
         });
+      } else {
+        logBootstrapRefresh(reason, "reuse-follow-up");
       }
 
       return activeRequest.followUpPromise;
     }
 
-    return startBootstrapRequest({ silent });
+    if (passiveRefresh && Date.now() - lastSuccessfulBootstrapAtRef.current < PASSIVE_REFRESH_MIN_AGE_MS) {
+      logBootstrapRefresh(reason, "skip-recent");
+      return Promise.resolve(null);
+    }
+
+    return startBootstrapRequest({ silent, reason });
   }, [bootstrapSessionKey, session, startBootstrapRequest]);
 
   useEffect(() => {
     inFlightBootstrapRef.current = null;
     latestBootstrapRequestIdRef.current += 1;
+    lastSuccessfulBootstrapAtRef.current = 0;
     notificationsBootstrappedRef.current = false;
     previousNotificationIdsRef.current = [];
     setData(INITIAL_DATA);
     setError("");
-    loadAdminData();
+    loadAdminData({ reason: "initial" });
 
-    const refreshFromDatabase = () => {
-      loadAdminData({ silent: true });
+    const refreshFromDatabase = (reason) => {
+      loadAdminData({ silent: true, reason });
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        refreshFromDatabase();
+        refreshFromDatabase("visibility");
       }
     };
 
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== "hidden") {
-        refreshFromDatabase();
+        refreshFromDatabase("poll");
       }
     }, 15000);
 
-    window.addEventListener("focus", refreshFromDatabase);
+    const handleFocus = () => refreshFromDatabase("focus");
+
+    window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshFromDatabase);
+      window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [bootstrapSessionKey, loadAdminData]);
@@ -480,7 +510,7 @@ export function AdminDataProvider({ children, session }) {
       setData((currentData) => syncOptions.applyResult(currentData, result));
     }
     if (syncOptions.refresh !== false) {
-      await loadAdminData({ ensureFresh: true });
+      await loadAdminData({ reason: "mutation", ensureFresh: true });
     }
     return result;
   };
@@ -513,6 +543,9 @@ export function AdminDataProvider({ children, session }) {
     localStorage.setItem(notificationStorageKey, newestId);
     setLastReadNotificationId(newestId);
   };
+
+  const loadPaymentProof = useCallback((paymentId, stage = "downPayment") =>
+    apiRequest(`/api/admin/payments/${encodeURIComponent(paymentId || "")}/proof?stage=${encodeURIComponent(stage || "downPayment")}`), []);
 
   const updateProfile = async (payload) => {
     await mutate("/api/admin/users/" + currentUser.id, {
@@ -548,7 +581,8 @@ export function AdminDataProvider({ children, session }) {
     markNotificationsRead,
     loading,
     error,
-    reload: loadAdminData,
+    reload: (options = {}) => loadAdminData({ ...options, reason: options.reason || "manual" }),
+    loadPaymentProof,
     createBooking: (payload) => mutate("/api/admin/bookings", {
       method: "POST",
       body: JSON.stringify({

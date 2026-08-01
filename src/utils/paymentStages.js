@@ -44,7 +44,8 @@ export function hasCustomerFinalPaymentSubmission(payment = {}) {
       method.toLowerCase() === "cash" ||
       String(payment.finalPaymentReference || "").trim() ||
       String(payment.finalPaymentProofUrl || "").trim() ||
-      String(payment.finalPaymentProofName || "").trim()
+      String(payment.finalPaymentProofName || "").trim() ||
+      payment.finalPaymentProofAvailable === true
     )
   );
 }
