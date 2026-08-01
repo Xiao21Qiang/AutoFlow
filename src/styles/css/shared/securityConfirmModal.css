@@ -78,6 +78,16 @@
   box-shadow: 0 0 0 3px rgba(199, 154, 43, 0.14);
 }
 
+.secModalField input[aria-invalid="true"] {
+  border-color: #dc2626;
+}
+
+.secFieldError {
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .secSecretRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 74px;

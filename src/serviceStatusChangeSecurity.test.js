@@ -85,6 +85,10 @@ function confirmPin() {
   return screen.getByRole("button", { name: "Confirm PIN" });
 }
 
+function emptyFieldError() {
+  return screen.queryByText("Please fill out this field.");
+}
+
 function expectStatusEnabled() {
   expect(screen.getByText("Enabled")).toBeInTheDocument();
   expect(screen.queryByText("Disabled")).not.toBeInTheDocument();
@@ -108,15 +112,18 @@ beforeEach(() => {
 });
 
 describe("Change Service Status Special PIN validation", () => {
-  test("Admin empty PIN uses native required validation and does not verify or update status", () => {
+  test("Admin empty PIN shows inline required validation and does not verify or update status", () => {
     openAdminStatusModal();
 
     const input = pinInput();
     expect(input).toBeRequired();
     expect(input).toBeInvalid();
+    expect(emptyFieldError()).not.toBeInTheDocument();
 
     fireEvent.click(confirmPin());
 
+    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("dialog", { name: /change service status/i })).toBeInTheDocument();
     expectStatusEnabled();
     expect(validateSpecialCredential).not.toHaveBeenCalled();
@@ -131,6 +138,8 @@ describe("Change Service Status Special PIN validation", () => {
     fireEvent.change(input, { target: { value: "   " } });
     fireEvent.click(confirmPin());
 
+    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
     expect(document.activeElement).toBe(input);
     expect(screen.getByRole("dialog", { name: /change service status/i })).toBeInTheDocument();
     expectStatusEnabled();
@@ -150,11 +159,45 @@ describe("Change Service Status Special PIN validation", () => {
 
     fireEvent.click(confirmPin());
 
+    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("dialog", { name: /change service status/i })).toBeInTheDocument();
     expectStatusEnabled();
     expect(validateSpecialCredential).not.toHaveBeenCalled();
     expect(mockToggleService).not.toHaveBeenCalled();
     expect(mockCanPerformAction).toHaveBeenCalledWith(expect.objectContaining({ userType: "Staff" }), ACTION_KEYS.servicesManage);
+  });
+
+  test("empty PIN inline error clears when a non-whitespace PIN is entered", () => {
+    openAdminStatusModal();
+
+    const input = pinInput();
+    fireEvent.click(confirmPin());
+    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "1" } });
+
+    expect(emptyFieldError()).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute("aria-invalid", "true");
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+    expect(mockToggleService).not.toHaveBeenCalled();
+  });
+
+  test("empty PIN inline error resets when the modal closes and reopens", () => {
+    openAdminStatusModal();
+
+    fireEvent.click(confirmPin());
+    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "x" }));
+    expect(screen.queryByRole("dialog", { name: /change service status/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+
+    expect(emptyFieldError()).not.toBeInTheDocument();
+    expect(pinInput()).not.toHaveAttribute("aria-invalid", "true");
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+    expect(mockToggleService).not.toHaveBeenCalled();
   });
 
   test("Admin valid non-empty PIN verifies and updates the service status", async () => {
@@ -174,6 +217,7 @@ describe("Change Service Status Special PIN validation", () => {
     await waitFor(() => expect(mockToggleService).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("dialog", { name: /change service status/i })).not.toBeInTheDocument();
     expect(screen.getByText("Disabled")).toBeInTheDocument();
+    expect(emptyFieldError()).not.toBeInTheDocument();
   });
 
   test("Staff valid non-empty PIN verifies with Staff scope and updates the service status", async () => {
@@ -196,6 +240,7 @@ describe("Change Service Status Special PIN validation", () => {
     await waitFor(() => expect(mockToggleService).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("dialog", { name: /change service status/i })).not.toBeInTheDocument();
     expect(screen.getByText("Disabled")).toBeInTheDocument();
+    expect(emptyFieldError()).not.toBeInTheDocument();
   });
 
   test("incorrect non-empty PIN displays the error and keeps status unchanged", async () => {
@@ -206,6 +251,7 @@ describe("Change Service Status Special PIN validation", () => {
     fireEvent.click(confirmPin());
 
     expect(await screen.findByText("Incorrect admin special PIN.")).toBeInTheDocument();
+    expect(emptyFieldError()).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: /change service status/i })).toBeInTheDocument();
     expectStatusEnabled();
     expect(mockToggleService).not.toHaveBeenCalled();

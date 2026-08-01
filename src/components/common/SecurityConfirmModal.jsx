@@ -42,6 +42,8 @@ export default function SecurityConfirmModal({
 }) {
   const [secret, setSecret] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [secretError, setSecretError] = useState("");
+  const [accountNameError, setAccountNameError] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
@@ -49,17 +51,20 @@ export default function SecurityConfirmModal({
   const accountNameInputRef = useRef(null);
   const titleId = useId();
   const messageId = useId();
+  const secretErrorId = useId();
+  const accountNameErrorId = useId();
   const copy = MODE_COPY[mode] || MODE_COPY.pin;
   const resolvedScope = scope || (String(currentUser?.userType || currentUser?.role || "").trim().toLowerCase() === "staff" ? "staff" : "admin");
 
   useEffect(() => {
-    if (!open) return;
     setSecret("");
     setAccountName("");
+    setSecretError("");
+    setAccountNameError("");
     setError("");
     setLoading(false);
     setShowSecret(false);
-  }, [open, mode]);
+  }, [open, mode, title, message, actionKey]);
 
   if (!open) return null;
 
@@ -71,13 +76,13 @@ export default function SecurityConfirmModal({
     const trimmedSecret = secret.trim();
     const trimmedAccountName = accountName.trim();
     if (!trimmedSecret) {
+      setSecretError("Please fill out this field.");
       secretInputRef.current?.focus();
-      secretInputRef.current?.reportValidity?.();
       return;
     }
     if (mode === "cash" && !trimmedAccountName) {
+      setAccountNameError("Please fill out this field.");
       accountNameInputRef.current?.focus();
-      accountNameInputRef.current?.reportValidity?.();
       return;
     }
     const credentialValue = mode === "pin" || mode === "cash" ? trimmedSecret : secret;
@@ -108,7 +113,7 @@ export default function SecurityConfirmModal({
         <button className="secModalClose" type="button" onClick={onClose} disabled={loading}>x</button>
         <div className="secModalTitle" id={titleId}>{title}</div>
         <p className="secModalText" id={messageId}>{message}</p>
-        <form onSubmit={handleConfirm}>
+        <form onSubmit={handleConfirm} noValidate>
           <label className="secModalField">
             <span>{copy.field}</span>
             <div className="secSecretRow">
@@ -116,15 +121,25 @@ export default function SecurityConfirmModal({
                 ref={secretInputRef}
                 type={showSecret ? "text" : copy.type}
                 value={secret}
-                onChange={(event) => setSecret(event.target.value)}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSecret(nextValue);
+                  if (nextValue.trim()) {
+                    setSecretError("");
+                  }
+                }}
                 placeholder={copy.placeholder}
                 autoFocus
                 required
+                aria-required="true"
+                aria-invalid={secretError ? "true" : undefined}
+                aria-describedby={secretError ? secretErrorId : undefined}
               />
               <button type="button" onClick={() => setShowSecret((value) => !value)} disabled={loading}>
                 {showSecret ? "Hide" : "Show"}
               </button>
             </div>
+            {secretError ? <div className="secFieldError" id={secretErrorId}>{secretError}</div> : null}
           </label>
           {mode === "cash" && (
           <label className="secModalField">
@@ -132,10 +147,20 @@ export default function SecurityConfirmModal({
             <input
               ref={accountNameInputRef}
               value={accountName}
-              onChange={(event) => setAccountName(event.target.value)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setAccountName(nextValue);
+                if (nextValue.trim()) {
+                  setAccountNameError("");
+                }
+              }}
               placeholder={getCurrentUserDisplayName(currentUser) || "Enter account name"}
               required
+              aria-required="true"
+              aria-invalid={accountNameError ? "true" : undefined}
+              aria-describedby={accountNameError ? accountNameErrorId : undefined}
             />
+            {accountNameError ? <div className="secFieldError" id={accountNameErrorId}>{accountNameError}</div> : null}
           </label>
           )}
           {error ? <div className="secModalError">{error}</div> : null}
