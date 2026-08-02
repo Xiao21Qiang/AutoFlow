@@ -5,6 +5,12 @@ import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRewardStatus } from "../../utils/rewards";
 import { ACTION_KEYS } from "../../utils/rbac";
+import {
+  REWARD_UI_CATEGORIES,
+  canonicalRewardTypeToUiCategory,
+  getRewardTypeSearchText,
+  uiCategoryToCanonicalRewardType,
+} from "../../utils/rewardTypes";
 
 const PROMO_FORM_FIELDS = [
   "title",
@@ -16,7 +22,6 @@ const PROMO_FORM_FIELDS = [
   "message",
 ];
 const REWARD_FORM_FIELDS = ["name", "type", "description", "value", "stock", "expirationDays", "weight", "rarity"];
-const REWARD_TYPES = ["Voucher", "Item", "Discount", "Service"];
 const REWARD_RARITIES = ["Common", "Uncommon", "Rare"];
 
 function isBlank(value) {
@@ -26,6 +31,12 @@ function isBlank(value) {
 function parseFiniteInput(value) {
   if (isBlank(value)) return NaN;
   return Number(String(value).trim());
+}
+
+function parseRewardNumericValueInput(value) {
+  if (isBlank(value)) return NaN;
+  const match = String(value).replace(/,/g, "").trim().match(/(-?\d+(?:\.\d+)?)/);
+  return match ? Number(match[1]) : NaN;
 }
 
 function validatePromoForm(form) {
@@ -83,12 +94,15 @@ function validateRewardForm(form) {
   const description = String(form.description || "").trim();
   const value = String(form.value || "").trim();
   const weight = parseFiniteInput(form.weight);
-  const numericValue = parseFiniteInput(form.value);
+  const numericValue = parseRewardNumericValueInput(form.value);
+  const canonicalType = uiCategoryToCanonicalRewardType(type, {
+    previousCanonicalType: form.originalType,
+  });
 
   if (!name) errors.name = "Reward name is required.";
   if (!type) {
     errors.type = "Reward type is required.";
-  } else if (!REWARD_TYPES.includes(type)) {
+  } else if (!REWARD_UI_CATEGORIES.includes(type)) {
     errors.type = "Reward type is invalid.";
   }
   if (!description) errors.description = "Reward description is required.";
@@ -98,7 +112,7 @@ function validateRewardForm(form) {
   } else if (type === "Discount") {
     if (!Number.isFinite(numericValue) || numericValue <= 0) {
       errors.value = "Reward value must be greater than zero.";
-    } else if (numericValue > 100) {
+    } else if (canonicalType !== "Fixed Discount" && numericValue > 100) {
       errors.value = "Percentage reward value cannot exceed 100%.";
     }
   }
@@ -169,6 +183,7 @@ export default function AdminEngagement() {
   const [rewardForm, setRewardForm] = useState({
     name: "",
     type: "",
+    originalType: "",
     description: "",
     value: "",
     rarity: "Common",
@@ -204,6 +219,7 @@ export default function AdminEngagement() {
     setRewardForm({
       name: "",
       type: "",
+      originalType: "",
       description: "",
       value: "",
       rarity: "Common",
@@ -219,10 +235,12 @@ export default function AdminEngagement() {
   };
 
   const openEditRewardModal = (reward) => {
+    const originalType = reward.rewardType || reward.type || "";
     setEditingRewardId(reward.id || "");
     setRewardForm({
       name: reward.name || "",
-      type: reward.type || "Voucher",
+      type: canonicalRewardTypeToUiCategory(originalType),
+      originalType,
       description: reward.description || "",
       value: reward.value || "",
       rarity: reward.rarity || "Common",
@@ -241,7 +259,7 @@ export default function AdminEngagement() {
   const filteredRewards = rewards
     .filter((reward) => {
       const q = rewardFilters.query.trim().toLowerCase();
-      const matchesQuery = !q || `${reward.name} ${reward.type} ${reward.description} ${reward.value}`.toLowerCase().includes(q);
+      const matchesQuery = !q || `${reward.name} ${getRewardTypeSearchText(reward.rewardType || reward.type)} ${reward.description} ${reward.value}`.toLowerCase().includes(q);
       const matchesRarity = !rewardFilters.rarity || reward.rarity === rewardFilters.rarity;
       const matchesActive = !rewardFilters.active || (rewardFilters.active === "Enabled" ? reward.active : !reward.active);
       return matchesQuery && matchesRarity && matchesActive;
@@ -267,7 +285,7 @@ export default function AdminEngagement() {
     return (
       (!q || haystack.includes(q)) &&
       (!rewardHistoryFilters.status || status === rewardHistoryFilters.status) &&
-      (!rewardHistoryFilters.type || reward.rewardType === rewardHistoryFilters.type) &&
+      (!rewardHistoryFilters.type || `${getRewardTypeSearchText(reward.rewardType)} ${reward.rewardType || ""}`.toLowerCase().includes(rewardHistoryFilters.type.toLowerCase())) &&
       (!rewardHistoryFilters.code || String(reward.rewardCode || reward.claimCode || "").toLowerCase().includes(rewardHistoryFilters.code.toLowerCase())) &&
       (!rewardHistoryFilters.bookingId || [reward.linkedBookingId, reward.reservedBookingId].some((value) => String(value || "").toLowerCase().includes(rewardHistoryFilters.bookingId.toLowerCase()))) &&
       (!rewardHistoryFilters.milestone || String(reward.milestoneNumber || reward.milestoneKey || "").toLowerCase().includes(rewardHistoryFilters.milestone.toLowerCase())) &&
@@ -286,10 +304,14 @@ export default function AdminEngagement() {
     if (rewardSavingRef.current) return false;
     rewardSavingRef.current = true;
     setIsSavingReward(true);
+    const rewardFields = { ...rewardForm };
+    delete rewardFields.originalType;
     const payload = {
-      ...rewardForm,
+      ...rewardFields,
       name: rewardForm.name.trim(),
-      type: rewardForm.type.trim(),
+      type: uiCategoryToCanonicalRewardType(rewardForm.type, {
+        previousCanonicalType: rewardForm.originalType,
+      }),
       description: rewardForm.description.trim(),
       value: rewardForm.value.trim(),
       rarity: rewardForm.rarity.trim(),
@@ -496,7 +518,7 @@ export default function AdminEngagement() {
           {filteredRewards.map((reward) => (
             <div className="engRewardRow" key={reward.id}>
               <div><strong>{reward.name}</strong><span>{reward.description}</span></div>
-              <div>{reward.type}</div>
+              <div>{canonicalRewardTypeToUiCategory(reward.rewardType || reward.type) || "-"}</div>
               <div>{reward.value || "-"}</div>
               <div>{reward.rarity}</div>
               <div>{Number(reward.weight || 0)}</div>
@@ -845,14 +867,18 @@ export default function AdminEngagement() {
                 <select
                   id="reward-type"
                   value={rewardForm.type}
-                  onChange={(event) => setRewardForm((prev) => ({ ...prev, type: event.target.value, value: "" }))}
+                  onChange={(event) => setRewardForm((prev) => ({
+                    ...prev,
+                    type: event.target.value,
+                    value: event.target.value === prev.type ? prev.value : "",
+                  }))}
                   onBlur={() => markRewardFieldTouched("type")}
                   required
                   aria-invalid={shouldShowRewardError("type") ? "true" : undefined}
                   aria-describedby={getRewardFieldError("type") ? "reward-type-error" : undefined}
                 >
                   <option value="">Select type</option>
-                  {REWARD_TYPES.map((option) => <option key={option}>{option}</option>)}
+                  {REWARD_UI_CATEGORIES.map((option) => <option key={option}>{option}</option>)}
                 </select>
                 {getRewardFieldError("type") ? <div id="reward-type-error" className="engFieldError">{getRewardFieldError("type")}</div> : null}
               </label>

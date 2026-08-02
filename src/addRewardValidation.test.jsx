@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AdminEngagement from "./screens/admin/AdminEngagement";
 
 const mockCreateReward = jest.fn();
@@ -32,6 +32,32 @@ jest.mock("./components/common/SecurityConfirmModal", () => (props) => {
 
 function renderEngagement() {
   render(<AdminEngagement />);
+}
+
+function rewardRecord(overrides = {}) {
+  return {
+    id: "RWD-1",
+    name: "Loyalty Spark",
+    type: "Percentage Discount",
+    rewardType: "Percentage Discount",
+    description: "Reward for loyal customers.",
+    value: "10% Discount",
+    rarity: "Common",
+    weight: 10,
+    active: true,
+    stock: 8,
+    quantity: 8,
+    expirationDays: 30,
+    ...overrides,
+  };
+}
+
+function rowForReward(name) {
+  return screen.getByText(name).closest(".engRewardRow");
+}
+
+function editReward(name) {
+  fireEvent.click(within(rowForReward(name)).getByRole("button", { name: "Edit" }));
 }
 
 function openAddReward() {
@@ -141,7 +167,7 @@ describe("Add Reward modal validation", () => {
     await waitFor(() => expect(mockCreateReward).toHaveBeenCalledTimes(1));
     expect(mockCreateReward).toHaveBeenCalledWith(expect.objectContaining({
       name: "Loyalty Spark",
-      type: values.type,
+      type: "Percentage Discount",
       description: "Reward for loyal customers.",
       value: values.value,
       stock: Number(values.stock),
@@ -154,8 +180,166 @@ describe("Add Reward modal validation", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /add reward/i })).not.toBeInTheDocument());
     expect(screen.getAllByText("Loyalty Spark")).toHaveLength(1);
-    expect(screen.getByText("Percentage Discount")).toBeInTheDocument();
-    expect(screen.getByText("10% Discount")).toBeInTheDocument();
+    expect(within(rowForReward("Loyalty Spark")).getByText("Discount")).toBeInTheDocument();
+    expect(within(rowForReward("Loyalty Spark")).getByText("10% Discount")).toBeInTheDocument();
+  });
+
+  test("maps backend canonical reward types to user-facing Type column labels", () => {
+    mockRewardsState = [
+      rewardRecord({ id: "RWD-ITEM", name: "Towel Prize", type: "Free Microfiber Towel", rewardType: "Free Microfiber Towel", value: "Fresh towel" }),
+      rewardRecord({ id: "RWD-SERVICE", name: "Wash Prize", type: "Free Car Wash", rewardType: "Free Car Wash", value: "Exterior wash" }),
+      rewardRecord({ id: "RWD-PERCENT", name: "Percent Prize", type: "Percentage Discount", rewardType: "Percentage Discount", value: "5% off" }),
+      rewardRecord({ id: "RWD-FIXED", name: "Fixed Prize", type: "Fixed Discount", rewardType: "Fixed Discount", value: "P 150 off" }),
+      rewardRecord({ id: "RWD-VOUCHER", name: "Voucher Prize", type: "Other", rewardType: "Other", value: "VIP token" }),
+    ];
+
+    renderEngagement();
+
+    expect(within(rowForReward("Towel Prize")).getByText("Item")).toBeInTheDocument();
+    expect(within(rowForReward("Wash Prize")).getByText("Service")).toBeInTheDocument();
+    expect(within(rowForReward("Percent Prize")).getByText("Discount")).toBeInTheDocument();
+    expect(within(rowForReward("Fixed Prize")).getByText("Discount")).toBeInTheDocument();
+    expect(within(rowForReward("Voucher Prize")).getByText("Voucher")).toBeInTheDocument();
+    expect(screen.queryByText("Free Microfiber Towel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Free Car Wash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Percentage Discount")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fixed Discount")).not.toBeInTheDocument();
+    expect(screen.queryByText("Other")).not.toBeInTheDocument();
+  });
+
+  test.each([
+    ["Free Microfiber Towel", "Item"],
+    ["Free Car Wash", "Service"],
+    ["Percentage Discount", "Discount"],
+    ["Fixed Discount", "Discount"],
+    ["Other", "Voucher"],
+  ])("preselects %s as %s when editing", (canonicalType, uiCategory) => {
+    mockRewardsState = [rewardRecord({ type: canonicalType, rewardType: canonicalType })];
+    renderEngagement();
+
+    editReward("Loyalty Spark");
+
+    expect(typeSelect()).toHaveValue(uiCategory);
+    expect(typeSelect()).not.toHaveValue("");
+  });
+
+  test.each([
+    ["Free Microfiber Towel", "Free Shampoo"],
+    ["Percentage Discount", "10% Discount"],
+    ["Fixed Discount", "P 150 Discount"],
+  ])("preserves canonical type %s when saving an unchanged edited reward", async (canonicalType, value) => {
+    mockRewardsState = [rewardRecord({ type: canonicalType, rewardType: canonicalType, value })];
+    mockUpdateReward.mockImplementation(async (id, payload) => {
+      mockRewardsState = [rewardRecord({ id, ...payload, rewardType: payload.type })];
+      return mockRewardsState[0];
+    });
+    renderEngagement();
+    editReward("Loyalty Spark");
+
+    expect(saveButton()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(saveButton());
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mockUpdateReward).toHaveBeenCalledTimes(1));
+    expect(mockUpdateReward).toHaveBeenCalledWith("RWD-1", expect.objectContaining({
+      type: canonicalType,
+      value,
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /edit reward/i })).not.toBeInTheDocument());
+    expect(screen.getAllByText("Loyalty Spark")).toHaveLength(1);
+  });
+
+  test("changing Item to Service clears stale value and submits the canonical Service type", async () => {
+    mockRewardsState = [rewardRecord({ type: "Free Microfiber Towel", rewardType: "Free Microfiber Towel", value: "Free Shampoo" })];
+    mockUpdateReward.mockResolvedValue({});
+    renderEngagement();
+    editReward("Loyalty Spark");
+
+    fireEvent.change(typeSelect(), { target: { value: "Service" } });
+    expect(valueInput()).toHaveValue("");
+    expect(saveButton()).toBeDisabled();
+    fireEvent.blur(valueInput());
+    expect(screen.getByText("Reward value is required.")).toBeInTheDocument();
+
+    fireEvent.change(valueInput(), { target: { value: "Free Car Wash" } });
+    expect(saveButton()).toBeEnabled();
+    await act(async () => {
+      fireEvent.submit(rewardForm());
+      await Promise.resolve();
+    });
+
+    expect(mockUpdateReward).toHaveBeenCalledWith("RWD-1", expect.objectContaining({
+      type: "Free Car Wash",
+      value: "Free Car Wash",
+    }));
+  });
+
+  test.each([
+    ["Voucher", "Voucher"],
+    ["Item", "Item"],
+    ["Discount", "Discount"],
+    ["Service", "Service"],
+  ])("keeps legacy frontend type %s displayable and editable", (legacyType, uiCategory) => {
+    mockRewardsState = [rewardRecord({ type: legacyType, rewardType: legacyType })];
+    renderEngagement();
+
+    expect(within(rowForReward("Loyalty Spark")).getByText(uiCategory)).toBeInTheDocument();
+    editReward("Loyalty Spark");
+    expect(typeSelect()).toHaveValue(uiCategory);
+  });
+
+  test.each([
+    ["Item", "Free Microfiber Towel", "Free Microfiber Towel"],
+    ["Service", "Free Car Wash", "Free Car Wash"],
+    ["Voucher", "VIP Voucher", "Other"],
+    ["Discount", "10", "Percentage Discount"],
+  ])("Add Reward submits %s as canonical backend type", async (uiCategory, value, canonicalType) => {
+    mockCreateReward.mockResolvedValue({});
+    openAddReward();
+    fillValidReward({ type: uiCategory, value });
+
+    expect(saveButton()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(saveButton());
+      await Promise.resolve();
+    });
+
+    expect(mockCreateReward).toHaveBeenCalledWith(expect.objectContaining({
+      type: canonicalType,
+      value,
+    }));
+  });
+
+  test("reward search matches user-facing type labels for canonical stored types", () => {
+    mockRewardsState = [
+      rewardRecord({ id: "RWD-ITEM", name: "Towel Prize", type: "Free Microfiber Towel", rewardType: "Free Microfiber Towel", value: "Fresh towel" }),
+      rewardRecord({ id: "RWD-SERVICE", name: "Wash Prize", type: "Free Car Wash", rewardType: "Free Car Wash", value: "Exterior wash" }),
+      rewardRecord({ id: "RWD-PERCENT", name: "Percent Prize", type: "Percentage Discount", rewardType: "Percentage Discount", value: "5% off" }),
+      rewardRecord({ id: "RWD-FIXED", name: "Fixed Prize", type: "Fixed Discount", rewardType: "Fixed Discount", value: "P 150 off" }),
+      rewardRecord({ id: "RWD-VOUCHER", name: "Voucher Prize", type: "Other", rewardType: "Other", value: "VIP token" }),
+    ];
+
+    renderEngagement();
+    const search = screen.getByPlaceholderText("Search reward");
+
+    fireEvent.change(search, { target: { value: "Item" } });
+    expect(screen.getByText("Towel Prize")).toBeInTheDocument();
+    expect(screen.queryByText("Wash Prize")).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "Service" } });
+    expect(screen.getByText("Wash Prize")).toBeInTheDocument();
+    expect(screen.queryByText("Towel Prize")).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "Discount" } });
+    expect(screen.getByText("Percent Prize")).toBeInTheDocument();
+    expect(screen.getByText("Fixed Prize")).toBeInTheDocument();
+    expect(screen.queryByText("Voucher Prize")).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "Voucher" } });
+    expect(screen.getByText("Voucher Prize")).toBeInTheDocument();
+    expect(screen.queryByText("Percent Prize")).not.toBeInTheDocument();
   });
 
   test.each([
