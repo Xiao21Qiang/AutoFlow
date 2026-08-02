@@ -3809,6 +3809,16 @@ function normalizeRewardPayload(body = {}, existing = {}, options = {}) {
   return engagementDomain.normalizeRewardDefinitionPayload(body, existing, options);
 }
 
+function buildRewardLookupQuery(id) {
+  const rewardId = String(id || "").trim();
+  if (!rewardId) return { id: "" };
+  const candidates = [{ id: rewardId }];
+  if (/^[0-9a-fA-F]{24}$/.test(rewardId)) {
+    candidates.push({ _id: rewardId });
+  }
+  return { $or: candidates };
+}
+
 function selectWeightedReward(rewards) {
   return engagementDomain.selectWeightedReward(rewards);
 }
@@ -9292,7 +9302,7 @@ app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
 
 app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   try {
-    const existingReward = await Reward.findOne({ id: req.params.id });
+    const existingReward = await Reward.findOne(buildRewardLookupQuery(req.params.id));
     if (!existingReward) {
       res.status(404).json({ message: "Reward not found." });
       return;
@@ -9304,7 +9314,7 @@ app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
       return;
     }
     const previous = engagementDomain.hydrateRewardDefinition(existingReward);
-    const reward = await Reward.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
+    const reward = await Reward.findOneAndUpdate(buildRewardLookupQuery(req.params.id), payload, { new: true });
     await recordAudit(req.authUser?.email || req.body.auditUser, "Reward definition updated", reward.id, {
       name: reward.name,
       code: reward.code,
@@ -9320,6 +9330,44 @@ app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
       res.status(409).json({ message: "Reward code already exists." });
       return;
     }
+    next(error);
+  }
+});
+
+app.patch("/api/admin/rewards/:id/status", requireAdminUser, async (req, res, next) => {
+  try {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "enabled") || typeof req.body.enabled !== "boolean") {
+      res.status(400).json({ message: "Reward enabled status must be true or false." });
+      return;
+    }
+
+    const lookupQuery = buildRewardLookupQuery(req.params.id);
+    const existingReward = await Reward.findOne(lookupQuery);
+    if (!existingReward) {
+      res.status(404).json({ message: "Reward not found." });
+      return;
+    }
+
+    const enabled = req.body.enabled;
+    const reward = await Reward.findOneAndUpdate(
+      lookupQuery,
+      { enabled, active: enabled },
+      { new: true }
+    );
+    if (!reward) {
+      res.status(404).json({ message: "Reward not found." });
+      return;
+    }
+
+    await recordAudit(req.authUser?.email || req.body.auditUser, enabled ? "Reward enabled" : "Reward disabled", reward.id || req.params.id, {
+      name: reward.name,
+      code: reward.code,
+      enabled,
+      previousEnabled: engagementDomain.hydrateRewardDefinition(existingReward).enabled,
+    });
+
+    res.json(engagementDomain.hydrateRewardDefinition(reward));
+  } catch (error) {
     next(error);
   }
 });

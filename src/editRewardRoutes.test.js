@@ -68,6 +68,17 @@ describe("Edit Reward route validation", () => {
   let rewards;
   let auditLogs;
 
+  const matchesRewardQuery = (reward, query = {}) => {
+    if (Array.isArray(query.$or)) {
+      return query.$or.some((candidate) => matchesRewardQuery(reward, candidate));
+    }
+    if (query.id && typeof query.id === "object" && query.id.$ne && reward.id === query.id.$ne) return false;
+    if (query.id && typeof query.id !== "object" && reward.id !== query.id) return false;
+    if (query._id && reward._id !== query._id) return false;
+    if (query.code && reward.code !== query.code) return false;
+    return Boolean(query.id || query._id || query.code);
+  };
+
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
     model[method] = implementation;
@@ -102,12 +113,7 @@ describe("Edit Reward route validation", () => {
       return user ? doc(user) : emptyDoc();
     });
     stub(__testModels.Reward, "findOne", (query = {}) => {
-      const found = rewards.find((reward) => {
-        if (query.id && typeof query.id === "object" && query.id.$ne && reward.id === query.id.$ne) return false;
-        if (query.id && typeof query.id !== "object" && reward.id !== query.id) return false;
-        if (query.code && reward.code !== query.code) return false;
-        return Boolean(query.id || query.code);
-      });
+      const found = rewards.find((reward) => matchesRewardQuery(reward, query));
       return found ? doc(found) : query.code ? emptyDoc() : null;
     });
     stub(__testModels.Reward, "findOneAndUpdate", jest.fn());
@@ -129,7 +135,7 @@ describe("Edit Reward route validation", () => {
     __testModels.Reward.create.mockClear();
     __testModels.AuditLog.create.mockClear();
     __testModels.Reward.findOneAndUpdate.mockImplementation(async (query, payload) => {
-      const index = rewards.findIndex((reward) => reward.id === query.id);
+      const index = rewards.findIndex((reward) => matchesRewardQuery(reward, query));
       if (index < 0) return null;
       rewards[index] = { ...rewards[index], ...clone(payload), id: rewards[index].id };
       return doc(rewards[index]);

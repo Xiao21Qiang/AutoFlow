@@ -520,6 +520,16 @@ export function AdminDataProvider({ children, session }) {
     services: updater(Array.isArray(currentData.services) ? currentData.services : [], result),
   });
 
+  const withRewards = (updater) => (currentData, result) => ({
+    ...currentData,
+    rewards: updater(Array.isArray(currentData.rewards) ? currentData.rewards : [], result),
+  });
+
+  const matchesRecordId = (item, id) => {
+    const targetId = String(id || "").trim();
+    return Boolean(targetId && [item?.id, item?._id].some((value) => String(value || "").trim() === targetId));
+  };
+
   const currentUser = useMemo(() => {
     const foundUser = data.users.find((user) => user.email === session?.email);
     if (foundUser) return foundUser;
@@ -694,6 +704,15 @@ export function AdminDataProvider({ children, session }) {
     updateCommission: (id, payload) => mutate("/api/admin/commissions/" + id, { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     createReward: (payload) => mutate("/api/admin/rewards", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateReward: (id, payload) => mutate("/api/admin/rewards/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateRewardStatus: (id, enabled) =>
+      mutate(
+        "/api/admin/rewards/" + id + "/status",
+        { method: "PATCH", body: JSON.stringify({ enabled, auditUser }) },
+        {
+          refresh: false,
+          applyResult: withRewards((rewards, result) => rewards.map((reward) => matchesRecordId(reward, id) || matchesRecordId(reward, result?.id) || matchesRecordId(reward, result?._id) ? result : reward)),
+        }
+      ),
     deleteReward: (id) => mutate("/api/admin/rewards/" + id, { method: "DELETE", body: JSON.stringify({ auditUser }) }),
     claimReward: (id) => mutate("/api/admin/rewards/" + id + "/claim", { method: "POST", body: JSON.stringify({ auditUser }) }),
     generateCustomerReward: (payload) => mutate("/api/admin/rewards/generate", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),

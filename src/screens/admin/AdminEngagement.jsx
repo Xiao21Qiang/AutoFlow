@@ -144,7 +144,7 @@ function markAllRewardFieldsTouched() {
 }
 
 export default function AdminEngagement() {
-  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
+  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, updateRewardStatus, deleteReward, generateCustomerReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
@@ -294,6 +294,23 @@ export default function AdminEngagement() {
     );
   });
   const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
+
+  const getRewardId = (reward) => String(reward?.id || reward?._id || "").trim();
+  const isRewardEnabled = (reward) => reward?.active === true ? true : reward?.enabled !== undefined ? Boolean(reward.enabled) : reward?.active !== false;
+
+  const openRewardStatusConfirm = (reward, enabled) => {
+    const rewardId = getRewardId(reward);
+    setSecurityConfirm({
+      mode: "pin",
+      title: enabled ? "Enable Reward" : "Disable Reward",
+      message: "Enter the special PIN before changing reward availability.",
+      actionKey: ACTION_KEYS.engagementManage,
+      onConfirm: async () => {
+        await updateRewardStatus(rewardId, enabled);
+        setSecurityConfirm(null);
+      },
+    });
+  };
 
   const saveReward = async () => {
     const validationErrors = validateRewardForm(rewardForm);
@@ -516,17 +533,17 @@ export default function AdminEngagement() {
         <div className="engRewardTable">
           <div className="engRewardHead"><div>Name</div><div>Type</div><div>Value</div><div>Rarity</div><div>Weight</div><div>Status</div><div>Actions</div></div>
           {filteredRewards.map((reward) => (
-            <div className="engRewardRow" key={reward.id}>
+            <div className="engRewardRow" key={getRewardId(reward) || reward.name}>
               <div><strong>{reward.name}</strong><span>{reward.description}</span></div>
               <div>{canonicalRewardTypeToUiCategory(reward.rewardType || reward.type) || "-"}</div>
               <div>{reward.value || "-"}</div>
               <div>{reward.rarity}</div>
               <div>{Number(reward.weight || 0)}</div>
-              <div><span className={`engStatusBadge ${reward.active ? "active" : "draft"}`}>{reward.active ? "Enabled" : "Disabled"}</span></div>
+              <div><span className={`engStatusBadge ${isRewardEnabled(reward) ? "active" : "draft"}`}>{isRewardEnabled(reward) ? "Enabled" : "Disabled"}</span></div>
               <div className="engRewardActions">
                 <button className="engBtnLight engBtnAuto" type="button" onClick={() => openEditRewardModal(reward)}>Edit</button>
-                <button className="engBtnLight engBtnAuto" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: reward.active ? "Disable Reward" : "Enable Reward", message: "Enter the special PIN before changing reward availability.", onConfirm: async () => { await updateReward(reward.id, { ...reward, active: !reward.active }); setSecurityConfirm(null); } })}>{reward.active ? "Disable" : "Enable"}</button>
-                <button className="engBtnLight engBtnAuto danger" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Reward", message: "Enter the special PIN before deleting this reward.", onConfirm: async () => { await deleteReward(reward.id); setSecurityConfirm(null); } })}>Delete</button>
+                <button className="engBtnLight engBtnAuto" type="button" onClick={() => openRewardStatusConfirm(reward, !isRewardEnabled(reward))}>{isRewardEnabled(reward) ? "Disable" : "Enable"}</button>
+                <button className="engBtnLight engBtnAuto danger" type="button" onClick={() => setSecurityConfirm({ mode: "pin", title: "Delete Reward", message: "Enter the special PIN before deleting this reward.", onConfirm: async () => { await deleteReward(getRewardId(reward)); setSecurityConfirm(null); } })}>Delete</button>
               </div>
             </div>
           ))}
