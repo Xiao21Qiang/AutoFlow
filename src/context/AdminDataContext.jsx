@@ -715,7 +715,6 @@ export function AdminDataProvider({ children, session }) {
       ),
     deleteReward: (id) => mutate("/api/admin/rewards/" + id, { method: "DELETE", body: JSON.stringify({ auditUser }) }),
     claimReward: (id) => mutate("/api/admin/rewards/" + id + "/claim", { method: "POST", body: JSON.stringify({ auditUser }) }),
-    generateCustomerReward: (payload) => mutate("/api/admin/rewards/generate", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     generateAnalyticsInterpretation: requestAnalyticsInterpretation,
     generateTrackingIssueNote: requestTrackingIssueNote,
     generateFinancialInterpretation: requestFinancialInterpretation,

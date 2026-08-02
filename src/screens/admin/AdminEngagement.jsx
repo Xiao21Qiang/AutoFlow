@@ -144,7 +144,7 @@ function markAllRewardFieldsTouched() {
 }
 
 export default function AdminEngagement() {
-  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, updateRewardStatus, deleteReward, generateCustomerReward } = useAdminData();
+  const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, updateRewardStatus, deleteReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
@@ -167,7 +167,8 @@ export default function AdminEngagement() {
     dateFrom: "",
     dateTo: "",
   });
-  const [manualRewardCustomerEmail, setManualRewardCustomerEmail] = useState("");
+  const [rewardHistoryCustomerKey, setRewardHistoryCustomerKey] = useState("");
+  const [activeRewardHistoryCustomerKey, setActiveRewardHistoryCustomerKey] = useState("");
   const [promoForm, setPromoForm] = useState({
     title: "",
     code: "",
@@ -265,11 +266,24 @@ export default function AdminEngagement() {
       return matchesQuery && matchesRarity && matchesActive;
     })
     .sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0));
+  const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
+  const getUserId = (user) => String(user?.id || user?._id || "").trim();
+  const getCustomerKey = (user) => getUserId(user) || String(user?.email || "").trim().toLowerCase();
+  const selectedRewardHistoryCustomer = customerOptions.find((user) => getCustomerKey(user) === rewardHistoryCustomerKey);
+  const activeRewardHistoryCustomer = customerOptions.find((user) => getCustomerKey(user) === activeRewardHistoryCustomerKey);
+
   const filteredCustomerRewards = customerRewards.filter((reward) => {
     const q = rewardHistoryFilters.query.trim().toLowerCase();
     const status = getRewardStatus(reward);
     const granted = reward.dateGranted || reward.dateEarned || "";
     const used = reward.usedAt || "";
+    const activeCustomerId = getUserId(activeRewardHistoryCustomer);
+    const activeCustomerEmail = String(activeRewardHistoryCustomer?.email || "").trim().toLowerCase();
+    const rewardCustomerId = String(reward.customerId || "").trim();
+    const rewardCustomerEmail = String(reward.customerEmail || "").trim().toLowerCase();
+    const matchesSelectedCustomer = !activeRewardHistoryCustomerKey ||
+      (activeCustomerId && rewardCustomerId === activeCustomerId) ||
+      (!rewardCustomerId && activeCustomerEmail && rewardCustomerEmail === activeCustomerEmail);
     const haystack = [
       reward.customerName,
       reward.customerEmail,
@@ -283,6 +297,7 @@ export default function AdminEngagement() {
       status,
     ].join(" ").toLowerCase();
     return (
+      matchesSelectedCustomer &&
       (!q || haystack.includes(q)) &&
       (!rewardHistoryFilters.status || status === rewardHistoryFilters.status) &&
       (!rewardHistoryFilters.type || `${getRewardTypeSearchText(reward.rewardType)} ${reward.rewardType || ""}`.toLowerCase().includes(rewardHistoryFilters.type.toLowerCase())) &&
@@ -293,8 +308,6 @@ export default function AdminEngagement() {
       (!rewardHistoryFilters.dateTo || (granted && granted <= rewardHistoryFilters.dateTo) || (used && used <= rewardHistoryFilters.dateTo))
     );
   });
-  const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
-
   const getRewardId = (reward) => String(reward?.id || reward?._id || "").trim();
   const isRewardEnabled = (reward) => reward?.active === true ? true : reward?.enabled !== undefined ? Boolean(reward.enabled) : reward?.active !== false;
 
@@ -560,16 +573,22 @@ export default function AdminEngagement() {
             </div>
             <div className="engManualReward">
               <button className="engBtnDark" type="button" onClick={exportRewardHistoryPdf}>Export as PDF</button>
-              <select value={manualRewardCustomerEmail} onChange={(event) => setManualRewardCustomerEmail(event.target.value)}>
+              <select value={rewardHistoryCustomerKey} onChange={(event) => {
+                const nextValue = event.target.value;
+                setRewardHistoryCustomerKey(nextValue);
+                if (!nextValue) {
+                  setActiveRewardHistoryCustomerKey("");
+                }
+              }}>
                 <option value="">Select customer</option>
-                {customerOptions.map((user) => <option key={user.email} value={user.email}>{user.name || user.email}</option>)}
+                {customerOptions.map((user) => <option key={getCustomerKey(user)} value={getCustomerKey(user)}>{user.name || user.email}</option>)}
               </select>
-              <button className="engBtnLight engBtnAuto" type="button" disabled={!manualRewardCustomerEmail} onClick={() => setSecurityConfirm({ mode: "pin", title: "Generate Reward", message: "Enter the special PIN before manually generating a reward.", onConfirm: async () => { const customer = customerOptions.find((user) => user.email === manualRewardCustomerEmail); await generateCustomerReward({ customerEmail: customer?.email || "", customerName: customer?.name || "" }); setSecurityConfirm(null); } })}>Generate</button>
+              <button className="engBtnLight engBtnAuto" type="button" disabled={!selectedRewardHistoryCustomer} onClick={() => setActiveRewardHistoryCustomerKey(rewardHistoryCustomerKey)}>View Reward History</button>
             </div>
           </div>
           <div className="engRewardFilters engRewardHistoryFilters">
             <input value={rewardHistoryFilters.query} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, query: event.target.value }))} placeholder="Search customer, reward, booking..." />
-            <select value={rewardHistoryFilters.status} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="">All status</option><option>Available</option><option>Reserved</option><option>Used</option><option>Expired</option><option>Released</option></select>
+            <select value={rewardHistoryFilters.status} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, status: event.target.value }))}><option value="">All status</option><option>Available</option><option>Claimed</option><option>Reserved</option><option>Used</option><option>Expired</option><option>Released</option></select>
             <input value={rewardHistoryFilters.type} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, type: event.target.value }))} placeholder="Reward type" />
             <input value={rewardHistoryFilters.code} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, code: event.target.value }))} placeholder="Reward code" />
             <input value={rewardHistoryFilters.bookingId} onChange={(event) => setRewardHistoryFilters((prev) => ({ ...prev, bookingId: event.target.value }))} placeholder="Booking ID" />

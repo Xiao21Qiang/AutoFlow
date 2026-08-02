@@ -9441,15 +9441,7 @@ app.post("/api/admin/rewards/:id/claim", requireRoles("customer"), async (req, r
 
 app.post("/api/admin/rewards/generate", requireAdminUser, async (req, res, next) => {
   try {
-    const customerEmail = String(req.body.customerEmail || "").trim().toLowerCase();
-    const customerName = String(req.body.customerName || "").trim();
-    const booking = await Booking.findOne(customerEmail ? { customerEmail } : { customer: customerName }).sort({ createdAt: -1 }).lean();
-    if (!booking) {
-      res.status(404).json({ message: "No booking found for this customer." });
-      return;
-    }
-    const createdRewards = await generateEligibleRewardsForBooking(booking, req.body.auditUser || "Admin");
-    res.json({ createdRewards });
+    res.status(410).json({ message: "Manual reward generation is disabled. Rewards are awarded automatically after eligible booking milestones." });
   } catch (error) {
     next(error);
   }

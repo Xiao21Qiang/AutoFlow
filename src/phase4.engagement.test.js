@@ -75,6 +75,7 @@ describe("Phase 4 promotion helpers", () => {
 describe("Phase 4 reward helpers", () => {
   test("generates every-three-bookings milestone numbers", () => {
     expect(engagement.getEarnedMilestoneNumbers(0)).toEqual([]);
+    expect(engagement.getEarnedMilestoneNumbers(2)).toEqual([]);
     expect(engagement.getEarnedMilestoneNumbers(3)).toEqual([1]);
     expect(engagement.getEarnedMilestoneNumbers(6)).toEqual([1, 2]);
     expect(engagement.getEarnedMilestoneNumbers(10)).toEqual([1, 2, 3]);
@@ -85,11 +86,17 @@ describe("Phase 4 reward helpers", () => {
       { id: "B1", status: "Completed", finalAmount: 100 },
       { id: "B2", status: "Cancelled", finalAmount: 100 },
       { id: "B3", status: "Completed", finalAmount: 100 },
+      { id: "B4", status: "Scheduled", finalAmount: 100 },
+      { id: "B5", status: "In Progress", finalAmount: 100 },
+      { id: "B6", status: "Pending", finalAmount: 100 },
     ];
     const payments = new Map([
       ["B1", { totalAmount: 100, finalPaymentStatus: "Paid" }],
       ["B2", { totalAmount: 100, finalPaymentStatus: "Paid" }],
       ["B3", { totalAmount: 100, finalPaymentStatus: "Rejected" }],
+      ["B4", { totalAmount: 100, finalPaymentStatus: "Paid" }],
+      ["B5", { totalAmount: 100, finalPaymentStatus: "Paid" }],
+      ["B6", { totalAmount: 100, finalPaymentStatus: "Paid" }],
     ]);
     expect(engagement.eligibleBookingsForRewards(bookings, payments).map((booking) => booking.id)).toEqual(["B1"]);
   });
@@ -109,5 +116,28 @@ describe("Phase 4 reward helpers", () => {
     expect(engagement.calculateRewardDiscount(100, { type: "Fixed Discount", discountType: "Fixed", discountValue: 150 }).finalAmount).toBe(0);
     expect(engagement.getRewardTransition("Available", "Reserved").allowed).toBe(true);
     expect(engagement.getRewardTransition("Used", "Available").allowed).toBe(false);
+  });
+
+  test("keeps generated rewards Available until a paid payment links them as Used", () => {
+    const generatedReward = {
+      id: "CRW-1",
+      customerId: "USR-1",
+      rewardId: "RWD-1",
+      rewardName: "Loyalty Spark",
+      status: "Available",
+      dateEarned: "2026-08-02",
+    };
+
+    expect(engagement.hydrateCustomerReward(generatedReward, []).status).toBe("Available");
+    expect(engagement.hydrateCustomerReward(generatedReward, [
+      { id: "PAY-1", bookingId: "B-1", rewardId: "CRW-1", status: "Paid" },
+    ])).toEqual(expect.objectContaining({
+      status: "Used",
+      linkedBookingId: "B-1",
+      linkedPaymentId: "PAY-1",
+    }));
+    expect(engagement.hydrateCustomerReward(generatedReward, [
+      { id: "PAY-2", bookingId: "B-2", rewardId: "CRW-1", status: "Rejected" },
+    ]).status).toBe("Available");
   });
 });
