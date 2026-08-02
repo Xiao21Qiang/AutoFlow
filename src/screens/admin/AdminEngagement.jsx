@@ -934,8 +934,8 @@ export default function AdminEngagement() {
                   <span>Weight / Chance</span>
                   <input
                     id="reward-weight"
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="decimal"
                     value={rewardForm.weight}
                     onChange={(event) => updateRewardField("weight", event.target.value)}
                     onBlur={() => markRewardFieldTouched("weight")}

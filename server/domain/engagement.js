@@ -358,7 +358,19 @@ function normalizeRewardType(value, fallback = "Other") {
   return canonical || fallback;
 }
 
-function normalizeRewardDefinitionPayload(body = {}, existing = {}) {
+function assertCompleteRewardDefinitionPayload(body = {}) {
+  if (!hasOwnInput(body, "name")) throw createValidationError("Reward name is required.");
+  if (!hasOwnInput(body, "type") && !hasOwnInput(body, "rewardType")) throw createValidationError("Reward type is required.");
+  if (!hasOwnInput(body, "value")) throw createValidationError("Reward value is required.");
+  if (!hasOwnInput(body, "stock") && !hasOwnInput(body, "quantity")) throw createValidationError("Reward stock is required.");
+  if (!hasOwnInput(body, "weight")) throw createValidationError("Reward weight must be greater than zero.");
+  if (!hasOwnInput(body, "expirationDays")) throw createValidationError("Expiration days are required.");
+}
+
+function normalizeRewardDefinitionPayload(body = {}, existing = {}, options = {}) {
+  if (options.requireCompletePayload) {
+    assertCompleteRewardDefinitionPayload(body);
+  }
   const nameSource = body.name ?? existing.name;
   const typeSource = body.rewardType ?? body.type ?? existing.rewardType ?? existing.type;
   const descriptionSource = body.description ?? existing.description;
@@ -377,9 +389,14 @@ function normalizeRewardDefinitionPayload(body = {}, existing = {}) {
   const discountType = normalizeDiscountType(rawDiscountType, inferredDiscountType);
   const rawValue = normalizeWhitespace(legacyValue);
   if (!rawValue) throw createValidationError("Reward value is required.");
+  const discountValueSource = hasOwnInput(body, "discountValue")
+    ? body.discountValue
+    : hasOwnInput(body, "value")
+      ? extractLegacyRewardNumericValue(rawValue)
+      : existing.discountValue ?? extractLegacyRewardNumericValue(rawValue);
   const discountValue = ["Percentage Discount", "Fixed Discount"].includes(type)
     ? parseRequiredPositiveNumber(
-        body.discountValue ?? existing.discountValue ?? extractLegacyRewardNumericValue(rawValue),
+        discountValueSource,
         "Reward value is required.",
         "Reward value must be greater than zero."
       )

@@ -3805,8 +3805,8 @@ function normalizeQuoteStatus(status) {
   return String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 }
 
-function normalizeRewardPayload(body = {}, existing = {}) {
-  return engagementDomain.normalizeRewardDefinitionPayload(body, existing);
+function normalizeRewardPayload(body = {}, existing = {}, options = {}) {
+  return engagementDomain.normalizeRewardDefinitionPayload(body, existing, options);
 }
 
 function selectWeightedReward(rewards) {
@@ -9297,7 +9297,7 @@ app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
       res.status(404).json({ message: "Reward not found." });
       return;
     }
-    const payload = normalizeRewardPayload(req.body, existingReward);
+    const payload = normalizeRewardPayload(req.body, existingReward, { requireCompletePayload: true });
     const duplicate = await Reward.findOne({ code: payload.code, id: { $ne: req.params.id } }).lean();
     if (duplicate) {
       res.status(409).json({ message: "Reward code already exists." });
