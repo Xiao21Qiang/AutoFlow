@@ -25,6 +25,21 @@ const ROLE_OPTIONS_BY_USER_TYPE = {
 
 const EMPLOYEE_ROLE_OPTIONS = EMPLOYEE_STAFF_ROLE_OPTIONS;
 const EMPLOYEE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const EMPLOYEE_FIELD_IDS = {
+  name: "employee-full-name",
+  email: "employee-email",
+  phone: "employee-phone",
+  role: "employee-role",
+  password: "employee-password",
+};
+const EMPLOYEE_ERROR_IDS = {
+  name: "employee-full-name-error",
+  email: "employee-email-error",
+  phone: "employee-phone-error",
+  role: "employee-role-error",
+  password: "employee-password-error",
+};
+const EMPLOYEE_FIELDS = Object.keys(EMPLOYEE_FIELD_IDS);
 
 function sanitizeEmployeeNameInput(value) {
   return String(value || "")
@@ -55,20 +70,21 @@ function validateEmployeeForm(form) {
   const role = String(form.role || "").trim();
   const password = String(form.password || "");
   const passwordChecks = getPasswordChecks(password);
+  const errors = {};
 
-  if (!name) return { error: "Full name is required." };
-  if (name.length > 48) return { error: "Full name must be 48 characters or less." };
-  if (!/^[\p{L}\s'.-]+$/u.test(name)) return { error: "Full name can only contain letters, spaces, hyphens, apostrophes, and periods." };
-  if (!email) return { error: "Email is required." };
-  if (!EMPLOYEE_EMAIL_REGEX.test(email)) return { error: "Enter a valid email address." };
-  if (!phone) return { error: "Contact number is required." };
-  if (!/^09\d{9}$/.test(phone)) return { error: "Contact number must be 11 digits and start with 09." };
-  if (!EMPLOYEE_ROLE_OPTIONS.includes(role)) return { error: "Select a valid staff role. Admin cannot be created from this form." };
-  if (!password) return { error: "Password is required." };
+  if (!name) errors.name = "Full name is required.";
+  else if (name.length > 48) errors.name = "Full name must be 48 characters or less.";
+  else if (!/^[\p{L}\s'.-]+$/u.test(name)) errors.name = "Full name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  if (!email) errors.email = "Email is required.";
+  else if (!EMPLOYEE_EMAIL_REGEX.test(email)) errors.email = "Please enter a valid email address.";
+  if (!phone) errors.phone = "Contact number is required.";
+  else if (!/^09\d{9}$/.test(phone)) errors.phone = "Contact number must be 11 digits and start with 09.";
+  if (!EMPLOYEE_ROLE_OPTIONS.includes(role)) errors.role = "Select a valid staff role. Admin cannot be created from this form.";
+  if (!password) errors.password = "Password is required.";
   const failedPasswordCheck = passwordChecks.find((check) => !check.met);
-  if (failedPasswordCheck) return { error: failedPasswordCheck.label + "." };
+  if (!errors.password && failedPasswordCheck) errors.password = failedPasswordCheck.label + ".";
 
-  return { error: "", payload: { name, email, phone, role, password } };
+  return { errors, isValid: Object.keys(errors).length === 0, payload: { name, email, phone, role, password } };
 }
 
 function normalizeUserType(user) {
@@ -137,11 +153,16 @@ export default function AdminUsers() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
   const [employeeForm, setEmployeeForm] = useState(() => createEmployeeForm());
-  const [employeeError, setEmployeeError] = useState("");
+  const [employeeTouched, setEmployeeTouched] = useState({});
+  const [employeeSubmitted, setEmployeeSubmitted] = useState(false);
+  const [employeeServerErrors, setEmployeeServerErrors] = useState({});
+  const [employeeSubmitting, setEmployeeSubmitting] = useState(false);
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const canManageStaff = canPerformAction(currentUser, ACTION_KEYS.usersManageStaff);
   const canDeleteStaff = canPerformAction(currentUser, ACTION_KEYS.usersDelete);
+  const employeeValidation = useMemo(() => validateEmployeeForm(employeeForm), [employeeForm]);
+  const employeeCreateDisabled = !employeeValidation.isValid || employeeSubmitting;
 
   const manageableUsers = useMemo(
     () => users.filter((user) => {
@@ -179,11 +200,63 @@ export default function AdminUsers() {
     setModal(null);
     setSelectedUser(null);
     setEmployeeForm(createEmployeeForm());
-    setEmployeeError("");
+    setEmployeeTouched({});
+    setEmployeeSubmitted(false);
+    setEmployeeServerErrors({});
+    setEmployeeSubmitting(false);
   };
 
   const showToast = (type, message) => {
     setToast({ type, message, id: Date.now() });
+  };
+
+  const openEmployeeModal = () => {
+    setEmployeeForm(createEmployeeForm());
+    setEmployeeTouched({});
+    setEmployeeSubmitted(false);
+    setEmployeeServerErrors({});
+    setEmployeeSubmitting(false);
+    setModal("employee");
+  };
+
+  const touchEmployeeField = (field) => {
+    setEmployeeTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const clearEmployeeServerError = (field) => {
+    setEmployeeServerErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const getEmployeeError = (field) => (
+    employeeSubmitted || employeeTouched[field]
+      ? employeeValidation.errors[field] || employeeServerErrors[field] || ""
+      : employeeServerErrors[field] || ""
+  );
+
+  const markAllEmployeeFieldsTouched = () => {
+    setEmployeeSubmitted(true);
+    setEmployeeTouched(EMPLOYEE_FIELDS.reduce((next, field) => ({ ...next, [field]: true }), {}));
+  };
+
+  const setEmployeeBackendError = (error) => {
+    const message = error.message || "Could not create employee account.";
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes("email")) {
+      setEmployeeServerErrors({ email: message });
+    } else if (lowerMessage.includes("contact") || lowerMessage.includes("phone")) {
+      setEmployeeServerErrors({ phone: message });
+    } else if (lowerMessage.includes("role")) {
+      setEmployeeServerErrors({ role: message });
+    } else if (lowerMessage.includes("password")) {
+      setEmployeeServerErrors({ password: message });
+    } else {
+      setEmployeeServerErrors({ form: message });
+    }
   };
 
   return (
@@ -199,7 +272,7 @@ export default function AdminUsers() {
             <div className="usersCreateTitle">Employee Accounts</div>
             <p className="usersCreateText">Create new staff accounts here for managers, associates, clerks, detailers, and marketing staff.</p>
           </div>
-          <button className="usersCreateBtn" type="button" onClick={() => { setEmployeeForm(createEmployeeForm()); setModal("employee"); }}>Add Employee Account</button>
+          <button className="usersCreateBtn" type="button" onClick={openEmployeeModal}>Add Employee Account</button>
         </div>
       )}
 
@@ -230,7 +303,7 @@ export default function AdminUsers() {
 
       {modal && (
         <div className="usersModalOverlay" onClick={closeModal}>
-          <div className={`usersModalCard ${modal === "delete" ? "compact" : ""}`} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className={`usersModalCard ${modal === "delete" ? "compact" : ""}`} role="dialog" aria-modal="true" aria-label={modal === "employee" ? "Add Employee Account" : modal === "edit" ? "Edit User" : "Confirm Delete"} onClick={(e) => e.stopPropagation()}>
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
@@ -288,21 +361,24 @@ export default function AdminUsers() {
             )}
 
             {modal === "employee" && (
-              <form className="usersEditForm" onSubmit={(e) => {
+              <form className="usersEditForm" noValidate onSubmit={(e) => {
                 e.preventDefault();
                 const validation = validateEmployeeForm(employeeForm);
-                if (validation.error) {
-                  setEmployeeError(validation.error);
-                  showToast("error", validation.error);
+                setEmployeeServerErrors({});
+                if (!validation.isValid) {
+                  markAllEmployeeFieldsTouched();
+                  showToast("error", Object.values(validation.errors)[0] || "Please complete the required fields.");
                   return;
                 }
-                setEmployeeError("");
+                setEmployeeSubmitted(false);
                 setSecurityConfirm({
                   mode: "currentPassword",
                   title: "Create Employee Account",
                   message: "Enter your current admin account password before creating this employee account.",
                   onConfirm: async ({ secret }) => {
+                    if (employeeSubmitting) return;
                     try {
+                      setEmployeeSubmitting(true);
                       await createEmployeeAccount({
                         ...validation.payload,
                         currentPassword: secret,
@@ -311,6 +387,8 @@ export default function AdminUsers() {
                       showToast("success", "Employee account created.");
                       closeModal();
                     } catch (error) {
+                      setEmployeeSubmitting(false);
+                      setEmployeeBackendError(error);
                       showToast("error", error.message || "Could not create employee account.");
                       throw error;
                     }
@@ -319,23 +397,111 @@ export default function AdminUsers() {
               }}>
                 <div className="usersModalTitle">Add Employee Account</div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Full Name</span><input maxLength={48} value={employeeForm.name} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, name: sanitizeEmployeeNameInput(e.target.value) })); }} required /></label>
-                  <label className="usersField"><span>Email</span><input type="email" value={employeeForm.email} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() })); }} required /></label>
+                  <label className="usersField" htmlFor={EMPLOYEE_FIELD_IDS.name}>
+                    <span>Full Name</span>
+                    <input
+                      id={EMPLOYEE_FIELD_IDS.name}
+                      maxLength={48}
+                      value={employeeForm.name}
+                      onBlur={() => touchEmployeeField("name")}
+                      onChange={(e) => {
+                        clearEmployeeServerError("name");
+                        setEmployeeForm((prev) => ({ ...prev, name: sanitizeEmployeeNameInput(e.target.value) }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEmployeeError("name") ? "true" : undefined}
+                      aria-describedby={getEmployeeError("name") ? EMPLOYEE_ERROR_IDS.name : undefined}
+                    />
+                    {getEmployeeError("name") ? <div className="usersFieldError" id={EMPLOYEE_ERROR_IDS.name}>{getEmployeeError("name")}</div> : null}
+                  </label>
+                  <label className="usersField" htmlFor={EMPLOYEE_FIELD_IDS.email}>
+                    <span>Email</span>
+                    <input
+                      id={EMPLOYEE_FIELD_IDS.email}
+                      type="email"
+                      value={employeeForm.email}
+                      onBlur={() => touchEmployeeField("email")}
+                      onChange={(e) => {
+                        clearEmployeeServerError("email");
+                        setEmployeeForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEmployeeError("email") ? "true" : undefined}
+                      aria-describedby={getEmployeeError("email") ? EMPLOYEE_ERROR_IDS.email : undefined}
+                    />
+                    {getEmployeeError("email") ? <div className="usersFieldError" id={EMPLOYEE_ERROR_IDS.email}>{getEmployeeError("email")}</div> : null}
+                  </label>
                 </div>
                 <div className="usersFieldGrid usersFieldGridEven">
-                  <label className="usersField"><span>Contact Number</span><input inputMode="numeric" maxLength={11} value={employeeForm.phone} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) })); }} required /></label>
-                  <label className="usersField"><span>Role</span><select value={employeeForm.role} onChange={(e) => setEmployeeForm((prev) => ({ ...prev, role: e.target.value }))} required>{EMPLOYEE_ROLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+                  <label className="usersField" htmlFor={EMPLOYEE_FIELD_IDS.phone}>
+                    <span>Contact Number</span>
+                    <input
+                      id={EMPLOYEE_FIELD_IDS.phone}
+                      inputMode="numeric"
+                      maxLength={11}
+                      value={employeeForm.phone}
+                      onBlur={() => touchEmployeeField("phone")}
+                      onChange={(e) => {
+                        clearEmployeeServerError("phone");
+                        setEmployeeForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEmployeeError("phone") ? "true" : undefined}
+                      aria-describedby={getEmployeeError("phone") ? EMPLOYEE_ERROR_IDS.phone : undefined}
+                    />
+                    {getEmployeeError("phone") ? <div className="usersFieldError" id={EMPLOYEE_ERROR_IDS.phone}>{getEmployeeError("phone")}</div> : null}
+                  </label>
+                  <label className="usersField" htmlFor={EMPLOYEE_FIELD_IDS.role}>
+                    <span>Role</span>
+                    <select
+                      id={EMPLOYEE_FIELD_IDS.role}
+                      value={employeeForm.role}
+                      onBlur={() => touchEmployeeField("role")}
+                      onChange={(e) => {
+                        clearEmployeeServerError("role");
+                        setEmployeeForm((prev) => ({ ...prev, role: e.target.value }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEmployeeError("role") ? "true" : undefined}
+                      aria-describedby={getEmployeeError("role") ? EMPLOYEE_ERROR_IDS.role : undefined}
+                    >
+                      {EMPLOYEE_ROLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                    {getEmployeeError("role") ? <div className="usersFieldError" id={EMPLOYEE_ERROR_IDS.role}>{getEmployeeError("role")}</div> : null}
+                  </label>
                 </div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Password</span><input type="password" value={employeeForm.password} onChange={(e) => { setEmployeeError(""); setEmployeeForm((prev) => ({ ...prev, password: e.target.value })); }} placeholder="Minimum 8 characters" required /></label>
+                  <label className="usersField" htmlFor={EMPLOYEE_FIELD_IDS.password}>
+                    <span>Password</span>
+                    <input
+                      id={EMPLOYEE_FIELD_IDS.password}
+                      type="password"
+                      value={employeeForm.password}
+                      onBlur={() => touchEmployeeField("password")}
+                      onChange={(e) => {
+                        clearEmployeeServerError("password");
+                        setEmployeeForm((prev) => ({ ...prev, password: e.target.value }));
+                      }}
+                      placeholder="Minimum 8 characters"
+                      required
+                      aria-required="true"
+                      aria-invalid={getEmployeeError("password") ? "true" : undefined}
+                      aria-describedby={getEmployeeError("password") ? EMPLOYEE_ERROR_IDS.password : undefined}
+                    />
+                    {getEmployeeError("password") ? <div className="usersFieldError" id={EMPLOYEE_ERROR_IDS.password}>{getEmployeeError("password")}</div> : null}
+                  </label>
                 </div>
                 <div className="usersPasswordChecklist">
                   {getPasswordChecks(employeeForm.password).map((check) => (
                     <span key={check.key} className={check.met ? "met" : ""}>{check.label}</span>
                   ))}
                 </div>
-                {employeeError ? <div className="usersFieldError">{employeeError}</div> : null}
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersPrimaryBtn" type="submit">Create Employee</button></div>
+                {employeeServerErrors.form ? <div className="usersFieldError">{employeeServerErrors.form}</div> : null}
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal} disabled={employeeSubmitting}>Cancel</button><button className="usersPrimaryBtn" type="submit" disabled={employeeCreateDisabled}>{employeeSubmitting ? "Creating..." : "Create Employee"}</button></div>
               </form>
             )}
 

@@ -8665,6 +8665,9 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     const password = String(req.body.password || "");
     const role = normalizeEmployeeStaffRoleForSave(req.body.role || "");
     const passwordError = getPasswordRuleError(password);
+    const hasUnsupportedPermissionPayload = ["modules", "moduleAccess", "modulePermissions", "permissions"].some((key) =>
+      Object.prototype.hasOwnProperty.call(req.body || {}, key)
+    );
 
     if (!name) {
       res.status(400).json({ message: "Full name is required." });
@@ -8674,8 +8677,12 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
       res.status(400).json({ message: "Full name can only contain letters, spaces, hyphens, apostrophes, and periods." });
       return;
     }
-    if (!email || !EMPLOYEE_EMAIL_REGEX.test(email)) {
-      res.status(400).json({ message: "Valid email is required." });
+    if (!email) {
+      res.status(400).json({ message: "Email is required." });
+      return;
+    }
+    if (!EMPLOYEE_EMAIL_REGEX.test(email)) {
+      res.status(400).json({ message: "Please enter a valid email address." });
       return;
     }
     if (!/^09\d{9}$/.test(phone)) {
@@ -8688,6 +8695,10 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     }
     if (!role) {
       res.status(400).json({ message: "Select a valid staff role. Admin cannot be created from this form." });
+      return;
+    }
+    if (hasUnsupportedPermissionPayload) {
+      res.status(400).json({ message: "Module permissions are not configurable for employee creation." });
       return;
     }
 
@@ -8731,6 +8742,14 @@ app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
     } catch (error) {
       if (error?.name === "ValidationError") {
         res.status(400).json({ message: error.message || "Invalid staff account details." });
+        return;
+      }
+      if (error?.code === 11000) {
+        const duplicateFields = Object.keys(error?.keyPattern || error?.keyValue || {});
+        const message = duplicateFields.includes("phone")
+          ? "That contact number is already registered."
+          : "That email is already registered.";
+        res.status(409).json({ message });
         return;
       }
       throw error;
