@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AdminEngagement from "./screens/admin/AdminEngagement";
+import { ACTION_KEYS } from "./utils/rbac";
+import { validateSpecialCredential } from "./utils/reauth";
 
 const mockCreatePromo = jest.fn();
 const mockUpdatePromo = jest.fn();
@@ -8,7 +10,7 @@ const mockCreateReward = jest.fn();
 const mockUpdateReward = jest.fn();
 const mockUpdateRewardStatus = jest.fn();
 const mockDeleteReward = jest.fn();
-const mockSecurityConfirmModal = jest.fn(() => null);
+const mockGenerateCustomerReward = jest.fn();
 
 let mockUsersState = [];
 let mockCustomerRewardsState = [];
@@ -28,10 +30,15 @@ jest.mock("./context/AdminDataContext", () => ({
     updateReward: mockUpdateReward,
     updateRewardStatus: mockUpdateRewardStatus,
     deleteReward: mockDeleteReward,
+    generateCustomerReward: mockGenerateCustomerReward,
   }),
 }));
 
-jest.mock("./components/common/SecurityConfirmModal", () => (props) => mockSecurityConfirmModal(props));
+jest.mock("./utils/reauth", () => ({
+  getCurrentUserDisplayName: (user) => String(user?.name || user?.email || "").trim(),
+  validateSpecialCredential: jest.fn(),
+  verifyCurrentPassword: jest.fn(),
+}));
 
 function renderEngagement() {
   return render(<AdminEngagement />);
@@ -59,6 +66,24 @@ function setCustomer(key) {
 
 function clickViewHistory() {
   fireEvent.click(screen.getByRole("button", { name: "View Reward History" }));
+}
+
+function pinInput() {
+  return screen.getByPlaceholderText("Enter special PIN");
+}
+
+function confirmPinButton() {
+  return screen.getByRole("button", { name: /Confirm PIN|Checking/i });
+}
+
+async function authorizeSelectedCustomer(pin = "123456") {
+  clickViewHistory();
+  fireEvent.change(pinInput(), { target: { value: pin } });
+  await act(async () => {
+    fireEvent.click(confirmPinButton());
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: /view reward history/i })).not.toBeInTheDocument());
 }
 
 function customer(overrides = {}) {
@@ -90,6 +115,17 @@ function reward(overrides = {}) {
     linkedBookingId: "BK-A1",
     ...overrides,
   };
+}
+
+function expectNoMutations() {
+  expect(mockCreatePromo).not.toHaveBeenCalled();
+  expect(mockUpdatePromo).not.toHaveBeenCalled();
+  expect(mockUpdateReview).not.toHaveBeenCalled();
+  expect(mockCreateReward).not.toHaveBeenCalled();
+  expect(mockUpdateReward).not.toHaveBeenCalled();
+  expect(mockUpdateRewardStatus).not.toHaveBeenCalled();
+  expect(mockDeleteReward).not.toHaveBeenCalled();
+  expect(mockGenerateCustomerReward).not.toHaveBeenCalled();
 }
 
 beforeEach(() => {
@@ -134,50 +170,166 @@ beforeEach(() => {
     mockUpdateReward,
     mockUpdateRewardStatus,
     mockDeleteReward,
-    mockSecurityConfirmModal,
+    mockGenerateCustomerReward,
   ].forEach((mock) => mock.mockClear());
+  validateSpecialCredential.mockReset();
+  validateSpecialCredential.mockResolvedValue(true);
 });
 
-describe("Reward History customer viewer", () => {
+describe("Reward History PIN-gated customer viewer", () => {
   test("labels the customer action as View Reward History and starts genuinely disabled", () => {
     renderEngagement();
 
     expect(screen.getByRole("button", { name: "View Reward History" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Generate" })).not.toBeInTheDocument();
+    clickViewHistory();
+    expect(screen.queryByRole("dialog", { name: /view reward history/i })).not.toBeInTheDocument();
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+    expectNoMutations();
   });
 
-  test("selecting a customer enables the button and filters history by stable customer ID only after clicking", () => {
+  test("correct Admin PIN applies the selected customer history filter and closes the modal", async () => {
     renderEngagement();
 
-    expect(screen.getByText("Detail Token")).toBeInTheDocument();
     setCustomer("CUS-A");
     expect(screen.getByRole("button", { name: "View Reward History" })).toBeEnabled();
     clickViewHistory();
 
+    expect(screen.getByRole("dialog", { name: /view reward history/i })).toBeInTheDocument();
+    fireEvent.change(pinInput(), { target: { value: " 123456 " } });
+    await act(async () => {
+      fireEvent.click(confirmPinButton());
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
+    expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "123456",
+      "admin",
+      expect.objectContaining({ id: "ADM-1" }),
+      ACTION_KEYS.engagementManage
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /view reward history/i })).not.toBeInTheDocument());
     expect(screen.getByText("Loyalty Spark")).toBeInTheDocument();
     expect(screen.getByText("Wash Credit")).toBeInTheDocument();
     expect(screen.queryByText("Detail Token")).not.toBeInTheDocument();
     expect(historyRows()).toHaveLength(2);
+    expectNoMutations();
   });
 
-  test("customer with no rewards shows the existing empty state without opening PIN or mutating data", () => {
+  test("incorrect Admin PIN keeps the modal open and does not apply the pending customer filter", async () => {
+    validateSpecialCredential.mockRejectedValueOnce(new Error("Incorrect admin special PIN."));
+    renderEngagement();
+
+    setCustomer("CUS-A");
+    clickViewHistory();
+    fireEvent.change(pinInput(), { target: { value: "000000" } });
+    await act(async () => {
+      fireEvent.click(confirmPinButton());
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("Incorrect admin special PIN.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /view reward history/i })).toBeInTheDocument();
+    expect(validateSpecialCredential).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Detail Token")).toBeInTheDocument();
+    expect(historyRows()).toHaveLength(3);
+    expectNoMutations();
+  });
+
+  test("blank and whitespace-only PIN keep Confirm PIN disabled and send no verification request", () => {
+    renderEngagement();
+
+    setCustomer("CUS-A");
+    clickViewHistory();
+
+    expect(confirmPinButton()).toBeDisabled();
+    fireEvent.click(confirmPinButton());
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+
+    fireEvent.change(pinInput(), { target: { value: "   " } });
+    expect(confirmPinButton()).toBeDisabled();
+    fireEvent.click(confirmPinButton());
+
+    expect(screen.getByRole("dialog", { name: /view reward history/i })).toBeInTheDocument();
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+    expect(historyRows()).toHaveLength(3);
+    expectNoMutations();
+  });
+
+  test("Confirm PIN enables for non-whitespace input, disables again when cleared, and Show/Hide preserves the PIN", () => {
+    renderEngagement();
+
+    setCustomer("CUS-A");
+    clickViewHistory();
+    const input = pinInput();
+
+    expect(confirmPinButton()).toBeDisabled();
+    fireEvent.change(input, { target: { value: "1357" } });
+    expect(confirmPinButton()).toBeEnabled();
+    expect(input).toHaveAttribute("type", "password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show" }));
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).toHaveValue("1357");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    expect(input).toHaveAttribute("type", "password");
+    expect(input).toHaveValue("1357");
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(confirmPinButton()).toBeDisabled();
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
+  });
+
+  test("pending customer changes do not alter the active view until another correct PIN succeeds", async () => {
+    renderEngagement();
+
+    setCustomer("CUS-A");
+    await authorizeSelectedCustomer();
+    expect(screen.getByText("Loyalty Spark")).toBeInTheDocument();
+    expect(screen.queryByText("Detail Token")).not.toBeInTheDocument();
+
+    setCustomer("CUS-B");
+    expect(screen.queryByText("Detail Token")).not.toBeInTheDocument();
+
+    validateSpecialCredential.mockRejectedValueOnce(new Error("Incorrect admin special PIN."));
+    clickViewHistory();
+    fireEvent.change(pinInput(), { target: { value: "000000" } });
+    await act(async () => {
+      fireEvent.click(confirmPinButton());
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("Incorrect admin special PIN.")).toBeInTheDocument();
+    expect(screen.getByText("Loyalty Spark")).toBeInTheDocument();
+    expect(screen.queryByText("Detail Token")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    validateSpecialCredential.mockResolvedValue(true);
+    await authorizeSelectedCustomer();
+    expect(screen.getByText("Detail Token")).toBeInTheDocument();
+    expect(screen.queryByText("Loyalty Spark")).not.toBeInTheDocument();
+    expect(historyRows()).toHaveLength(1);
+    expectNoMutations();
+  });
+
+  test("customer with no rewards shows the existing empty state after correct PIN without creating anything", async () => {
     renderEngagement();
 
     setCustomer("CUS-C");
-    clickViewHistory();
+    await authorizeSelectedCustomer();
 
     expect(screen.getByText("No generated rewards matched the filters.")).toBeInTheDocument();
-    expect(mockSecurityConfirmModal.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ open: false }));
-    expect(mockCreateReward).not.toHaveBeenCalled();
-    expect(mockUpdateReward).not.toHaveBeenCalled();
-    expect(mockUpdateRewardStatus).not.toHaveBeenCalled();
-    expect(mockDeleteReward).not.toHaveBeenCalled();
+    expect(validateSpecialCredential).toHaveBeenCalledTimes(1);
+    expectNoMutations();
   });
 
-  test("selected customer composes with status, search, type, code, booking, milestone, and date filters", () => {
+  test("authorized customer composes with status, search, type, code, booking, milestone, and date filters", async () => {
     renderEngagement();
     setCustomer("CUS-A");
-    clickViewHistory();
+    await authorizeSelectedCustomer();
 
     fireEvent.change(within(historyFilters()).getByDisplayValue("All status"), { target: { value: "Claimed" } });
     expect(screen.getByText("Wash Credit")).toBeInTheDocument();
@@ -195,26 +347,57 @@ describe("Reward History customer viewer", () => {
 
     expect(screen.getByText("Wash Credit")).toBeInTheDocument();
     expect(historyRows()).toHaveLength(1);
+    expectNoMutations();
   });
 
-  test("switching and clearing customers updates the applied history filter without duplicating rows", () => {
+  test("repeated clicks and duplicate confirmation attempts do not duplicate rows or verification requests", async () => {
+    let resolveValidation;
+    validateSpecialCredential.mockImplementation(() => new Promise((resolve) => {
+      resolveValidation = () => resolve(true);
+    }));
     renderEngagement();
 
     setCustomer("CUS-A");
     clickViewHistory();
-    clickViewHistory();
+    fireEvent.change(pinInput(), { target: { value: "123456" } });
+    const form = confirmPinButton().closest("form");
+
+    fireEvent.click(confirmPinButton());
+    fireEvent.submit(form);
+    expect(validateSpecialCredential).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveValidation();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /view reward history/i })).not.toBeInTheDocument());
     expect(historyRows()).toHaveLength(2);
 
-    setCustomer("CUS-B");
     clickViewHistory();
-    expect(screen.getByText("Detail Token")).toBeInTheDocument();
-    expect(screen.queryByText("Loyalty Spark")).not.toBeInTheDocument();
-    expect(historyRows()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(historyRows()).toHaveLength(2);
+    expectNoMutations();
+  });
 
-    setCustomer("");
-    expect(screen.getByRole("button", { name: "View Reward History" })).toBeDisabled();
-    expect(screen.getByText("Loyalty Spark")).toBeInTheDocument();
-    expect(screen.getByText("Wash Credit")).toBeInTheDocument();
-    expect(screen.getByText("Detail Token")).toBeInTheDocument();
+  test("modal reset clears PIN and error state after close and reopen", async () => {
+    validateSpecialCredential.mockRejectedValueOnce(new Error("Incorrect admin special PIN."));
+    renderEngagement();
+
+    setCustomer("CUS-A");
+    clickViewHistory();
+    fireEvent.change(pinInput(), { target: { value: "000000" } });
+    await act(async () => {
+      fireEvent.click(confirmPinButton());
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("Incorrect admin special PIN.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "x" }));
+    expect(screen.queryByRole("dialog", { name: /view reward history/i })).not.toBeInTheDocument();
+
+    clickViewHistory();
+    expect(pinInput()).toHaveValue("");
+    expect(confirmPinButton()).toBeDisabled();
+    expect(screen.queryByText("Incorrect admin special PIN.")).not.toBeInTheDocument();
   });
 });

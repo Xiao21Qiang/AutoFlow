@@ -311,6 +311,23 @@ export default function AdminEngagement() {
   const getRewardId = (reward) => String(reward?.id || reward?._id || "").trim();
   const isRewardEnabled = (reward) => reward?.active === true ? true : reward?.enabled !== undefined ? Boolean(reward.enabled) : reward?.active !== false;
 
+  const openRewardHistoryViewerConfirm = () => {
+    const customerKey = rewardHistoryCustomerKey;
+    if (!customerOptions.some((user) => getCustomerKey(user) === customerKey)) return;
+    setSecurityConfirm({
+      mode: "pin",
+      title: "View Reward History",
+      message: "Enter the special PIN before viewing this customer's reward history.",
+      scope: "admin",
+      actionKey: ACTION_KEYS.engagementManage,
+      disableConfirmWhenEmpty: true,
+      onConfirm: async () => {
+        setActiveRewardHistoryCustomerKey(customerKey);
+        setSecurityConfirm(null);
+      },
+    });
+  };
+
   const openRewardStatusConfirm = (reward, enabled) => {
     const rewardId = getRewardId(reward);
     setSecurityConfirm({
@@ -583,7 +600,7 @@ export default function AdminEngagement() {
                 <option value="">Select customer</option>
                 {customerOptions.map((user) => <option key={getCustomerKey(user)} value={getCustomerKey(user)}>{user.name || user.email}</option>)}
               </select>
-              <button className="engBtnLight engBtnAuto" type="button" disabled={!selectedRewardHistoryCustomer} onClick={() => setActiveRewardHistoryCustomerKey(rewardHistoryCustomerKey)}>View Reward History</button>
+              <button className="engBtnLight engBtnAuto" type="button" disabled={!selectedRewardHistoryCustomer} onClick={openRewardHistoryViewerConfirm}>View Reward History</button>
             </div>
           </div>
           <div className="engRewardFilters engRewardHistoryFilters">
@@ -1033,7 +1050,8 @@ export default function AdminEngagement() {
         </div>
       )}
 
-      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey || ACTION_KEYS.engagementManage}
+      <SecurityConfirmModal open={Boolean(securityConfirm)} mode={securityConfirm?.mode || "pin"} title={securityConfirm?.title} message={securityConfirm?.message} currentUser={currentUser} scope={securityConfirm?.scope} onClose={() => setSecurityConfirm(null)} actionKey={securityConfirm?.actionKey || ACTION_KEYS.engagementManage}
+        disableConfirmWhenEmpty={Boolean(securityConfirm?.disableConfirmWhenEmpty)}
         onConfirm={securityConfirm?.onConfirm} />
     </div>
   );

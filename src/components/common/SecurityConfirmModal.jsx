@@ -37,6 +37,7 @@ export default function SecurityConfirmModal({
   currentUser,
   scope,
   actionKey,
+  disableConfirmWhenEmpty = false,
   onClose,
   onConfirm,
 }) {
@@ -47,6 +48,7 @@ export default function SecurityConfirmModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
+  const loadingRef = useRef(false);
   const secretInputRef = useRef(null);
   const accountNameInputRef = useRef(null);
   const titleId = useId();
@@ -63,18 +65,21 @@ export default function SecurityConfirmModal({
     setAccountNameError("");
     setError("");
     setLoading(false);
+    loadingRef.current = false;
     setShowSecret(false);
   }, [open, mode, title, message, actionKey]);
 
   if (!open) return null;
 
   const expectedName = getCurrentUserDisplayName(currentUser).trim().toLowerCase();
+  const trimmedSecret = secret.trim();
+  const trimmedAccountName = accountName.trim();
+  const confirmDisabled = loading || (disableConfirmWhenEmpty && (!trimmedSecret || (mode === "cash" && !trimmedAccountName)));
 
   const handleConfirm = async (event) => {
     event?.preventDefault();
+    if (loadingRef.current) return;
     setError("");
-    const trimmedSecret = secret.trim();
-    const trimmedAccountName = accountName.trim();
     if (!trimmedSecret) {
       setSecretError("Please fill out this field.");
       secretInputRef.current?.focus();
@@ -86,6 +91,7 @@ export default function SecurityConfirmModal({
       return;
     }
     const credentialValue = mode === "pin" || mode === "cash" ? trimmedSecret : secret;
+    loadingRef.current = true;
     setLoading(true);
     try {
       if (mode === "currentPassword") {
@@ -101,9 +107,11 @@ export default function SecurityConfirmModal({
       await onConfirm?.({ secret: credentialValue, accountName: trimmedAccountName });
     } catch (err) {
       setError(err.message || "Security confirmation failed.");
+      loadingRef.current = false;
       setLoading(false);
       return;
     }
+    loadingRef.current = false;
     setLoading(false);
   };
 
@@ -166,7 +174,7 @@ export default function SecurityConfirmModal({
           {error ? <div className="secModalError">{error}</div> : null}
           <div className="secModalActions">
             <button className="secTextBtn" type="button" onClick={onClose} disabled={loading}>Cancel</button>
-            <button className="secPrimaryBtn" type="submit" disabled={loading}>
+            <button className="secPrimaryBtn" type="submit" disabled={confirmDisabled}>
               {loading ? "Checking..." : copy.confirm}
             </button>
           </div>
