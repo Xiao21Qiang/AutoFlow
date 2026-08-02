@@ -8783,28 +8783,158 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     }
 
     const existingUserType = normalizeUserType(existingUser.userType, existingUser.role);
-    const requestedUserType = Object.prototype.hasOwnProperty.call(req.body, "userType")
-      ? normalizeUserType(req.body.userType, req.body.role)
-      : existingUserType;
-    const existingSubtype = normalizeSubtype(existingUser.userType, existingUser.role);
-    const requestedSubtype = Object.prototype.hasOwnProperty.call(req.body, "role")
-      ? normalizeSubtype(req.body.userType || existingUser.userType, req.body.role)
-      : existingSubtype;
-    const nextAccountTypeForRole = toDisplayUserType(req.body.userType || existingUser.userType, req.body.role);
-    if (
-      actorType === "admin" &&
-      ["Admin", "Staff"].includes(nextAccountTypeForRole) &&
-      Object.prototype.hasOwnProperty.call(req.body, "role") &&
-      !isValidStaffRole(req.body.role)
-    ) {
-      res.status(400).json({ message: "Select a valid staff role." });
+    const hasUnsupportedPermissionPayload = ["modules", "moduleAccess", "modulePermissions", "permissions"].some((key) =>
+      Object.prototype.hasOwnProperty.call(req.body || {}, key)
+    );
+    if (hasUnsupportedPermissionPayload) {
+      res.status(400).json({ message: "Module permissions are not configurable from Edit User." });
       return;
     }
-    const isRoleUpdate = actorType === "admin" && (requestedUserType !== existingUserType || requestedSubtype !== existingSubtype);
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "id") && String(req.body.id || "") !== String(req.params.id || "")) {
+      res.status(400).json({ message: "User ID cannot be changed." });
+      return;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, "_id") &&
+      existingUser._id &&
+      String(req.body._id || "") !== String(existingUser._id || "")
+    ) {
+      res.status(400).json({ message: "User ID cannot be changed." });
+      return;
+    }
+
+    const hasSubmittedName = Object.prototype.hasOwnProperty.call(req.body || {}, "name");
+    const hasSubmittedNameParts = Object.prototype.hasOwnProperty.call(req.body || {}, "first") || Object.prototype.hasOwnProperty.call(req.body || {}, "last");
+    if (!hasSubmittedName && !hasSubmittedNameParts) {
+      res.status(400).json({ message: "Full name is required." });
+      return;
+    }
+    const nameFromParts = `${String(req.body.first ?? existingUser.first ?? "")} ${String(req.body.last ?? existingUser.last ?? "")}`.trim();
+    const requestedName = String(
+      hasSubmittedNameParts && nameFromParts
+        ? nameFromParts
+        : hasSubmittedName
+          ? req.body.name
+          : existingUser.name
+    ).trim().replace(/\s+/g, " ");
+    if (!requestedName) {
+      res.status(400).json({ message: "Full name is required." });
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "email")) {
+      res.status(400).json({ message: "Email is required." });
+      return;
+    }
+    const requestedEmail = String(req.body.email ?? "").trim().toLowerCase();
+    if (!requestedEmail) {
+      res.status(400).json({ message: "Email is required." });
+      return;
+    }
+    if (!EMPLOYEE_EMAIL_REGEX.test(requestedEmail)) {
+      res.status(400).json({ message: "Please enter a valid email address." });
+      return;
+    }
+
+    const phoneWasSubmitted = Object.prototype.hasOwnProperty.call(req.body, "phone");
+    const requestedPhone = phoneWasSubmitted
+      ? String(req.body.phone || "").trim().replace(/\D/g, "").slice(0, 11)
+      : String(existingUser.phone || "").trim();
+    if (requestedPhone && !/^09\d{9}$/.test(requestedPhone)) {
+      res.status(400).json({ message: "Please enter a valid phone number." });
+      return;
+    }
+
     const existingStatus = String(existingUser.status || "active").trim().toLowerCase();
-    const requestedStatus = Object.prototype.hasOwnProperty.call(req.body, "status")
+    const submittedStatus = Object.prototype.hasOwnProperty.call(req.body, "status")
       ? String(req.body.status || "").trim().toLowerCase()
       : existingStatus;
+    if (!["active", "inactive", "deactivated"].includes(submittedStatus)) {
+      res.status(400).json({ message: "Select a valid account status." });
+      return;
+    }
+    const requestedStatus = submittedStatus === "active" ? "active" : "deactivated";
+
+    const bodyHasUserType = Object.prototype.hasOwnProperty.call(req.body, "userType");
+    const requestedUserType = actorType === "admin" && bodyHasUserType
+      ? normalizeUserType(req.body.userType, req.body.role)
+      : existingUserType;
+    if (actorType === "admin" && existingUserType === "customer" && requestedUserType !== "customer") {
+      res.status(403).json({ message: "Customer accounts cannot be converted to employee accounts here." });
+      return;
+    }
+    if (actorType === "admin" && existingUserType !== "customer" && !["admin", "staff"].includes(requestedUserType)) {
+      res.status(400).json({ message: "Select a valid user type." });
+      return;
+    }
+
+    let requestedRole = existingUser.role;
+    if (actorType === "admin") {
+      if (requestedUserType === "admin") {
+        if (normalizeRoleKey(req.body.role || existingUser.role) !== "admin") {
+          res.status(400).json({ message: "Admin accounts must use the Admin role." });
+          return;
+        }
+        requestedRole = "Admin";
+      } else if (requestedUserType === "staff") {
+        requestedRole = normalizeEmployeeStaffRoleForSave(req.body.role || existingUser.role);
+        if (!requestedRole) {
+          res.status(400).json({ message: "Select a valid staff role. Admin cannot be created from this form." });
+          return;
+        }
+      }
+    } else {
+      const requestedSelfType = Object.prototype.hasOwnProperty.call(req.body, "userType")
+        ? normalizeUserType(req.body.userType, req.body.role)
+        : existingUserType;
+      const requestedSelfRole = Object.prototype.hasOwnProperty.call(req.body, "role")
+        ? normalizeSubtype(req.body.userType || existingUser.userType, req.body.role)
+        : normalizeSubtype(existingUser.userType, existingUser.role);
+      if (requestedSelfType !== existingUserType || requestedSelfRole !== normalizeSubtype(existingUser.userType, existingUser.role)) {
+        res.status(403).json({ message: "You do not have permission to change account roles." });
+        return;
+      }
+      if (requestedStatus !== existingStatus) {
+        res.status(403).json({ message: "You do not have permission to change account status." });
+        return;
+      }
+    }
+
+    const passwordWasSubmitted = Object.prototype.hasOwnProperty.call(req.body, "password");
+    const requestedPassword = String(req.body.password || "");
+    const shouldUpdatePassword = passwordWasSubmitted && requestedPassword.trim().length > 0;
+    if (actorType !== "admin" && passwordWasSubmitted) {
+      res.status(403).json({ message: "You do not have permission to change passwords here." });
+      return;
+    }
+    if (shouldUpdatePassword) {
+      const passwordError = getPasswordRuleError(requestedPassword);
+      if (passwordError) {
+        res.status(400).json({ message: passwordError });
+        return;
+      }
+    }
+
+    const [duplicateEmail, duplicatePhone] = await Promise.all([
+      User.findOne({ email: requestedEmail }).lean(),
+      requestedPhone ? User.findOne({ phone: requestedPhone }).lean() : Promise.resolve(null),
+    ]);
+    if (duplicateEmail && String(duplicateEmail.id || "") !== String(existingUser.id || "")) {
+      res.status(409).json({ message: "That email is already registered." });
+      return;
+    }
+    if (duplicatePhone && String(duplicatePhone.id || "") !== String(existingUser.id || "")) {
+      res.status(409).json({ message: "That contact number is already registered." });
+      return;
+    }
+
+    const existingSubtype = normalizeSubtype(existingUser.userType, existingUser.role);
+    const requestedSubtype = requestedUserType === "admin"
+      ? "admin"
+      : requestedUserType === "staff"
+        ? normalizeRoleKey(requestedRole)
+        : normalizeSubtype(existingUser.userType, requestedRole);
+    const isRoleUpdate = actorType === "admin" && (requestedUserType !== existingUserType || requestedSubtype !== existingSubtype);
     const isStatusUpdate = actorType === "admin" && requestedStatus !== existingStatus;
     const isDeactivatingActiveAdmin =
       existingUserType === "admin" &&
@@ -8815,60 +8945,59 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       existingStatus === "active" &&
       requestedUserType !== "admin";
 
-    if (actorType === "admin" && (isRoleUpdate || isStatusUpdate)) {
+    if (actorType === "admin" && (!isSelfUpdate || isRoleUpdate || isStatusUpdate || shouldUpdatePassword)) {
       await requireAdminSpecialCredentialWithAudit(req, ACTION_KEYS.usersPromote, req.params.id);
     }
     if (isSelfUpdate && actorType === "admin" && (isDeactivatingActiveAdmin || isRemovingActiveAdminRole)) {
-      await recordAudit(req.authUser?.email || req.body.auditUser, "Blocked self-deactivation", req.params.id, {
+      await recordAudit(req.authUser?.email, "Blocked self-deactivation", req.params.id, {
         targetType: "User",
         previousState: { userType: existingUser.userType, role: existingUser.role, status: existingUser.status },
-        requestedState: { userType: req.body.userType || existingUser.userType, role: req.body.role || existingUser.role, status: req.body.status || existingUser.status },
+        requestedState: { userType: toDisplayUserType(requestedUserType, requestedRole), role: requestedRole, status: requestedStatus },
         result: "denied",
       });
       res.status(403).json({ message: "Admins cannot deactivate or remove their own admin access here." });
       return;
     }
     if ((isDeactivatingActiveAdmin || isRemovingActiveAdminRole) && (await countActiveAdmins(req.params.id)) < 1) {
-      await recordAudit(req.authUser?.email || req.body.auditUser, "Blocked last active admin change", req.params.id, {
+      await recordAudit(req.authUser?.email, "Blocked last active admin change", req.params.id, {
         targetType: "User",
         previousState: { userType: existingUser.userType, role: existingUser.role, status: existingUser.status },
-        requestedState: { userType: req.body.userType || existingUser.userType, role: req.body.role || existingUser.role, status: req.body.status || existingUser.status },
+        requestedState: { userType: toDisplayUserType(requestedUserType, requestedRole), role: requestedRole, status: requestedStatus },
         result: "denied",
       });
       res.status(403).json({ message: "At least one active Admin account must remain." });
       return;
     }
 
-    const nextUserType = actorType === "admin"
-      ? toDisplayUserType(req.body.userType, req.body.role)
-      : existingUser.userType;
-    const normalizedRequestedStatus = requestedStatus === "active" ? "active" : "deactivated";
+    const nextUserType = actorType === "admin" ? toDisplayUserType(requestedUserType, requestedRole) : existingUser.userType;
+    const requestedNameParts = requestedName.split(/\s+/).filter(Boolean);
+    const requestedFirst = req.body.first ?? requestedNameParts[0] ?? requestedName;
+    const requestedLast = req.body.last ?? requestedNameParts.slice(1).join(" ");
     const payload = actorType === "admin"
       ? {
-          ...req.body,
+          first: requestedFirst,
+          last: requestedLast,
           userType: nextUserType,
-          role: ["Admin", "Staff"].includes(nextUserType)
-            ? normalizeStaffRoleForSave(req.body.role || USER_TYPE_DEFAULT_ROLE[nextUserType.toLowerCase()])
-            : toDisplaySubtype(nextUserType, req.body.role),
-          name: req.body.name || (String(req.body.first || "") + " " + String(req.body.last || "")).trim(),
-          status: normalizedRequestedStatus,
-          ...(isStatusUpdate && normalizedRequestedStatus !== "active"
+          role: requestedUserType === "customer" ? toDisplaySubtype(nextUserType, requestedRole) : requestedRole,
+          name: requestedName,
+          email: requestedEmail,
+          phone: requestedPhone,
+          status: requestedStatus,
+          ...(isStatusUpdate && requestedStatus !== "active"
             ? { deactivatedAt: new Date().toISOString(), deactivatedBy: req.authUser?.email || "" }
             : {}),
+          ...(isStatusUpdate && requestedStatus === "active" ? { deactivatedAt: "", deactivatedBy: "" } : {}),
         }
       : {
           first: req.body.first ?? existingUser.first,
           last: req.body.last ?? existingUser.last,
-          name: req.body.name || `${String(req.body.first ?? existingUser.first ?? "")} ${String(req.body.last ?? existingUser.last ?? "")}`.trim() || existingUser.name,
-          email: req.body.email ?? existingUser.email,
-          phone: req.body.phone ?? existingUser.phone,
+          name: requestedName,
+          email: requestedEmail,
+          phone: requestedPhone,
           userType: existingUser.userType,
           role: existingUser.role,
           status: existingUser.status,
         };
-    if (actorType !== "admin" && Object.prototype.hasOwnProperty.call(req.body, "password")) {
-      payload.password = req.body.password;
-    }
 
     if (nextUserType === "Customer") {
       const bookingCount = await Booking.countDocuments({ customerEmail: String(payload.email || "").trim().toLowerCase() });
@@ -8878,16 +9007,29 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       payload.cars = [];
     }
 
-    if ("password" in payload) {
-      if (payload.password) {
-        payload.password = isPasswordHash(payload.password) ? payload.password : hashPassword(payload.password);
-      } else {
-        delete payload.password;
-      }
+    if (shouldUpdatePassword) {
+      payload.password = hashPassword(requestedPassword);
     }
 
-    const user = await User.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
-    await recordAudit(req.authUser?.email || req.body.auditUser, getUserAuditAction(existingUser, payload), req.params.id, {
+    let user;
+    try {
+      user = await User.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
+    } catch (error) {
+      if (error?.code === 11000) {
+        const duplicateFields = Object.keys(error?.keyPattern || error?.keyValue || {});
+        const message = duplicateFields.includes("phone")
+          ? "That contact number is already registered."
+          : "That email is already registered.";
+        res.status(409).json({ message });
+        return;
+      }
+      throw error;
+    }
+    if (!user) {
+      res.status(404).json({ message: "User not found." });
+      return;
+    }
+    await recordAudit(req.authUser?.email, getUserAuditAction(existingUser, payload), req.params.id, {
       actorId: req.authUser?.id || "",
       actorName: req.authUser?.name || req.authUser?.email || "",
       actorRole: req.authUser?.role || "",

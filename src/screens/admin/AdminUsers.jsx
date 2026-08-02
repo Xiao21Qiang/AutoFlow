@@ -18,13 +18,33 @@ import icoFilter from "../../styles/icons/filter.png";
 
 const USER_TYPE_OPTIONS = ["Admin", "Staff"];
 const ROLE_OPTIONS_BY_USER_TYPE = {
-  Admin: STAFF_ROLE_OPTIONS,
-  Staff: STAFF_ROLE_OPTIONS,
+  Admin: ["Admin"],
+  Staff: EMPLOYEE_STAFF_ROLE_OPTIONS,
   Customer: ["New", "Returning"],
 };
 
 const EMPLOYEE_ROLE_OPTIONS = EMPLOYEE_STAFF_ROLE_OPTIONS;
 const EMPLOYEE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PHONE_REGEX = /^09\d{9}$/;
+const EDIT_FIELD_IDS = {
+  name: "edit-user-name",
+  userType: "edit-user-type",
+  role: "edit-user-role",
+  status: "edit-user-status",
+  phone: "edit-user-phone",
+  email: "edit-user-email",
+  password: "edit-user-password",
+};
+const EDIT_ERROR_IDS = {
+  name: "edit-user-name-error",
+  userType: "edit-user-type-error",
+  role: "edit-user-role-error",
+  status: "edit-user-status-error",
+  phone: "edit-user-phone-error",
+  email: "edit-user-email-error",
+  password: "edit-user-password-error",
+};
+const EDIT_FIELDS = Object.keys(EDIT_FIELD_IDS);
 const EMPLOYEE_FIELD_IDS = {
   name: "employee-full-name",
   email: "employee-email",
@@ -52,6 +72,20 @@ function normalizeEmployeeName(value) {
   return sanitizeEmployeeNameInput(value).trim().replace(/\s+/g, " ");
 }
 
+function normalizeEditName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizePhone(value) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return "";
+  return rawValue.replace(/\D/g, "").slice(0, 11);
+}
+
 function getPasswordChecks(password) {
   const value = String(password || "");
   return [
@@ -65,8 +99,8 @@ function getPasswordChecks(password) {
 
 function validateEmployeeForm(form) {
   const name = normalizeEmployeeName(form.name);
-  const email = String(form.email || "").trim().toLowerCase();
-  const phone = String(form.phone || "").replace(/\D/g, "").slice(0, 11);
+  const email = normalizeEmail(form.email);
+  const phone = normalizePhone(form.phone);
   const role = String(form.role || "").trim();
   const password = String(form.password || "");
   const passwordChecks = getPasswordChecks(password);
@@ -85,6 +119,61 @@ function validateEmployeeForm(form) {
   if (!errors.password && failedPasswordCheck) errors.password = failedPasswordCheck.label + ".";
 
   return { errors, isValid: Object.keys(errors).length === 0, payload: { name, email, phone, role, password } };
+}
+
+function getUserKey(user = {}) {
+  if (!user) return "";
+  return String(user.id || user._id || user.email || "").trim().toLowerCase();
+}
+
+function validateEditUserForm(form, selectedUser, users = []) {
+  const name = normalizeEditName(form.name);
+  const email = normalizeEmail(form.email);
+  const phone = normalizePhone(form.phone);
+  const userType = String(form.userType || "").trim();
+  const role = String(form.role || "").trim();
+  const status = String(form.status || "").trim().toLowerCase();
+  const password = String(form.password || "");
+  const errors = {};
+  const selectedKey = getUserKey(selectedUser);
+
+  if (!name) errors.name = "Full name is required.";
+  if (!USER_TYPE_OPTIONS.includes(userType)) errors.userType = "Select a valid user type.";
+  if (userType === "Admin" && role !== "Admin") errors.role = "Admin accounts must use the Admin role.";
+  if (userType === "Staff" && !EMPLOYEE_ROLE_OPTIONS.includes(role)) errors.role = "Select a valid staff role. Admin cannot be created from this form.";
+  if (!["active", "deactivated", "inactive"].includes(status)) errors.status = "Select a valid account status.";
+  if (!email) errors.email = "Email is required.";
+  else if (!EMPLOYEE_EMAIL_REGEX.test(email)) errors.email = "Please enter a valid email address.";
+  if (phone && !PHONE_REGEX.test(phone)) errors.phone = "Please enter a valid phone number.";
+
+  const duplicateEmail = users.find((user) =>
+    getUserKey(user) !== selectedKey &&
+    normalizeEmail(user.email) === email
+  );
+  if (!errors.email && duplicateEmail) errors.email = "That email is already registered.";
+
+  const duplicatePhone = phone && users.find((user) =>
+    getUserKey(user) !== selectedKey &&
+    normalizePhone(user.phone) === phone
+  );
+  if (!errors.phone && duplicatePhone) errors.phone = "That contact number is already registered.";
+
+  if (password.trim()) {
+    const failedPasswordCheck = getPasswordChecks(password).find((check) => !check.met);
+    if (failedPasswordCheck) errors.password = failedPasswordCheck.label + ".";
+  }
+
+  const payload = {
+    name,
+    userType,
+    role,
+    email,
+    phone,
+    status: status === "active" ? "active" : "deactivated",
+  };
+  if (password.trim()) payload.password = password;
+
+  return { errors, isValid: Object.keys(errors).length === 0, payload };
 }
 
 function normalizeUserType(user) {
@@ -129,7 +218,7 @@ const createEditForm = (user) => {
     userType,
     role: toDisplayRole(userType, user.role),
     email: user.email || "",
-    phone: user.phone || "-",
+    phone: user.phone || "",
     password: "",
     status: user.status || "active",
   };
@@ -152,6 +241,10 @@ export default function AdminUsers() {
   const [modal, setModal] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [editForm, setEditForm] = useState(() => createEditForm({}));
+  const [editTouched, setEditTouched] = useState({});
+  const [editSubmitted, setEditSubmitted] = useState(false);
+  const [editServerErrors, setEditServerErrors] = useState({});
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const [employeeForm, setEmployeeForm] = useState(() => createEmployeeForm());
   const [employeeTouched, setEmployeeTouched] = useState({});
   const [employeeSubmitted, setEmployeeSubmitted] = useState(false);
@@ -161,6 +254,8 @@ export default function AdminUsers() {
   const [toast, setToast] = useState(null);
   const canManageStaff = canPerformAction(currentUser, ACTION_KEYS.usersManageStaff);
   const canDeleteStaff = canPerformAction(currentUser, ACTION_KEYS.usersDelete);
+  const editValidation = useMemo(() => validateEditUserForm(editForm, selectedUser, users), [editForm, selectedUser, users]);
+  const editSaveDisabled = !editValidation.isValid || editSubmitting;
   const employeeValidation = useMemo(() => validateEmployeeForm(employeeForm), [employeeForm]);
   const employeeCreateDisabled = !employeeValidation.isValid || employeeSubmitting;
 
@@ -199,6 +294,11 @@ export default function AdminUsers() {
   const closeModal = () => {
     setModal(null);
     setSelectedUser(null);
+    setEditForm(createEditForm({}));
+    setEditTouched({});
+    setEditSubmitted(false);
+    setEditServerErrors({});
+    setEditSubmitting(false);
     setEmployeeForm(createEmployeeForm());
     setEmployeeTouched({});
     setEmployeeSubmitted(false);
@@ -217,6 +317,60 @@ export default function AdminUsers() {
     setEmployeeServerErrors({});
     setEmployeeSubmitting(false);
     setModal("employee");
+  };
+
+  const openEditModal = (user) => {
+    setSelectedUser(user);
+    setEditForm(createEditForm(user));
+    setEditTouched({});
+    setEditSubmitted(false);
+    setEditServerErrors({});
+    setEditSubmitting(false);
+    setModal("edit");
+  };
+
+  const touchEditField = (field) => {
+    setEditTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const clearEditServerError = (field) => {
+    setEditServerErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const getEditError = (field) => (
+    editSubmitted || editTouched[field]
+      ? editValidation.errors[field] || editServerErrors[field] || ""
+      : editServerErrors[field] || ""
+  );
+
+  const markAllEditFieldsTouched = () => {
+    setEditSubmitted(true);
+    setEditTouched(EDIT_FIELDS.reduce((next, field) => ({ ...next, [field]: true }), {}));
+  };
+
+  const setEditBackendError = (error) => {
+    const message = error.message || "Could not update user account.";
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes("email")) {
+      setEditServerErrors({ email: message });
+    } else if (lowerMessage.includes("contact") || lowerMessage.includes("phone")) {
+      setEditServerErrors({ phone: message });
+    } else if (lowerMessage.includes("role")) {
+      setEditServerErrors({ role: message });
+    } else if (lowerMessage.includes("status") || lowerMessage.includes("active") || lowerMessage.includes("deactivate")) {
+      setEditServerErrors({ status: message });
+    } else if (lowerMessage.includes("password")) {
+      setEditServerErrors({ password: message });
+    } else if (lowerMessage.includes("name")) {
+      setEditServerErrors({ name: message });
+    } else {
+      setEditServerErrors({ form: message });
+    }
   };
 
   const touchEmployeeField = (field) => {
@@ -291,7 +445,7 @@ export default function AdminUsers() {
                   <td>{user.email}</td>
                   <td>{user.phone}</td>
                   <td><span className={user.status === "active" ? "stActive" : "stInactive"}>{user.status}</span></td>
-                  <td><div className="uActions">{canManageStaff ? <button className="uBtn uBtnEdit" type="button" onClick={() => { setSelectedUser(user); setEditForm(createEditForm(user)); setModal("edit"); }}>Edit</button> : <span className="usersEmpty">View only</span>}{canDeleteStaff && <button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button>}</div></td>
+                  <td><div className="uActions">{canManageStaff ? <button className="uBtn uBtnEdit" type="button" onClick={() => openEditModal(user)}>Edit</button> : <span className="usersEmpty">View only</span>}{canDeleteStaff && <button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button>}</div></td>
                 </tr>
               );
             }) : <tr><td colSpan={7} className="usersEmpty">No users found.</td></tr>}
@@ -307,25 +461,68 @@ export default function AdminUsers() {
             <button className="usersModalClose" type="button" onClick={closeModal}>x</button>
 
             {modal === "edit" && selectedUser && (
-              <form className="usersEditForm" onSubmit={(e) => {
+              <form className="usersEditForm" noValidate onSubmit={(e) => {
                 e.preventDefault();
-                if ((editForm.userType === "Admin" || editForm.userType === "Staff") && !isValidStaffRole(editForm.role)) {
-                  showToast("error", "Select a valid staff role before saving.");
+                const validation = validateEditUserForm(editForm, selectedUser, users);
+                setEditServerErrors({});
+                if (!validation.isValid) {
+                  markAllEditFieldsTouched();
+                  showToast("error", Object.values(validation.errors)[0] || "Please complete the required fields.");
                   return;
                 }
-                setSecurityConfirm({ mode: "password", title: "Update User Role", message: "Enter the admin special password before changing this account.", onConfirm: async ({ secret }) => { try { await updateUser(selectedUser.id, { ...selectedUser, ...editForm, specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account updated."); closeModal(); } catch (error) { showToast("error", error.message || "Could not update user account."); throw error; } } });
+                setEditSubmitted(false);
+                setSecurityConfirm({
+                  mode: "password",
+                  title: "Update User",
+                  message: "Enter the admin special password before changing this account.",
+                  onConfirm: async ({ secret }) => {
+                    if (editSubmitting) return;
+                    try {
+                      setEditSubmitting(true);
+                      await updateUser(selectedUser.id, { id: selectedUser.id, ...validation.payload, specialPassword: secret });
+                      setSecurityConfirm(null);
+                      showToast("success", "User account updated.");
+                      closeModal();
+                    } catch (error) {
+                      setEditSubmitting(false);
+                      setEditBackendError(error);
+                      showToast("error", error.message || "Could not update user account.");
+                      throw error;
+                    }
+                  },
+                });
               }}>
                 <div className="usersModalTitle">Edit User</div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Name</span><input value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.name}>
+                    <span>Name</span>
+                    <input
+                      id={EDIT_FIELD_IDS.name}
+                      value={editForm.name}
+                      onBlur={() => touchEditField("name")}
+                      onChange={(e) => {
+                        clearEditServerError("name");
+                        setEditForm((prev) => ({ ...prev, name: e.target.value }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEditError("name") ? "true" : undefined}
+                      aria-describedby={getEditError("name") ? EDIT_ERROR_IDS.name : undefined}
+                    />
+                    {getEditError("name") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.name}>{getEditError("name")}</div> : null}
+                  </label>
                 </div>
                 <div className="usersFieldGrid usersFieldGridEven">
-                  <label className="usersField">
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.userType}>
                     <span>User Type</span>
                     <select
+                      id={EDIT_FIELD_IDS.userType}
                       value={editForm.userType}
+                      onBlur={() => touchEditField("userType")}
                       onChange={(e) => {
                         const nextUserType = e.target.value;
+                        clearEditServerError("userType");
+                        clearEditServerError("role");
                         setEditForm((prev) => ({
                           ...prev,
                           userType: nextUserType,
@@ -333,30 +530,116 @@ export default function AdminUsers() {
                         }));
                       }}
                       required
+                      aria-required="true"
+                      aria-invalid={getEditError("userType") ? "true" : undefined}
+                      aria-describedby={getEditError("userType") ? EDIT_ERROR_IDS.userType : undefined}
                     >
                       {USER_TYPE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
+                    {getEditError("userType") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.userType}>{getEditError("userType")}</div> : null}
                   </label>
-                  <label className="usersField">
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.role}>
                     <span>Role</span>
                     {isCustomerUser ? (
-                      <input value="—" readOnly placeholder="Customer account" />
+                      <input id={EDIT_FIELD_IDS.role} value="—" readOnly placeholder="Customer account" />
                     ) : (
-                      <select value={editForm.role} onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))} required>
+                      <select
+                        id={EDIT_FIELD_IDS.role}
+                        value={editForm.role}
+                        onBlur={() => touchEditField("role")}
+                        onChange={(e) => {
+                          clearEditServerError("role");
+                          setEditForm((prev) => ({ ...prev, role: e.target.value }));
+                        }}
+                        required
+                        aria-required="true"
+                        aria-invalid={getEditError("role") ? "true" : undefined}
+                        aria-describedby={getEditError("role") ? EDIT_ERROR_IDS.role : undefined}
+                      >
                         {currentRoleOptions.map((option) => <option key={option} value={option} disabled={!isValidStaffRole(option)}>{option}</option>)}
                       </select>
                     )}
+                    {getEditError("role") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.role}>{getEditError("role")}</div> : null}
                   </label>
                 </div>
                 <div className="usersFieldGrid usersFieldGridEven">
-                  <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} required><option value="active">Active</option><option value="Deactivated">Deactivate</option></select></label>
-                  <label className="usersField"><span>Phone</span><input value={editForm.phone} onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))} /></label>
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.status}>
+                    <span>Status</span>
+                    <select
+                      id={EDIT_FIELD_IDS.status}
+                      value={editForm.status}
+                      onBlur={() => touchEditField("status")}
+                      onChange={(e) => {
+                        clearEditServerError("status");
+                        setEditForm((prev) => ({ ...prev, status: e.target.value }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEditError("status") ? "true" : undefined}
+                      aria-describedby={getEditError("status") ? EDIT_ERROR_IDS.status : undefined}
+                    >
+                      <option value="active">Active</option>
+                      <option value="deactivated">Inactive</option>
+                    </select>
+                    {getEditError("status") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.status}>{getEditError("status")}</div> : null}
+                  </label>
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.phone}>
+                    <span>Phone</span>
+                    <input
+                      id={EDIT_FIELD_IDS.phone}
+                      value={editForm.phone}
+                      inputMode="numeric"
+                      maxLength={11}
+                      onBlur={() => touchEditField("phone")}
+                      onChange={(e) => {
+                        clearEditServerError("phone");
+                        setEditForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }));
+                      }}
+                      aria-invalid={getEditError("phone") ? "true" : undefined}
+                      aria-describedby={getEditError("phone") ? EDIT_ERROR_IDS.phone : undefined}
+                    />
+                    {getEditError("phone") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.phone}>{getEditError("phone")}</div> : null}
+                  </label>
                 </div>
                 <div className="usersFieldGroup">
-                  <label className="usersField"><span>Email</span><input type="email" value={editForm.email} onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))} required /></label>
-                  <label className="usersField"><span>New Password</span><input type="password" value={editForm.password} onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="Leave blank to keep current password" /></label>
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.email}>
+                    <span>Email</span>
+                    <input
+                      id={EDIT_FIELD_IDS.email}
+                      type="email"
+                      value={editForm.email}
+                      onBlur={() => touchEditField("email")}
+                      onChange={(e) => {
+                        clearEditServerError("email");
+                        setEditForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() }));
+                      }}
+                      required
+                      aria-required="true"
+                      aria-invalid={getEditError("email") ? "true" : undefined}
+                      aria-describedby={getEditError("email") ? EDIT_ERROR_IDS.email : undefined}
+                    />
+                    {getEditError("email") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.email}>{getEditError("email")}</div> : null}
+                  </label>
+                  <label className="usersField" htmlFor={EDIT_FIELD_IDS.password}>
+                    <span>New Password</span>
+                    <input
+                      id={EDIT_FIELD_IDS.password}
+                      type="password"
+                      value={editForm.password}
+                      onBlur={() => touchEditField("password")}
+                      onChange={(e) => {
+                        clearEditServerError("password");
+                        setEditForm((prev) => ({ ...prev, password: e.target.value }));
+                      }}
+                      placeholder="Leave blank to keep current password"
+                      aria-invalid={getEditError("password") ? "true" : undefined}
+                      aria-describedby={getEditError("password") ? EDIT_ERROR_IDS.password : undefined}
+                    />
+                    {getEditError("password") ? <div className="usersFieldError" id={EDIT_ERROR_IDS.password}>{getEditError("password")}</div> : null}
+                  </label>
                 </div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save User</button></div>
+                {editServerErrors.form ? <div className="usersFieldError">{editServerErrors.form}</div> : null}
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal} disabled={editSubmitting}>Cancel</button><button className="usersPrimaryBtn" type="submit" disabled={editSaveDisabled}>{editSubmitting ? "Saving..." : "Save User"}</button></div>
               </form>
             )}
 
