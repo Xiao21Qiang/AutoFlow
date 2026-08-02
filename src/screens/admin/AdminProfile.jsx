@@ -2,6 +2,29 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "../../styles/css/admin/adminProfileStyle.css";
 import { useAdminData } from "../../context/AdminDataContext";
 import { getSecurityControlStatus, getSpecialPasswordStatus, getSpecialPinStatus, updateSecurityControls } from "../../utils/reauth";
+import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
+
+const DOWN_PAYMENT_MAX_AMOUNT = 1000000;
+const DOWN_PAYMENT_REQUIRED_MESSAGE = "Required down payment is required.";
+const DOWN_PAYMENT_INVALID_MESSAGE = "Required down payment must be greater than zero.";
+
+function validateRequiredDownPaymentAmount(value) {
+  const rawValue = String(value ?? "");
+  const trimmedValue = rawValue.trim();
+  if (!trimmedValue) {
+    return { valid: false, amount: null, message: DOWN_PAYMENT_REQUIRED_MESSAGE };
+  }
+
+  const amount = Number(trimmedValue);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { valid: false, amount: null, message: DOWN_PAYMENT_INVALID_MESSAGE };
+  }
+  if (amount > DOWN_PAYMENT_MAX_AMOUNT) {
+    return { valid: false, amount: null, message: "Required down payment must not exceed 1,000,000." };
+  }
+
+  return { valid: true, amount, message: "" };
+}
 
 export default function AdminProfile({ session }) {
   const { currentUser, settings, updateProfile, updateRequiredDownPaymentAmount, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
@@ -29,10 +52,16 @@ export default function AdminProfile({ session }) {
   const [securityMessage, setSecurityMessage] = useState("");
   const [securityStatus, setSecurityStatus] = useState({});
   const [securitySaving, setSecuritySaving] = useState("");
-  const [downPaymentForm, setDownPaymentForm] = useState({ amount: "0", adminSpecialPassword: "" });
+  const [downPaymentForm, setDownPaymentForm] = useState({ amount: "0" });
+  const [downPaymentTouched, setDownPaymentTouched] = useState(false);
+  const [downPaymentSubmitted, setDownPaymentSubmitted] = useState(false);
+  const [downPaymentConfirmOpen, setDownPaymentConfirmOpen] = useState(false);
+  const [pendingDownPaymentAmount, setPendingDownPaymentAmount] = useState(null);
+  const [savedDownPaymentOverride, setSavedDownPaymentOverride] = useState(null);
   const [downPaymentMessage, setDownPaymentMessage] = useState("");
   const [downPaymentSaving, setDownPaymentSaving] = useState(false);
   const [visibleSecrets, setVisibleSecrets] = useState({});
+  const downPaymentSavingRef = useRef(false);
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
 
@@ -56,9 +85,13 @@ export default function AdminProfile({ session }) {
   }, []);
 
   const currentRequiredDownPaymentAmount = useMemo(
-    () => Number(settings?.requiredDownPaymentAmount ?? securityStatus.requiredDownPaymentAmount ?? 0) || 0,
-    [settings?.requiredDownPaymentAmount, securityStatus.requiredDownPaymentAmount]
+    () => Number(savedDownPaymentOverride ?? settings?.requiredDownPaymentAmount ?? securityStatus.requiredDownPaymentAmount ?? 0) || 0,
+    [savedDownPaymentOverride, settings?.requiredDownPaymentAmount, securityStatus.requiredDownPaymentAmount]
   );
+
+  useEffect(() => {
+    setSavedDownPaymentOverride(null);
+  }, [settings?.requiredDownPaymentAmount]);
 
   useEffect(() => {
     if (downPaymentSaving) return;
@@ -67,6 +100,13 @@ export default function AdminProfile({ session }) {
       amount: String(currentRequiredDownPaymentAmount),
     }));
   }, [currentRequiredDownPaymentAmount, downPaymentSaving]);
+
+  const downPaymentValidation = useMemo(
+    () => validateRequiredDownPaymentAmount(downPaymentForm.amount),
+    [downPaymentForm.amount]
+  );
+  const showDownPaymentError = (downPaymentTouched || downPaymentSubmitted) && !downPaymentValidation.valid;
+  const downPaymentAmountErrorId = "required-down-payment-amount-error";
 
   const initialLetter = useMemo(() => {
     const base = String(saved.first || saved.email || "A").trim();
@@ -193,32 +233,54 @@ export default function AdminProfile({ session }) {
     }
   };
 
-  const saveRequiredDownPayment = async () => {
+  const submitRequiredDownPaymentAmount = (event) => {
+    event?.preventDefault();
     setDownPaymentMessage("");
-    const rawAmount = String(downPaymentForm.amount || "").trim();
-    const amount = Number(rawAmount);
-    if (!rawAmount || !Number.isFinite(amount) || amount < 0 || amount > 1000000) {
-      setDownPaymentMessage("Enter a valid amount from 0 to 1,000,000.");
+    setDownPaymentSubmitted(true);
+    if (!downPaymentValidation.valid) {
+      setDownPaymentTouched(true);
       return;
     }
-    if (!String(downPaymentForm.adminSpecialPassword || "").trim()) {
-      setDownPaymentMessage("Enter the Admin special password before saving.");
+    setPendingDownPaymentAmount(downPaymentValidation.amount);
+    setDownPaymentConfirmOpen(true);
+  };
+
+  const saveRequiredDownPayment = async ({ secret } = {}) => {
+    if (downPaymentSavingRef.current) return;
+    const amountValidation = validateRequiredDownPaymentAmount(pendingDownPaymentAmount ?? downPaymentForm.amount);
+    if (!amountValidation.valid) {
+      setDownPaymentSubmitted(true);
+      setDownPaymentTouched(true);
+      setDownPaymentConfirmOpen(false);
       return;
     }
 
+    downPaymentSavingRef.current = true;
     setDownPaymentSaving(true);
     try {
-      const result = await updateRequiredDownPaymentAmount(amount, downPaymentForm.adminSpecialPassword);
-      const nextAmount = Number(result?.requiredDownPaymentAmount ?? amount) || 0;
-      setDownPaymentForm({ amount: String(nextAmount), adminSpecialPassword: "" });
+      const result = await updateRequiredDownPaymentAmount(amountValidation.amount, secret);
+      const nextAmount = Number(result?.requiredDownPaymentAmount ?? amountValidation.amount) || 0;
+      setDownPaymentForm({ amount: String(nextAmount) });
+      setDownPaymentTouched(false);
+      setDownPaymentSubmitted(false);
+      setPendingDownPaymentAmount(null);
+      setDownPaymentConfirmOpen(false);
+      setSavedDownPaymentOverride(nextAmount);
       setSecurityStatus((prev) => ({ ...prev, requiredDownPaymentAmount: nextAmount }));
-      setVisibleSecrets((prev) => ({ ...prev, downPaymentSpecialPassword: false }));
       setDownPaymentMessage("Required down payment amount updated.");
     } catch (error) {
       setDownPaymentMessage(error.message || "Could not update required down payment amount.");
+      throw error;
     } finally {
+      downPaymentSavingRef.current = false;
       setDownPaymentSaving(false);
     }
+  };
+
+  const closeDownPaymentConfirm = () => {
+    if (downPaymentSavingRef.current) return;
+    setDownPaymentConfirmOpen(false);
+    setPendingDownPaymentAmount(null);
   };
 
   const renderSecretInput = ({ visibleKey, className = "ap-input ap-editable-input", value, onChange, placeholder }) => (
@@ -253,38 +315,36 @@ export default function AdminProfile({ session }) {
               <span>Current: ₱{Number(currentRequiredDownPaymentAmount || 0).toLocaleString()}</span>
             </div>
           </div>
-          <div className="ap-form ap-security-form">
+          <form className="ap-form ap-security-form" onSubmit={submitRequiredDownPaymentAmount} noValidate>
             <div className="ap-row2">
               <div className="ap-field">
-                <div className="ap-label">Required Down Payment Amount</div>
+                <label className="ap-label" htmlFor="required-down-payment-amount">Required Down Payment Amount</label>
                 <input
-                  className="ap-input ap-editable-input"
-                  type="number"
-                  min="0"
-                  max="1000000"
+                  id="required-down-payment-amount"
+                  className={`ap-input ap-editable-input${showDownPaymentError ? " eb" : ""}`}
+                  type="text"
+                  inputMode="decimal"
                   step="0.01"
                   value={downPaymentForm.amount}
-                  onChange={(e) => setDownPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                  onChange={(e) => {
+                    setDownPaymentForm((prev) => ({ ...prev, amount: e.target.value }));
+                    setDownPaymentMessage("");
+                  }}
+                  onBlur={() => setDownPaymentTouched(true)}
                   placeholder="0.00"
+                  aria-invalid={showDownPaymentError ? "true" : undefined}
+                  aria-describedby={showDownPaymentError ? downPaymentAmountErrorId : undefined}
                 />
-              </div>
-              <div className="ap-field">
-                <div className="ap-label">Admin Special Password</div>
-                {renderSecretInput({
-                  visibleKey: "downPaymentSpecialPassword",
-                  value: downPaymentForm.adminSpecialPassword,
-                  onChange: (e) => setDownPaymentForm((prev) => ({ ...prev, adminSpecialPassword: e.target.value })),
-                  placeholder: "Required before saving",
-                })}
+                {showDownPaymentError && <div className="err-msg" id={downPaymentAmountErrorId}>{downPaymentValidation.message}</div>}
               </div>
             </div>
             <div className="ap-actions ap-security-actions">
-              <button className="ap-edit-btn" type="button" disabled={downPaymentSaving} onClick={saveRequiredDownPayment}>
+              <button className="ap-edit-btn" type="submit" disabled={downPaymentSaving || !downPaymentValidation.valid}>
                 {downPaymentSaving ? "Saving..." : "Save Amount"}
               </button>
             </div>
             {downPaymentMessage && <div className="err-msg">{downPaymentMessage}</div>}
-          </div>
+          </form>
         </div>
       </div>
       <div className="ap-wrap">
@@ -363,6 +423,17 @@ export default function AdminProfile({ session }) {
           </div>
         </div>
       )}
+      <SecurityConfirmModal
+        open={downPaymentConfirmOpen}
+        mode="password"
+        title="Update Required Down Payment"
+        message="Confirm the Admin Special Password to save the required down payment amount."
+        currentUser={currentUser || session}
+        scope="admin"
+        actionKey="settings.downPayment.update"
+        onClose={closeDownPaymentConfirm}
+        onConfirm={saveRequiredDownPayment}
+      />
     </>
   );
 }

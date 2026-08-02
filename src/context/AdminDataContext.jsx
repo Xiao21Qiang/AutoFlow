@@ -676,6 +676,14 @@ export function AdminDataProvider({ children, session }) {
       mutate("/api/admin/settings/down-payment", {
         method: "PATCH",
         body: JSON.stringify({ requiredDownPaymentAmount, adminSpecialPassword, auditUser }),
+      }, {
+        applyResult: (currentData, result) => ({
+          ...currentData,
+          settings: {
+            ...(currentData.settings || {}),
+            requiredDownPaymentAmount: Number(result?.requiredDownPaymentAmount ?? currentData.settings?.requiredDownPaymentAmount ?? 0) || 0,
+          },
+        }),
       }),
     toggleUserStatus: (user) => mutate("/api/admin/users/" + user.id, { method: "PUT", body: JSON.stringify({ ...user, status: user.status === "active" ? "inactive" : "active", auditUser }) }),
     deleteUser: (id, payload = {}) =>

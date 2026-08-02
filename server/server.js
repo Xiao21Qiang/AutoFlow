@@ -57,6 +57,7 @@ const DEFAULT_SPECIAL_PASSWORD = String(process.env.DEFAULT_ADMIN_SPECIAL_PASSWO
 const DEFAULT_STAFF_SPECIAL_PIN = String(process.env.DEFAULT_STAFF_SPECIAL_PIN || crypto.randomInt(100000, 999999)).trim();
 const DEFAULT_STAFF_SPECIAL_PASSWORD = String(process.env.DEFAULT_STAFF_SPECIAL_PASSWORD || crypto.randomBytes(24).toString("base64url")).trim();
 const DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT = 0;
+const MAX_REQUIRED_DOWN_PAYMENT_AMOUNT = 1000000;
 const SPECIAL_CREDENTIAL_HASH_ROUNDS = 12;
 const ADMIN_SEED_EMAIL = String(process.env.ADMIN_SEED_EMAIL || "").trim().toLowerCase();
 const ADMIN_SEED_PASSWORD = String(process.env.ADMIN_SEED_PASSWORD || "");
@@ -2530,6 +2531,22 @@ function getSafeSecuritySettings(setting = {}) {
     requiredDownPaymentAmount: Math.max(0, roundMoney(setting?.requiredDownPaymentAmount || 0)),
     updatedAt: setting?.updatedAt || "",
   };
+}
+
+function validateRequiredDownPaymentAmountInput(rawAmount) {
+  if (rawAmount === undefined || rawAmount === null || String(rawAmount).trim() === "") {
+    return { valid: false, amount: null, message: "Required down payment amount is required." };
+  }
+
+  const amount = Number(String(rawAmount).trim());
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return { valid: false, amount: null, message: "Required down payment must be greater than zero." };
+  }
+  if (amount > MAX_REQUIRED_DOWN_PAYMENT_AMOUNT) {
+    return { valid: false, amount: null, message: "Required down payment amount must not exceed 1,000,000." };
+  }
+
+  return { valid: true, amount, message: "" };
 }
 
 async function verifyAdminAccountPassword(email, currentPassword) {
@@ -6259,6 +6276,12 @@ app.get("/api/admin/security-controls", requireAdminUser, async (_req, res, next
 
 app.patch("/api/admin/settings/down-payment", requireAdminUser, async (req, res, next) => {
   try {
+    const amountValidation = validateRequiredDownPaymentAmountInput(req.body.requiredDownPaymentAmount);
+    if (!amountValidation.valid) {
+      res.status(400).json({ message: amountValidation.message });
+      return;
+    }
+
     const adminSpecialPassword = String(req.body.adminSpecialPassword || req.body.specialPassword || "").trim();
     if (!adminSpecialPassword) {
       res.status(401).json({ message: "Admin special password is required." });
@@ -6271,19 +6294,8 @@ app.patch("/api/admin/settings/down-payment", requireAdminUser, async (req, res,
       return;
     }
 
-    const rawAmount = req.body.requiredDownPaymentAmount;
-    const amount = Number(rawAmount);
-    if (rawAmount === undefined || rawAmount === null || String(rawAmount).trim() === "") {
-      res.status(400).json({ message: "Required down payment amount is required." });
-      return;
-    }
-    if (!Number.isFinite(amount) || amount < 0 || amount > 1000000) {
-      res.status(400).json({ message: "Required down payment amount must be between 0 and 1,000,000." });
-      return;
-    }
-
     const setting = await getOrCreateSecuritySetting();
-    setting.requiredDownPaymentAmount = roundMoney(amount);
+    setting.requiredDownPaymentAmount = roundMoney(amountValidation.amount);
     setting.updatedBy = req.authUser?.email || req.body.auditUser || "admin";
     await setting.save();
     await recordAudit(setting.updatedBy, "Updated required down payment amount", SECURITY_SETTING_ID, {
