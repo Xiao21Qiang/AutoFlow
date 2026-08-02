@@ -530,6 +530,11 @@ export function AdminDataProvider({ children, session }) {
     return Boolean(targetId && [item?.id, item?._id].some((value) => String(value || "").trim() === targetId));
   };
 
+  const withUsers = (updater) => (currentData, result) => ({
+    ...currentData,
+    users: updater(Array.isArray(currentData.users) ? currentData.users : [], result),
+  });
+
   const currentUser = useMemo(() => {
     const foundUser = data.users.find((user) => user.email === session?.email);
     if (foundUser) return foundUser;
@@ -662,7 +667,10 @@ export function AdminDataProvider({ children, session }) {
           auditUser,
         }),
       }),
-    updateUser: (id, payload) => mutate("/api/admin/users/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    updateUser: (id, payload) => mutate("/api/admin/users/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }, {
+      refresh: false,
+      applyResult: withUsers((users, result) => users.map((user) => matchesRecordId(user, id) || matchesRecordId(user, result?.id) || matchesRecordId(user, result?._id) ? result : user)),
+    }),
     createEmployeeAccount: (payload) => mutate("/api/admin/users/staff", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateRequiredDownPaymentAmount: (requiredDownPaymentAmount, adminSpecialPassword) =>
       mutate("/api/admin/settings/down-payment", {
@@ -674,6 +682,9 @@ export function AdminDataProvider({ children, session }) {
       mutate("/api/admin/users/" + id + "?auditUser=" + encodeURIComponent(auditUser), {
         method: "DELETE",
         body: JSON.stringify({ ...payload, auditUser }),
+      }, {
+        refresh: false,
+        applyResult: withUsers((users, result) => users.map((user) => matchesRecordId(user, id) || matchesRecordId(user, result?.id) || matchesRecordId(user, result?._id) ? { ...user, ...result } : user)),
       }),
     archiveAuditLogs: () =>
       mutate("/api/admin/audit-logs/archive", {

@@ -2575,7 +2575,7 @@ async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "
     ? String(req.body?.specialPassword || req.body?.specialCredential || "")
     : String(req.body?.specialPin || req.body?.specialCredential || "");
 
-  if (!value) {
+  if (!value.trim()) {
     const error = new Error(`Special ${credentialMode === "password" ? "password" : "PIN"} is required.`);
     error.statusCode = 401;
     throw error;
@@ -2625,6 +2625,10 @@ function sanitizeUser(user) {
 
 function isActiveAccount(user = {}) {
   return String(user.status || "active").trim().toLowerCase() === "active";
+}
+
+function isDeletedAccount(user = {}) {
+  return String(user.status || (user.deleted ? "deleted" : "") || "").trim().toLowerCase() === "deleted";
 }
 
 async function countActiveAdmins(excludeUserId = "") {
@@ -8781,6 +8785,10 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       res.status(403).json({ message: "You can only update your own profile." });
       return;
     }
+    if (isDeletedAccount(existingUser)) {
+      res.status(409).json({ message: "Deleted accounts cannot be edited." });
+      return;
+    }
 
     const existingUserType = normalizeUserType(existingUser.userType, existingUser.role);
     const hasUnsupportedPermissionPayload = ["modules", "moduleAccess", "modulePermissions", "permissions"].some((key) =>
@@ -9059,6 +9067,10 @@ app.delete("/api/admin/users/:id", requireAdminUser, async (req, res, next) => {
     const targetUser = await User.findOne({ id: req.params.id });
     if (!targetUser) {
       res.status(404).json({ message: "User not found." });
+      return;
+    }
+    if (isDeletedAccount(targetUser)) {
+      res.status(409).json({ message: "Deleted accounts cannot be edited." });
       return;
     }
 

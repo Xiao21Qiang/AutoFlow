@@ -98,7 +98,10 @@ function doc(value) {
     ...value,
     lean: async () => clone(value),
     toObject: () => clone(value),
-    save: async () => value,
+    save: async function save() {
+      Object.assign(value, clone(this));
+      return this;
+    },
   };
 }
 
@@ -169,8 +172,20 @@ function successAuditLogs() {
   return auditLogs.filter((log) => ["Updated user", "Updated user password", "Activated user", "Deactivated user"].includes(log.action));
 }
 
+function deleteSuccessAuditLogs() {
+  return auditLogs.filter((log) => ["Soft deleted user", "Hard deleted user"].includes(log.action));
+}
+
 async function putUser(id, body, actor = adminUser) {
   return request(`/api/admin/users/${id}`, {
+    token: auth(actor),
+    body,
+  });
+}
+
+async function deleteUser(id, body = { specialPassword: "AdminSpecial1!" }, actor = adminUser) {
+  return request(`/api/admin/users/${id}`, {
+    method: "DELETE",
     token: auth(actor),
     body,
   });
@@ -214,13 +229,19 @@ beforeAll(() => {
       if (query.phone && user.phone === query.phone) return true;
       return false;
     });
+    if (!found && query.id === "STF-MISSING") return null;
     return doc(found);
   });
   stub(__testModels.User, "find", () => chain(users));
   stub(__testModels.User, "findOneAndUpdate", jest.fn());
+  stub(__testModels.User, "findOneAndDelete", jest.fn());
   stub(__testModels.AuditLog, "create", jest.fn());
   stub(__testModels.AuditLog, "countDocuments", async () => 0);
   stub(__testModels.Booking, "countDocuments", async () => 0);
+  stub(__testModels.Payment, "countDocuments", async () => 0);
+  stub(__testModels.Review, "countDocuments", async () => 0);
+  stub(__testModels.CustomerReward, "countDocuments", async () => 0);
+  stub(__testModels.Commission, "countDocuments", async () => 0);
   stub(__testModels.SecuritySetting, "findOne", async () => securitySetting);
   stub(__testModels.SecuritySetting, "create", async () => securitySetting);
   originals.push([__testModels.SecuritySetting, "collection", __testModels.SecuritySetting.collection]);
@@ -244,6 +265,13 @@ beforeEach(() => {
   resetData();
   __testModels.User.findOneAndUpdate.mockReset();
   __testModels.User.findOneAndUpdate.mockImplementation(updateUser);
+  __testModels.User.findOneAndDelete.mockReset();
+  __testModels.User.findOneAndDelete.mockImplementation(async (query) => {
+    const index = users.findIndex((user) => user.id === query.id);
+    if (index === -1) return null;
+    const [removed] = users.splice(index, 1);
+    return doc(removed);
+  });
   __testModels.AuditLog.create.mockReset();
   __testModels.AuditLog.create.mockImplementation(async (payload) => {
     auditLogs.push(clone(payload));
@@ -440,5 +468,127 @@ describe("Edit User route validation", () => {
     expect(response.status).toBe(409);
     expect(response.body.message).toBe("That email is already registered.");
     expect(successAuditLogs()).toHaveLength(0);
+  });
+
+  test.each([
+    ["name", { name: "Deleted Rename" }],
+    ["email", { email: "deleted.rename@example.com" }],
+    ["phone", { phone: "09777777777" }],
+    ["role", { role: "Marketing" }],
+    ["password", { password: "NewPass1!" }],
+    ["module access", { moduleAccess: ["module.userManagement"] }],
+    ["status active", { status: "active" }],
+    ["status deactivated", { status: "deactivated" }],
+  ])("deleted user %s update is terminally rejected", async (_label, override) => {
+    users = users.map((user) => user.id === "STF-1" ? { ...user, status: "deleted", deletedAt: "2026-08-02T00:00:00.000Z" } : user);
+
+    const response = await putUser("STF-1", validPayload(override));
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe("Deleted accounts cannot be edited.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(users.find((user) => user.id === "STF-1")).toEqual(expect.objectContaining({
+      status: "deleted",
+      name: "Casey Staff",
+      email: "casey.staff@example.com",
+      phone: "09123456789",
+      role: "Junior Detailer",
+      password: "existing-hash",
+    }));
+    expect(successAuditLogs()).toHaveLength(0);
+  });
+});
+
+describe("Delete User route terminal-state validation", () => {
+  test("correct Admin Special Password soft deletes exactly one user and returns a safe DTO", async () => {
+    const response = await deleteUser("STF-1");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({
+      id: "STF-1",
+      status: "deleted",
+      deletionMode: "soft",
+    }));
+    expect(response.body).not.toHaveProperty("password");
+    expect(users.filter((user) => user.id === "STF-1")).toHaveLength(1);
+    expect(users.find((user) => user.id === "STF-1")).toEqual(expect.objectContaining({
+      id: "STF-1",
+      status: "deleted",
+      deletionMode: "soft",
+      deletedBy: adminUser.email,
+    }));
+    expect(deleteSuccessAuditLogs()).toHaveLength(1);
+    expect(deleteSuccessAuditLogs()[0].userId).toBe(adminUser.email);
+  });
+
+  test("incorrect Admin Special Password rejects deletion without mutation or success audit", async () => {
+    const response = await deleteUser("STF-1", { specialPassword: "wrong-password" });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect admin special password.");
+    expect(users.find((user) => user.id === "STF-1").status).toBe("active");
+    expect(deleteSuccessAuditLogs()).toHaveLength(0);
+  });
+
+  test.each([
+    ["missing password", {}],
+    ["blank password", { specialPassword: "   " }],
+  ])("%s rejects deletion without mutation or success audit", async (_label, body) => {
+    const response = await deleteUser("STF-1", body);
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Special password is required.");
+    expect(users.find((user) => user.id === "STF-1").status).toBe("active");
+    expect(deleteSuccessAuditLogs()).toHaveLength(0);
+  });
+
+  test.each([
+    ["Staff", staffUser],
+    ["Customer", customerUser],
+  ])("unauthorized %s cannot delete arbitrary users", async (_label, actor) => {
+    const response = await deleteUser("STF-2", { specialPassword: "AdminSpecial1!" }, actor);
+
+    expect(response.status).toBe(403);
+    expect(users.find((user) => user.id === "STF-2").status).toBe("active");
+    expect(deleteSuccessAuditLogs()).toHaveLength(0);
+  });
+
+  test("missing user returns 404 without audit", async () => {
+    const response = await deleteUser("STF-MISSING");
+
+    expect(response.status).toBe(404);
+    expect(response.body.message).toBe("User not found.");
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  test("repeated deletion is safely rejected without another success audit", async () => {
+    users = users.map((user) => user.id === "STF-1" ? { ...user, status: "deleted", deletedAt: "2026-08-02T00:00:00.000Z" } : user);
+
+    const response = await deleteUser("STF-1");
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toBe("Deleted accounts cannot be edited.");
+    expect(users.find((user) => user.id === "STF-1").status).toBe("deleted");
+    expect(deleteSuccessAuditLogs()).toHaveLength(0);
+  });
+
+  test("active and deactivated status transitions remain allowed through Edit User", async () => {
+    const deactivate = await putUser("STF-1", validPayload({ status: "deactivated" }));
+    expect(deactivate.status).toBe(200);
+    expect(users.find((user) => user.id === "STF-1").status).toBe("deactivated");
+
+    const activate = await putUser("STF-1", validPayload({ status: "active" }));
+    expect(activate.status).toBe(200);
+    expect(users.find((user) => user.id === "STF-1").status).toBe("active");
+  });
+
+  test("final active Admin delete protection remains enforced", async () => {
+    resetData([]);
+    const response = await deleteUser("ADM-1", { specialPassword: "AdminSpecial1!" });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admins cannot delete or deactivate their own account here.");
+    expect(users.find((user) => user.id === "ADM-1").status).toBe("active");
+    expect(deleteSuccessAuditLogs()).toHaveLength(0);
   });
 });

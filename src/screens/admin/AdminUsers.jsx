@@ -126,6 +126,10 @@ function getUserKey(user = {}) {
   return String(user.id || user._id || user.email || "").trim().toLowerCase();
 }
 
+function getUserRecordId(user = {}) {
+  return String(user?.id || user?._id || "").trim();
+}
+
 function validateEditUserForm(form, selectedUser, users = []) {
   const name = normalizeEditName(form.name);
   const email = normalizeEmail(form.email);
@@ -232,6 +236,14 @@ const createEmployeeForm = () => ({
   role: EMPLOYEE_ROLE_OPTIONS[0] || "Junior Detailer",
 });
 
+function getUserAccountStatus(user = {}) {
+  return String(user?.status || (user?.deleted ? "deleted" : "") || "active").trim().toLowerCase();
+}
+
+function isDeletedUser(user = {}) {
+  return getUserAccountStatus(user) === "deleted";
+}
+
 export default function AdminUsers() {
   const { users, currentUser, updateUser, deleteUser, createEmployeeAccount } = useAdminData();
   const [query, setQuery] = useState("");
@@ -320,6 +332,10 @@ export default function AdminUsers() {
   };
 
   const openEditModal = (user) => {
+    if (isDeletedUser(user)) {
+      showToast("error", "Deleted accounts cannot be edited.");
+      return;
+    }
     setSelectedUser(user);
     setEditForm(createEditForm(user));
     setEditTouched({});
@@ -437,6 +453,8 @@ export default function AdminUsers() {
             {paged.length > 0 ? paged.map((user, index) => {
               const userType = toDisplayUserType(user);
               const role = getUserManagementRoleLabel(user);
+              const accountStatus = getUserAccountStatus(user);
+              const editDisabled = isDeletedUser(user);
               return (
                 <tr key={`${user.email}-${index}`}>
                   <td className="uName">{user.name}</td>
@@ -444,8 +462,8 @@ export default function AdminUsers() {
                   <td>{role || "—"}</td>
                   <td>{user.email}</td>
                   <td>{user.phone}</td>
-                  <td><span className={user.status === "active" ? "stActive" : "stInactive"}>{user.status}</span></td>
-                  <td><div className="uActions">{canManageStaff ? <button className="uBtn uBtnEdit" type="button" onClick={() => openEditModal(user)}>Edit</button> : <span className="usersEmpty">View only</span>}{canDeleteStaff && <button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button>}</div></td>
+                  <td><span className={accountStatus === "active" ? "stActive" : "stInactive"}>{user.status}</span></td>
+                  <td><div className="uActions">{canManageStaff ? <button className="uBtn uBtnEdit" type="button" onClick={() => openEditModal(user)} disabled={editDisabled} title={editDisabled ? "Deleted accounts cannot be edited." : undefined} aria-label={editDisabled ? `Edit ${user.name}: deleted accounts cannot be edited.` : "Edit"}>Edit</button> : <span className="usersEmpty">View only</span>}{canDeleteStaff && <button className="uBtn uBtnRed" type="button" onClick={() => { setSelectedUser(user); setModal("delete"); }}>Delete</button>}</div></td>
                 </tr>
               );
             }) : <tr><td colSpan={7} className="usersEmpty">No users found.</td></tr>}
@@ -479,7 +497,8 @@ export default function AdminUsers() {
                     if (editSubmitting) return;
                     try {
                       setEditSubmitting(true);
-                      await updateUser(selectedUser.id, { id: selectedUser.id, ...validation.payload, specialPassword: secret });
+                      const selectedUserId = getUserRecordId(selectedUser);
+                      await updateUser(selectedUserId, { id: selectedUserId, ...validation.payload, specialPassword: secret });
                       setSecurityConfirm(null);
                       showToast("success", "User account updated.");
                       closeModal();
@@ -793,7 +812,7 @@ export default function AdminUsers() {
                 <div className="usersModalTitle">Confirm Delete</div>
                 <p className="usersConfirmText">Delete this user account? This action cannot be undone.</p>
                 <div className="usersConfirmMeta"><div>{selectedUser.name}</div><div>{selectedUser.email}</div></div>
-                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "password", title: "Delete User", message: "Enter the admin special password before deleting this account.", onConfirm: async ({ secret }) => { await deleteUser(selectedUser.id, { specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account deleted."); closeModal(); } })}>Delete</button></div>
+                <div className="usersModalActions"><button className="usersTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="usersDangerBtn" type="button" onClick={() => setSecurityConfirm({ mode: "password", title: "Delete User", message: "Enter the admin special password before deleting this account.", onConfirm: async ({ secret }) => { await deleteUser(getUserRecordId(selectedUser), { specialPassword: secret }); setSecurityConfirm(null); showToast("success", "User account deleted."); closeModal(); } })}>Delete</button></div>
               </div>
             )}
           </div>
