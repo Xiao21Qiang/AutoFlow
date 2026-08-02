@@ -1,16 +1,80 @@
 import "../../styles/css/admin/adminEngagementStyle.css";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRewardStatus } from "../../utils/rewards";
 import { ACTION_KEYS } from "../../utils/rbac";
 
+const PROMO_FORM_FIELDS = [
+  "title",
+  "code",
+  "discountValue",
+  "maxUsagePerUser",
+  "expiresAt",
+  "usageLimit",
+  "message",
+];
+
+function isBlank(value) {
+  return String(value || "").trim() === "";
+}
+
+function parseFiniteInput(value) {
+  if (isBlank(value)) return NaN;
+  return Number(String(value).trim());
+}
+
+function validatePromoForm(form) {
+  const errors = {};
+  const title = String(form.title || "").trim();
+  const code = String(form.code || "").trim();
+  const discountType = String(form.discountType || "").trim();
+  const discountValue = parseFiniteInput(form.discountValue);
+  const maxUsagePerUser = parseFiniteInput(form.maxUsagePerUser);
+  const expiryMode = String(form.expiryMode || "none").trim().toLowerCase();
+
+  if (!title) errors.title = "Promo title is required.";
+  if (!code) errors.code = "Promo code is required.";
+
+  if (isBlank(form.discountValue)) {
+    errors.discountValue = "Discount value is required.";
+  } else if (!Number.isFinite(discountValue) || discountValue <= 0) {
+    errors.discountValue = "Discount value must be greater than zero.";
+  } else if (discountType === "Percentage" && discountValue > 100) {
+    errors.discountValue = "Percentage discount cannot exceed 100%.";
+  }
+
+  if (isBlank(form.maxUsagePerUser)) {
+    errors.maxUsagePerUser = "Max usage per user is required.";
+  } else if (!Number.isFinite(maxUsagePerUser) || maxUsagePerUser <= 0 || !Number.isInteger(maxUsagePerUser)) {
+    errors.maxUsagePerUser = "Max usage per user must be a positive whole number.";
+  }
+
+  if (expiryMode === "date" && isBlank(form.expiresAt)) {
+    errors.expiresAt = "Expiry date is required.";
+  }
+  if (expiryMode === "usage") {
+    const usageLimit = parseFiniteInput(form.usageLimit);
+    if (isBlank(form.usageLimit) || !Number.isFinite(usageLimit) || usageLimit <= 0) {
+      errors.usageLimit = "Usage limit must be greater than zero.";
+    }
+  }
+
+  return errors;
+}
+
+function markAllPromoFieldsTouched() {
+  return PROMO_FORM_FIELDS.reduce((touched, field) => ({ ...touched, [field]: true }), {});
+}
+
 export default function AdminEngagement() {
   const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
+  const [promoTouched, setPromoTouched] = useState({});
+  const [isSavingPromo, setIsSavingPromo] = useState(false);
   const [rewardError, setRewardError] = useState("");
   const [editingPromoId, setEditingPromoId] = useState("");
   const [editingRewardId, setEditingRewardId] = useState("");
@@ -50,6 +114,17 @@ export default function AdminEngagement() {
     stock: "",
     expirationDays: "30",
   });
+  const promoSavingRef = useRef(false);
+  const promoValidationErrors = useMemo(() => validatePromoForm(promoForm), [promoForm]);
+  const isPromoFormValid = Object.keys(promoValidationErrors).length === 0;
+  const isPromoSaveDisabled = !isPromoFormValid || isSavingPromo;
+
+  const shouldShowPromoError = (field) => Boolean(promoValidationErrors[field] && (promoTouched[field] || promoTouched.submit));
+  const getPromoFieldError = (field) => shouldShowPromoError(field) ? promoValidationErrors[field] : "";
+  const markPromoFieldTouched = (field) => setPromoTouched((prev) => ({ ...prev, [field]: true }));
+  const updatePromoField = (field, value) => {
+    setPromoForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   const resetRewardForm = () => {
     setEditingRewardId("");
@@ -173,6 +248,9 @@ export default function AdminEngagement() {
       usageLimit: "",
     });
     setPromoError("");
+    setPromoTouched({});
+    setIsSavingPromo(false);
+    promoSavingRef.current = false;
   };
 
   const openEditPromoModal = (promo) => {
@@ -190,6 +268,9 @@ export default function AdminEngagement() {
       usageLimit: String(Number(promo.usageLimit || 0) || ""),
     });
     setPromoError("");
+    setPromoTouched({});
+    setIsSavingPromo(false);
+    promoSavingRef.current = false;
     setIsPromoModalOpen(true);
   };
 
@@ -380,10 +461,10 @@ export default function AdminEngagement() {
             resetPromoForm();
           }
         }}>
-          <div className="engModalCard" role="dialog" aria-modal="true">
+          <div className="engModalCard" role="dialog" aria-modal="true" aria-labelledby="promo-modal-title">
             <div className="engModalHead">
               <div>
-                <div className="engTitle">{editingPromoId ? "Edit Promo" : "Add Promo"}</div>
+                <div className="engTitle" id="promo-modal-title">{editingPromoId ? "Edit Promo" : "Add Promo"}</div>
                 <div className="engSub">{editingPromoId ? "Update the selected promo details." : "Create a new promo for staff and customers."}</div>
               </div>
               <button className="engModalClose" type="button" onClick={() => {
@@ -393,20 +474,37 @@ export default function AdminEngagement() {
             </div>
 
             <form
+              noValidate
               onSubmit={async (event) => {
                 event.preventDefault();
                 setPromoError("");
+                const validationErrors = validatePromoForm(promoForm);
+                if (Object.keys(validationErrors).length > 0) {
+                  setPromoTouched({ ...markAllPromoFieldsTouched(), submit: true });
+                  return;
+                }
+                if (promoSavingRef.current) return;
+                promoSavingRef.current = true;
+                setIsSavingPromo(true);
 
                 try {
+                  const payload = {
+                    ...promoForm,
+                    title: promoForm.title.trim(),
+                    code: promoForm.code.trim(),
+                    message: promoForm.message.trim(),
+                  };
                   if (editingPromoId) {
-                    await updatePromo(editingPromoId, promoForm);
+                    await updatePromo(editingPromoId, payload);
                   } else {
-                    await createPromo(promoForm);
+                    await createPromo(payload);
                   }
                   setIsPromoModalOpen(false);
                   resetPromoForm();
                 } catch (error) {
                   setPromoError(error.message || `Failed to ${editingPromoId ? "update" : "create"} promo.`);
+                  setIsSavingPromo(false);
+                  promoSavingRef.current = false;
                 }
               }}
               className="engModalBody"
@@ -414,62 +512,83 @@ export default function AdminEngagement() {
               <label className="engField">
                 <span>Title</span>
                 <input
+                  id="promo-title"
                   value={promoForm.title}
-                  onChange={(event) => setPromoForm((prev) => ({ ...prev, title: event.target.value }))}
+                  onChange={(event) => updatePromoField("title", event.target.value)}
+                  onBlur={() => markPromoFieldTouched("title")}
                   placeholder="Promo title"
                   required
+                  aria-invalid={shouldShowPromoError("title") ? "true" : undefined}
+                  aria-describedby={getPromoFieldError("title") ? "promo-title-error" : undefined}
                 />
+                {getPromoFieldError("title") ? <div id="promo-title-error" className="engFieldError">{getPromoFieldError("title")}</div> : null}
               </label>
 
               <label className="engField">
                 <span>Code</span>
                 <input
+                  id="promo-code"
                   value={promoForm.code}
-                  onChange={(event) => setPromoForm((prev) => ({ ...prev, code: event.target.value }))}
+                  onChange={(event) => updatePromoField("code", event.target.value)}
+                  onBlur={() => markPromoFieldTouched("code")}
                   placeholder="SAVE10"
+                  required
+                  aria-invalid={shouldShowPromoError("code") ? "true" : undefined}
+                  aria-describedby={getPromoFieldError("code") ? "promo-code-error" : undefined}
                 />
+                {getPromoFieldError("code") ? <div id="promo-code-error" className="engFieldError">{getPromoFieldError("code")}</div> : null}
               </label>
 
               <label className="engField">
                 <span>Discount</span>
                 <div className="engFieldRow">
                   <select
+                    aria-label="Discount Type"
                     value={promoForm.discountType}
-                    onChange={(event) => setPromoForm((prev) => ({ ...prev, discountType: event.target.value }))}
+                    onChange={(event) => updatePromoField("discountType", event.target.value)}
                   >
                     <option value="Percentage">Percentage</option>
                     <option value="Fixed">Fixed</option>
                   </select>
                   <input
-                    type="number"
-                    min="1"
-                    max={promoForm.discountType === "Percentage" ? "100" : undefined}
+                    id="promo-discount-value"
+                    type="text"
+                    inputMode="decimal"
                     value={promoForm.discountValue}
-                    onChange={(event) => setPromoForm((prev) => ({ ...prev, discountValue: event.target.value }))}
+                    onChange={(event) => updatePromoField("discountValue", event.target.value)}
+                    onBlur={() => markPromoFieldTouched("discountValue")}
                     placeholder={promoForm.discountType === "Percentage" ? "e.g. 10" : "e.g. 500"}
                     required
+                    aria-invalid={shouldShowPromoError("discountValue") ? "true" : undefined}
+                    aria-describedby={getPromoFieldError("discountValue") ? "promo-discount-value-error" : undefined}
                   />
                 </div>
+                {getPromoFieldError("discountValue") ? <div id="promo-discount-value-error" className="engFieldError">{getPromoFieldError("discountValue")}</div> : null}
               </label>
 
               <div className="engFieldRow">
                 <label className="engField">
                   <span>Max Usage Per User</span>
                   <input
-                    type="number"
-                    min="1"
+                    id="promo-max-usage-per-user"
+                    type="text"
+                    inputMode="numeric"
                     value={promoForm.maxUsagePerUser}
-                    onChange={(event) => setPromoForm((prev) => ({ ...prev, maxUsagePerUser: event.target.value }))}
+                    onChange={(event) => updatePromoField("maxUsagePerUser", event.target.value)}
+                    onBlur={() => markPromoFieldTouched("maxUsagePerUser")}
                     placeholder="e.g. 1"
                     required
+                    aria-invalid={shouldShowPromoError("maxUsagePerUser") ? "true" : undefined}
+                    aria-describedby={getPromoFieldError("maxUsagePerUser") ? "promo-max-usage-per-user-error" : undefined}
                   />
+                  {getPromoFieldError("maxUsagePerUser") ? <div id="promo-max-usage-per-user-error" className="engFieldError">{getPromoFieldError("maxUsagePerUser")}</div> : null}
                 </label>
 
                 <label className="engField">
                   <span>Status</span>
                   <select
                     value={promoForm.status}
-                    onChange={(event) => setPromoForm((prev) => ({ ...prev, status: event.target.value }))}
+                    onChange={(event) => updatePromoField("status", event.target.value)}
                   >
                     <option value="Draft">Draft</option>
                     <option value="Active">Active</option>
@@ -501,23 +620,33 @@ export default function AdminEngagement() {
                   <label className="engField">
                     <span>Expires At</span>
                     <input
+                      id="promo-expires-at"
                       type="datetime-local"
                       value={promoForm.expiresAt}
-                      onChange={(event) => setPromoForm((prev) => ({ ...prev, expiresAt: event.target.value }))}
+                      onChange={(event) => updatePromoField("expiresAt", event.target.value)}
+                      onBlur={() => markPromoFieldTouched("expiresAt")}
                       required
+                      aria-invalid={shouldShowPromoError("expiresAt") ? "true" : undefined}
+                      aria-describedby={getPromoFieldError("expiresAt") ? "promo-expires-at-error" : undefined}
                     />
+                    {getPromoFieldError("expiresAt") ? <div id="promo-expires-at-error" className="engFieldError">{getPromoFieldError("expiresAt")}</div> : null}
                   </label>
                 ) : promoForm.expiryMode === "usage" ? (
                   <label className="engField">
                     <span>Usage Limit</span>
                     <input
+                      id="promo-usage-limit"
                       type="number"
                       min="1"
                       value={promoForm.usageLimit}
-                      onChange={(event) => setPromoForm((prev) => ({ ...prev, usageLimit: event.target.value }))}
+                      onChange={(event) => updatePromoField("usageLimit", event.target.value)}
+                      onBlur={() => markPromoFieldTouched("usageLimit")}
                       placeholder="Total allowed uses"
                       required
+                      aria-invalid={shouldShowPromoError("usageLimit") ? "true" : undefined}
+                      aria-describedby={getPromoFieldError("usageLimit") ? "promo-usage-limit-error" : undefined}
                     />
+                    {getPromoFieldError("usageLimit") ? <div id="promo-usage-limit-error" className="engFieldError">{getPromoFieldError("usageLimit")}</div> : null}
                   </label>
                 ) : (
                   <div className="engField engFieldHint">
@@ -530,12 +659,16 @@ export default function AdminEngagement() {
               <label className="engField">
                 <span>Message</span>
                 <textarea
+                  id="promo-message"
                   rows="5"
                   value={promoForm.message}
-                  onChange={(event) => setPromoForm((prev) => ({ ...prev, message: event.target.value }))}
+                  onChange={(event) => updatePromoField("message", event.target.value)}
+                  onBlur={() => markPromoFieldTouched("message")}
                   placeholder="Write the promo details..."
-                  required
+                  aria-invalid={shouldShowPromoError("message") ? "true" : undefined}
+                  aria-describedby={getPromoFieldError("message") ? "promo-message-error" : undefined}
                 />
+                {getPromoFieldError("message") ? <div id="promo-message-error" className="engFieldError">{getPromoFieldError("message")}</div> : null}
               </label>
 
               {promoError ? <div className="engFieldError">{promoError}</div> : null}
@@ -547,8 +680,8 @@ export default function AdminEngagement() {
                 }}>
                   Cancel
                 </button>
-                <button className="engBtnGold engBtnAuto" type="submit">
-                  {editingPromoId ? "Update Promo" : "Save Promo"}
+                <button className="engBtnGold engBtnAuto" type="submit" disabled={isPromoSaveDisabled}>
+                  {isSavingPromo ? "Saving..." : editingPromoId ? "Update Promo" : "Save Promo"}
                 </button>
               </div>
             </form>

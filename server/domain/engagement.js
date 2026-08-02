@@ -14,6 +14,40 @@ function normalizeWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function hasOwnInput(source = {}, field) {
+  return Object.prototype.hasOwnProperty.call(source, field);
+}
+
+function isBlankInput(value) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+function assertPlainTextInput(value, label) {
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value) || (typeof value === "object" && !(value instanceof Date))) {
+    throw createValidationError(`${label} is invalid.`);
+  }
+}
+
+function parseRequiredPositiveNumber(value, requiredMessage, invalidMessage) {
+  if (isBlankInput(value)) {
+    throw createValidationError(requiredMessage);
+  }
+  const numeric = Number(String(value).trim());
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw createValidationError(invalidMessage);
+  }
+  return numeric;
+}
+
+function parsePositiveWholeNumber(value, requiredMessage, invalidMessage) {
+  const numeric = parseRequiredPositiveNumber(value, requiredMessage, invalidMessage);
+  if (!Number.isInteger(numeric)) {
+    throw createValidationError(invalidMessage);
+  }
+  return numeric;
+}
+
 function createValidationError(message, statusCode = 400) {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -124,12 +158,22 @@ function normalizeServiceIdList(value) {
 }
 
 function normalizePromotionPayload(body = {}, existing = {}) {
-  const title = normalizeWhitespace(body.title ?? body.name ?? existing.title ?? existing.name);
-  const code = normalizePromotionCode(body.code ?? existing.code ?? title);
-  const description = normalizeWhitespace(body.description ?? body.message ?? existing.description ?? existing.message);
+  const titleSource = body.title ?? body.name ?? existing.title ?? existing.name;
+  const codeSource = hasOwnInput(body, "code") ? body.code : existing.code;
+  const descriptionSource = body.message ?? body.description ?? existing.message ?? existing.description;
+  assertPlainTextInput(titleSource, "Promotion title");
+  assertPlainTextInput(codeSource, "Promotion code");
+  assertPlainTextInput(descriptionSource, "Promotion message");
+  const title = normalizeWhitespace(titleSource);
+  const code = normalizePromotionCode(codeSource);
+  const description = normalizeWhitespace(descriptionSource);
   const legacyPercent = body.discountPercent ?? existing.discountPercent;
   const discountType = normalizeDiscountType(body.discountType ?? existing.discountType, Number(legacyPercent || 0) > 0 ? "Percentage" : "");
-  const discountValue = toFiniteNumber(body.discountValue ?? existing.discountValue ?? legacyPercent, NaN);
+  const discountValue = parseRequiredPositiveNumber(
+    body.discountValue ?? existing.discountValue ?? legacyPercent,
+    "Promotion discount value is required.",
+    "Promotion discount value must be greater than zero."
+  );
   const startAt = parseDateTime(body.startAt ?? body.scheduledFor ?? existing.startAt ?? existing.scheduledFor, false);
   const endAt = parseDateTime(body.endAt ?? body.expiresAt ?? existing.endAt ?? existing.expiresAt, true);
   const enabled = typeof body.enabled === "boolean"
@@ -142,16 +186,24 @@ function normalizePromotionPayload(body = {}, existing = {}) {
   const usageLimitRaw = body.usageLimit ?? existing.usageLimit;
   const usageLimit = usageLimitRaw === "" || usageLimitRaw === null || usageLimitRaw === undefined ? 0 : toFiniteNumber(usageLimitRaw, NaN);
   const usageCount = Math.max(0, toFiniteNumber(existing.usageCount ?? body.usageCount, 0));
-  const maxUsagePerUser = Math.max(0, toFiniteNumber(body.maxUsagePerUser ?? existing.maxUsagePerUser, 0));
+  const maxUsagePerUser = parsePositiveWholeNumber(
+    body.maxUsagePerUser ?? existing.maxUsagePerUser,
+    "Max usage per user is required.",
+    "Max usage per user must be a positive whole number."
+  );
   const applicableServiceIds = normalizeServiceIdList(body.applicableServiceIds ?? existing.applicableServiceIds);
+  const requestedExpiryMode = String(body.expiryMode ?? existing.expiryMode ?? "").trim().toLowerCase();
 
   if (!title) throw createValidationError("Promotion name is required.");
   if (!code) throw createValidationError("Promotion code is required.");
-  if (!description) throw createValidationError("Promotion description is required.");
   if (!PROMOTION_DISCOUNT_TYPES.includes(discountType)) throw createValidationError("Promotion discount type must be Percentage or Fixed.");
   if (!Number.isFinite(discountValue) || discountValue <= 0) throw createValidationError("Promotion discount value must be greater than zero.");
   if (discountType === "Percentage" && discountValue > 100) throw createValidationError("Percentage promotions cannot exceed 100%.");
   if (!Number.isFinite(usageLimit) || usageLimit < 0) throw createValidationError("Promotion usage limit cannot be negative.");
+  if (requestedExpiryMode === "date" && !endAt) throw createValidationError("Promotion expiry date is required.");
+  if (requestedExpiryMode === "usage" && (!Number.isFinite(usageLimit) || usageLimit <= 0)) {
+    throw createValidationError("Promotion usage limit must be greater than zero.");
+  }
   if (usageLimit > 0 && usageCount > usageLimit) throw createValidationError("Promotion usage count cannot exceed the usage limit.");
   if (startAt && endAt && new Date(endAt).getTime() < new Date(startAt).getTime()) {
     throw createValidationError("Promotion end date cannot be before the start date.");

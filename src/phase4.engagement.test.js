@@ -43,6 +43,7 @@ describe("Phase 4 promotion helpers", () => {
       message: "Save now",
       discountType: "fixed",
       discountValue: 50,
+      maxUsagePerUser: 1,
       status: "Active",
     });
     expect(payload.code).toBe("SAVE-50");
@@ -51,9 +52,9 @@ describe("Phase 4 promotion helpers", () => {
   });
 
   test("rejects invalid percentage, negative usage, and reversed dates", () => {
-    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Percentage", discountValue: 101 })).toThrow(/100/);
-    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Fixed", discountValue: 1, usageLimit: -1 })).toThrow(/usage/);
-    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Fixed", discountValue: 1, startAt: "2026-07-20", endAt: "2026-07-19" })).toThrow(/end date/);
+    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Percentage", discountValue: 101, maxUsagePerUser: 1 })).toThrow(/100/);
+    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Fixed", discountValue: 1, usageLimit: -1, maxUsagePerUser: 1 })).toThrow(/usage/);
+    expect(() => engagement.normalizePromotionPayload({ title: "Bad", code: "BAD", message: "Bad", discountType: "Fixed", discountValue: 1, maxUsagePerUser: 1, startAt: "2026-07-20", endAt: "2026-07-19" })).toThrow(/end date/);
   });
 
   test("enforces status, dates, usage, and service eligibility", () => {
