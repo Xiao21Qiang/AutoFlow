@@ -15,6 +15,9 @@ const PROMO_FORM_FIELDS = [
   "usageLimit",
   "message",
 ];
+const REWARD_FORM_FIELDS = ["name", "type", "description", "value", "stock", "expirationDays", "weight", "rarity"];
+const REWARD_TYPES = ["Voucher", "Item", "Discount", "Service"];
+const REWARD_RARITIES = ["Common", "Uncommon", "Rare"];
 
 function isBlank(value) {
   return String(value || "").trim() === "";
@@ -68,6 +71,64 @@ function markAllPromoFieldsTouched() {
   return PROMO_FORM_FIELDS.reduce((touched, field) => ({ ...touched, [field]: true }), {});
 }
 
+function isPositiveWholeNumber(value) {
+  const numeric = parseFiniteInput(value);
+  return Number.isFinite(numeric) && numeric > 0 && Number.isInteger(numeric);
+}
+
+function validateRewardForm(form) {
+  const errors = {};
+  const name = String(form.name || "").trim();
+  const type = String(form.type || "").trim();
+  const description = String(form.description || "").trim();
+  const value = String(form.value || "").trim();
+  const weight = parseFiniteInput(form.weight);
+  const numericValue = parseFiniteInput(form.value);
+
+  if (!name) errors.name = "Reward name is required.";
+  if (!type) {
+    errors.type = "Reward type is required.";
+  } else if (!REWARD_TYPES.includes(type)) {
+    errors.type = "Reward type is invalid.";
+  }
+  if (!description) errors.description = "Reward description is required.";
+
+  if (!value) {
+    errors.value = "Reward value is required.";
+  } else if (type === "Discount") {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) {
+      errors.value = "Reward value must be greater than zero.";
+    } else if (numericValue > 100) {
+      errors.value = "Percentage reward value cannot exceed 100%.";
+    }
+  }
+
+  if (isBlank(form.stock)) {
+    errors.stock = "Reward stock is required.";
+  } else if (!isPositiveWholeNumber(form.stock)) {
+    errors.stock = "Reward stock must be a positive whole number.";
+  }
+
+  if (isBlank(form.expirationDays)) {
+    errors.expirationDays = "Expiration days are required.";
+  } else if (!isPositiveWholeNumber(form.expirationDays)) {
+    errors.expirationDays = "Expiration days must be a positive whole number.";
+  }
+
+  if (!Number.isFinite(weight) || weight <= 0) {
+    errors.weight = "Reward weight must be greater than zero.";
+  }
+  if (!REWARD_RARITIES.includes(String(form.rarity || "").trim())) {
+    errors.rarity = "Reward rarity is invalid.";
+  }
+
+  return errors;
+}
+
+function markAllRewardFieldsTouched() {
+  return REWARD_FORM_FIELDS.reduce((touched, field) => ({ ...touched, [field]: true }), {});
+}
+
 export default function AdminEngagement() {
   const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, deleteReward, generateCustomerReward } = useAdminData();
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
@@ -76,6 +137,8 @@ export default function AdminEngagement() {
   const [promoTouched, setPromoTouched] = useState({});
   const [isSavingPromo, setIsSavingPromo] = useState(false);
   const [rewardError, setRewardError] = useState("");
+  const [rewardTouched, setRewardTouched] = useState({});
+  const [isSavingReward, setIsSavingReward] = useState(false);
   const [editingPromoId, setEditingPromoId] = useState("");
   const [editingRewardId, setEditingRewardId] = useState("");
   const [securityConfirm, setSecurityConfirm] = useState(null);
@@ -105,7 +168,7 @@ export default function AdminEngagement() {
   });
   const [rewardForm, setRewardForm] = useState({
     name: "",
-    type: "Voucher",
+    type: "",
     description: "",
     value: "",
     rarity: "Common",
@@ -115,9 +178,13 @@ export default function AdminEngagement() {
     expirationDays: "30",
   });
   const promoSavingRef = useRef(false);
+  const rewardSavingRef = useRef(false);
   const promoValidationErrors = useMemo(() => validatePromoForm(promoForm), [promoForm]);
   const isPromoFormValid = Object.keys(promoValidationErrors).length === 0;
   const isPromoSaveDisabled = !isPromoFormValid || isSavingPromo;
+  const rewardValidationErrors = useMemo(() => validateRewardForm(rewardForm), [rewardForm]);
+  const isRewardFormValid = Object.keys(rewardValidationErrors).length === 0;
+  const isRewardSaveDisabled = !isRewardFormValid || isSavingReward;
 
   const shouldShowPromoError = (field) => Boolean(promoValidationErrors[field] && (promoTouched[field] || promoTouched.submit));
   const getPromoFieldError = (field) => shouldShowPromoError(field) ? promoValidationErrors[field] : "";
@@ -125,12 +192,18 @@ export default function AdminEngagement() {
   const updatePromoField = (field, value) => {
     setPromoForm((prev) => ({ ...prev, [field]: value }));
   };
+  const shouldShowRewardError = (field) => Boolean(rewardValidationErrors[field] && (rewardTouched[field] || rewardTouched.submit));
+  const getRewardFieldError = (field) => shouldShowRewardError(field) ? rewardValidationErrors[field] : "";
+  const markRewardFieldTouched = (field) => setRewardTouched((prev) => ({ ...prev, [field]: true }));
+  const updateRewardField = (field, value) => {
+    setRewardForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   const resetRewardForm = () => {
     setEditingRewardId("");
     setRewardForm({
       name: "",
-      type: "Voucher",
+      type: "",
       description: "",
       value: "",
       rarity: "Common",
@@ -140,6 +213,9 @@ export default function AdminEngagement() {
       expirationDays: "30",
     });
     setRewardError("");
+    setRewardTouched({});
+    setIsSavingReward(false);
+    rewardSavingRef.current = false;
   };
 
   const openEditRewardModal = (reward) => {
@@ -156,6 +232,9 @@ export default function AdminEngagement() {
       expirationDays: String(Number(reward.expirationDays || 0) || ""),
     });
     setRewardError("");
+    setRewardTouched({});
+    setIsSavingReward(false);
+    rewardSavingRef.current = false;
     setIsRewardModalOpen(true);
   };
 
@@ -199,19 +278,39 @@ export default function AdminEngagement() {
   const customerOptions = users.filter((user) => String(user.userType || user.role || "").trim().toLowerCase() === "customer");
 
   const saveReward = async () => {
+    const validationErrors = validateRewardForm(rewardForm);
+    if (Object.keys(validationErrors).length > 0) {
+      setRewardTouched({ ...markAllRewardFieldsTouched(), submit: true });
+      return false;
+    }
+    if (rewardSavingRef.current) return false;
+    rewardSavingRef.current = true;
+    setIsSavingReward(true);
     const payload = {
       ...rewardForm,
-      weight: Number(rewardForm.weight || 0),
-      stock: Number(rewardForm.stock || 0),
-      expirationDays: Number(rewardForm.expirationDays || 0),
+      name: rewardForm.name.trim(),
+      type: rewardForm.type.trim(),
+      description: rewardForm.description.trim(),
+      value: rewardForm.value.trim(),
+      rarity: rewardForm.rarity.trim(),
+      weight: Number(String(rewardForm.weight).trim()),
+      stock: Number(String(rewardForm.stock).trim()),
+      expirationDays: Number(String(rewardForm.expirationDays).trim()),
     };
-    if (editingRewardId) {
-      await updateReward(editingRewardId, payload);
-    } else {
-      await createReward(payload);
+    try {
+      if (editingRewardId) {
+        await updateReward(editingRewardId, payload);
+      } else {
+        await createReward(payload);
+      }
+      setIsRewardModalOpen(false);
+      resetRewardForm();
+      return true;
+    } catch (error) {
+      setIsSavingReward(false);
+      rewardSavingRef.current = false;
+      throw error;
     }
-    setIsRewardModalOpen(false);
-    resetRewardForm();
   };
 
   const getPromoExpiryLabel = (promo) => {
@@ -691,20 +790,182 @@ export default function AdminEngagement() {
 
       {isRewardModalOpen && (
         <div className="engModalOverlay" onMouseDown={(event) => { if (event.target.classList.contains("engModalOverlay")) { setIsRewardModalOpen(false); resetRewardForm(); } }}>
-          <div className="engModalCard" role="dialog" aria-modal="true">
-            <div className="engModalHead"><div><div className="engTitle">{editingRewardId ? "Edit Reward" : "Add Reward"}</div><div className="engSub">Configure the reward pool item.</div></div><button className="engModalClose" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>x</button></div>
-            <form className="engModalBody" onSubmit={(event) => { event.preventDefault(); setRewardError(""); const weightChanged = editingRewardId && Number(rewardForm.weight || 0) !== Number(rewards.find((item) => item.id === editingRewardId)?.weight || 0); const action = async () => { try { await saveReward(); setSecurityConfirm(null); } catch (error) { setRewardError(error.message || "Failed to save reward."); } }; if (weightChanged) { setSecurityConfirm({ mode: "pin", title: "Change Reward Weight", message: "Enter the special PIN before changing a reward weight.", onConfirm: action }); return; } action(); }}>
-              <label className="engField"><span>Reward Name</span><input value={rewardForm.name} onChange={(event) => setRewardForm((prev) => ({ ...prev, name: event.target.value }))} required /></label>
-              <label className="engField"><span>Type</span><select value={rewardForm.type} onChange={(event) => setRewardForm((prev) => ({ ...prev, type: event.target.value }))}>{["Voucher", "Item", "Discount", "Service"].map((option) => <option key={option}>{option}</option>)}</select></label>
-              <label className="engField"><span>Description</span><textarea value={rewardForm.description} onChange={(event) => setRewardForm((prev) => ({ ...prev, description: event.target.value }))} required /></label>
-              <label className="engField"><span>Value</span><input value={rewardForm.value} onChange={(event) => setRewardForm((prev) => ({ ...prev, value: event.target.value }))} placeholder="5% Discount, Free Car Wash..." /></label>
-              <label className="engField"><span>Rarity</span><select value={rewardForm.rarity} onChange={(event) => setRewardForm((prev) => ({ ...prev, rarity: event.target.value }))}>{["Common", "Uncommon", "Rare"].map((option) => <option key={option}>{option}</option>)}</select></label>
-              <label className="engField"><span>Weight / Chance</span><input type="number" min="1" value={rewardForm.weight} onChange={(event) => setRewardForm((prev) => ({ ...prev, weight: event.target.value }))} required /></label>
-              <label className="engField"><span>Stock</span><input type="number" min="0" value={rewardForm.stock} onChange={(event) => setRewardForm((prev) => ({ ...prev, stock: event.target.value }))} /></label>
-              <label className="engField"><span>Expiration Days</span><input type="number" min="0" value={rewardForm.expirationDays} onChange={(event) => setRewardForm((prev) => ({ ...prev, expirationDays: event.target.value }))} /></label>
-              <label className="engCheckField"><input type="checkbox" checked={rewardForm.active} onChange={(event) => setRewardForm((prev) => ({ ...prev, active: event.target.checked }))} /> Enabled</label>
-              {rewardError && <div className="engModalError">{rewardError}</div>}
-              <div className="engModalActions"><button className="engBtnLight" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>Cancel</button><button className="engBtnGold" type="submit">Save Reward</button></div>
+          <div className="engModalCard" role="dialog" aria-modal="true" aria-labelledby="reward-modal-title">
+            <div className="engModalHead">
+              <div>
+                <div className="engTitle" id="reward-modal-title">{editingRewardId ? "Edit Reward" : "Add Reward"}</div>
+                <div className="engSub">Configure the reward pool item.</div>
+              </div>
+              <button className="engModalClose" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>✕</button>
+            </div>
+
+            <form
+              className="engModalBody"
+              noValidate
+              onSubmit={(event) => {
+                event.preventDefault();
+                setRewardError("");
+                const validationErrors = validateRewardForm(rewardForm);
+                if (Object.keys(validationErrors).length > 0) {
+                  setRewardTouched({ ...markAllRewardFieldsTouched(), submit: true });
+                  return;
+                }
+                const weightChanged = editingRewardId && Number(rewardForm.weight || 0) !== Number(rewards.find((item) => item.id === editingRewardId)?.weight || 0);
+                const action = async () => {
+                  try {
+                    const saved = await saveReward();
+                    if (saved) setSecurityConfirm(null);
+                  } catch (error) {
+                    setRewardError(error.message || "Failed to save reward.");
+                  }
+                };
+                if (weightChanged) {
+                  setSecurityConfirm({ mode: "pin", title: "Change Reward Weight", message: "Enter the special PIN before changing a reward weight.", onConfirm: action });
+                  return;
+                }
+                action();
+              }}
+            >
+              <label className="engField" htmlFor="reward-name">
+                <span>Reward Name</span>
+                <input
+                  id="reward-name"
+                  value={rewardForm.name}
+                  onChange={(event) => updateRewardField("name", event.target.value)}
+                  onBlur={() => markRewardFieldTouched("name")}
+                  required
+                  aria-invalid={shouldShowRewardError("name") ? "true" : undefined}
+                  aria-describedby={getRewardFieldError("name") ? "reward-name-error" : undefined}
+                />
+                {getRewardFieldError("name") ? <div id="reward-name-error" className="engFieldError">{getRewardFieldError("name")}</div> : null}
+              </label>
+
+              <label className="engField" htmlFor="reward-type">
+                <span>Type</span>
+                <select
+                  id="reward-type"
+                  value={rewardForm.type}
+                  onChange={(event) => setRewardForm((prev) => ({ ...prev, type: event.target.value, value: "" }))}
+                  onBlur={() => markRewardFieldTouched("type")}
+                  required
+                  aria-invalid={shouldShowRewardError("type") ? "true" : undefined}
+                  aria-describedby={getRewardFieldError("type") ? "reward-type-error" : undefined}
+                >
+                  <option value="">Select type</option>
+                  {REWARD_TYPES.map((option) => <option key={option}>{option}</option>)}
+                </select>
+                {getRewardFieldError("type") ? <div id="reward-type-error" className="engFieldError">{getRewardFieldError("type")}</div> : null}
+              </label>
+
+              <label className="engField" htmlFor="reward-description">
+                <span>Description</span>
+                <textarea
+                  id="reward-description"
+                  value={rewardForm.description}
+                  onChange={(event) => updateRewardField("description", event.target.value)}
+                  onBlur={() => markRewardFieldTouched("description")}
+                  required
+                  aria-invalid={shouldShowRewardError("description") ? "true" : undefined}
+                  aria-describedby={getRewardFieldError("description") ? "reward-description-error" : undefined}
+                />
+                {getRewardFieldError("description") ? <div id="reward-description-error" className="engFieldError">{getRewardFieldError("description")}</div> : null}
+              </label>
+
+              <label className="engField" htmlFor="reward-value">
+                <span>Value</span>
+                <input
+                  id="reward-value"
+                  type="text"
+                  inputMode={rewardForm.type === "Discount" ? "decimal" : "text"}
+                  value={rewardForm.value}
+                  onChange={(event) => updateRewardField("value", event.target.value)}
+                  onBlur={() => markRewardFieldTouched("value")}
+                  placeholder={rewardForm.type === "Discount" ? "5" : "Free Car Wash"}
+                  required
+                  aria-invalid={shouldShowRewardError("value") ? "true" : undefined}
+                  aria-describedby={getRewardFieldError("value") ? "reward-value-error" : undefined}
+                />
+                {getRewardFieldError("value") ? <div id="reward-value-error" className="engFieldError">{getRewardFieldError("value")}</div> : null}
+              </label>
+
+              <div className="engFieldRow">
+                <label className="engField" htmlFor="reward-rarity">
+                  <span>Rarity</span>
+                  <select
+                    id="reward-rarity"
+                    value={rewardForm.rarity}
+                    onChange={(event) => updateRewardField("rarity", event.target.value)}
+                    onBlur={() => markRewardFieldTouched("rarity")}
+                    aria-invalid={shouldShowRewardError("rarity") ? "true" : undefined}
+                    aria-describedby={getRewardFieldError("rarity") ? "reward-rarity-error" : undefined}
+                  >
+                    {REWARD_RARITIES.map((option) => <option key={option}>{option}</option>)}
+                  </select>
+                  {getRewardFieldError("rarity") ? <div id="reward-rarity-error" className="engFieldError">{getRewardFieldError("rarity")}</div> : null}
+                </label>
+
+                <label className="engField" htmlFor="reward-weight">
+                  <span>Weight / Chance</span>
+                  <input
+                    id="reward-weight"
+                    type="number"
+                    min="1"
+                    value={rewardForm.weight}
+                    onChange={(event) => updateRewardField("weight", event.target.value)}
+                    onBlur={() => markRewardFieldTouched("weight")}
+                    required
+                    aria-invalid={shouldShowRewardError("weight") ? "true" : undefined}
+                    aria-describedby={getRewardFieldError("weight") ? "reward-weight-error" : undefined}
+                  />
+                  {getRewardFieldError("weight") ? <div id="reward-weight-error" className="engFieldError">{getRewardFieldError("weight")}</div> : null}
+                </label>
+              </div>
+
+              <div className="engFieldRow">
+                <label className="engField" htmlFor="reward-stock">
+                  <span>Stock</span>
+                  <input
+                    id="reward-stock"
+                    type="text"
+                    inputMode="numeric"
+                    value={rewardForm.stock}
+                    onChange={(event) => updateRewardField("stock", event.target.value)}
+                    onBlur={() => markRewardFieldTouched("stock")}
+                    required
+                    aria-invalid={shouldShowRewardError("stock") ? "true" : undefined}
+                    aria-describedby={getRewardFieldError("stock") ? "reward-stock-error" : undefined}
+                  />
+                  {getRewardFieldError("stock") ? <div id="reward-stock-error" className="engFieldError">{getRewardFieldError("stock")}</div> : null}
+                </label>
+
+                <label className="engField" htmlFor="reward-expiration-days">
+                  <span>Expiration Days</span>
+                  <input
+                    id="reward-expiration-days"
+                    type="text"
+                    inputMode="numeric"
+                    value={rewardForm.expirationDays}
+                    onChange={(event) => updateRewardField("expirationDays", event.target.value)}
+                    onBlur={() => markRewardFieldTouched("expirationDays")}
+                    required
+                    aria-invalid={shouldShowRewardError("expirationDays") ? "true" : undefined}
+                    aria-describedby={getRewardFieldError("expirationDays") ? "reward-expiration-days-error" : undefined}
+                  />
+                  {getRewardFieldError("expirationDays") ? <div id="reward-expiration-days-error" className="engFieldError">{getRewardFieldError("expirationDays")}</div> : null}
+                </label>
+              </div>
+
+              <label className="engCheckField">
+                <input type="checkbox" checked={rewardForm.active} onChange={(event) => updateRewardField("active", event.target.checked)} />
+                Enabled
+              </label>
+              {rewardError ? <div className="engFieldError">{rewardError}</div> : null}
+              <div className="engModalActions">
+                <button className="engBtnLight engBtnAuto" type="button" onClick={() => { setIsRewardModalOpen(false); resetRewardForm(); }}>Cancel</button>
+                <button className="engBtnGold engBtnAuto" type="submit" disabled={isRewardSaveDisabled}>
+                  {isSavingReward ? "Saving..." : editingRewardId ? "Update Reward" : "Save Reward"}
+                </button>
+              </div>
             </form>
           </div>
         </div>

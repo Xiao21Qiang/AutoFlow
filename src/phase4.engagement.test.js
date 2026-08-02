@@ -104,7 +104,7 @@ describe("Phase 4 reward helpers", () => {
   });
 
   test("validates reward values and transitions", () => {
-    expect(() => engagement.normalizeRewardDefinitionPayload({ name: "Bad", type: "Percentage Discount", discountValue: 101, weight: 1, stock: 1 })).toThrow(/Percentage/);
+    expect(() => engagement.normalizeRewardDefinitionPayload({ name: "Bad", type: "Percentage Discount", value: "101", weight: 1, stock: 1, expirationDays: 30 })).toThrow(/Percentage/);
     expect(engagement.calculateRewardDiscount(1000, { type: "Percentage Discount", discountType: "Percentage", discountValue: 10 }).finalAmount).toBe(900);
     expect(engagement.calculateRewardDiscount(100, { type: "Fixed Discount", discountType: "Fixed", discountValue: 150 }).finalAmount).toBe(0);
     expect(engagement.getRewardTransition("Available", "Reserved").allowed).toBe(true);

@@ -6,6 +6,7 @@ const REVIEW_STATUSES = Object.freeze(["Pending", "Published", "Hidden", "Archiv
 const ACTIVE_REVIEW_STATUSES = new Set(["Pending", "Published", "Hidden"]);
 const PROMOTION_DISCOUNT_TYPES = Object.freeze(["Percentage", "Fixed"]);
 const PROMOTION_STATUSES = Object.freeze(["Draft", "Active", "Expired", "Archived"]);
+const REWARD_TYPES = Object.freeze(["Free Car Wash", "Free Microfiber Towel", "Percentage Discount", "Fixed Discount", "Other"]);
 const REWARD_RARITIES = Object.freeze(["Common", "Uncommon", "Rare", "Epic"]);
 const REWARD_STATUSES = Object.freeze(["Available", "Claimed", "Reserved", "Used", "Expired", "Released", "Cancelled"]);
 const REWARD_MILESTONE_SIZE = 3;
@@ -346,43 +347,72 @@ function normalizeRewardStatus(status, fallback = "Available") {
 
 function normalizeRewardType(value, fallback = "Other") {
   const raw = normalizeWhitespace(value).toLowerCase();
+  if (!raw) return fallback;
   if (raw === "free car wash" || raw === "service") return "Free Car Wash";
   if (raw === "free microfiber towel" || raw === "item") return "Free Microfiber Towel";
   if (raw === "percentage discount" || raw === "discount percentage") return "Percentage Discount";
   if (raw === "fixed discount" || raw === "discount fixed") return "Fixed Discount";
   if (raw === "discount") return "Percentage Discount";
-  if (raw === "voucher") return "Other";
-  return normalizeWhitespace(value) || fallback;
+  if (raw === "voucher" || raw === "other") return "Other";
+  const canonical = REWARD_TYPES.find((type) => type.toLowerCase() === raw);
+  return canonical || fallback;
 }
 
 function normalizeRewardDefinitionPayload(body = {}, existing = {}) {
-  const name = normalizeWhitespace(body.name ?? existing.name);
+  const nameSource = body.name ?? existing.name;
+  const typeSource = body.rewardType ?? body.type ?? existing.rewardType ?? existing.type;
+  const descriptionSource = body.description ?? existing.description;
+  const legacyValue = body.value ?? existing.value;
+  assertPlainTextInput(nameSource, "Reward name");
+  assertPlainTextInput(typeSource, "Reward type");
+  assertPlainTextInput(descriptionSource, "Reward description");
+  assertPlainTextInput(legacyValue, "Reward value");
+  const name = normalizeWhitespace(nameSource);
   const code = normalizePromotionCode(body.code ?? existing.code ?? name);
-  const type = normalizeRewardType(body.rewardType ?? body.type ?? existing.rewardType ?? existing.type, "Other");
-  const description = normalizeWhitespace(body.description ?? existing.description);
+  const rawType = normalizeWhitespace(typeSource);
+  const type = normalizeRewardType(typeSource, "");
+  const description = normalizeWhitespace(descriptionSource);
   const rawDiscountType = body.discountType ?? existing.discountType;
   const inferredDiscountType = type === "Percentage Discount" ? "Percentage" : type === "Fixed Discount" ? "Fixed" : "";
   const discountType = normalizeDiscountType(rawDiscountType, inferredDiscountType);
-  const legacyValue = body.value ?? existing.value;
-  const discountValue = toFiniteNumber(body.discountValue ?? existing.discountValue ?? extractLegacyRewardNumericValue(legacyValue), 0);
-  const rarity = normalizeRarity(body.rarity ?? existing.rarity);
+  const rawValue = normalizeWhitespace(legacyValue);
+  if (!rawValue) throw createValidationError("Reward value is required.");
+  const discountValue = ["Percentage Discount", "Fixed Discount"].includes(type)
+    ? parseRequiredPositiveNumber(
+        body.discountValue ?? existing.discountValue ?? extractLegacyRewardNumericValue(rawValue),
+        "Reward value is required.",
+        "Reward value must be greater than zero."
+      )
+    : 0;
+  const raritySource = body.rarity ?? existing.rarity ?? "Common";
+  const rawRarity = normalizeWhitespace(raritySource);
+  const rarity = normalizeRarity(raritySource, "");
   const weight = toFiniteNumber(body.weight ?? existing.weight ?? 10, NaN);
-  const quantity = toFiniteNumber(body.quantity ?? body.stock ?? existing.quantity ?? existing.stock ?? 0, NaN);
+  const quantity = parsePositiveWholeNumber(
+    body.quantity ?? body.stock ?? existing.quantity ?? existing.stock,
+    "Reward stock is required.",
+    "Reward stock must be a positive whole number."
+  );
   const enabled = typeof body.enabled === "boolean" ? body.enabled : typeof body.active === "boolean" ? body.active : Boolean(existing.enabled ?? existing.active ?? true);
   const archived = typeof body.archived === "boolean" ? body.archived : Boolean(existing.archived);
-  const expirationDays = toFiniteNumber(body.expirationDays ?? existing.expirationDays ?? 30, NaN);
+  const expirationDays = parsePositiveWholeNumber(
+    body.expirationDays ?? existing.expirationDays,
+    "Expiration days are required.",
+    "Expiration days must be a positive whole number."
+  );
   const applicableServiceIds = normalizeServiceIdList(body.applicableServiceIds ?? existing.applicableServiceIds);
 
   if (!name) throw createValidationError("Reward name is required.");
   if (!code) throw createValidationError("Reward code is required.");
+  if (!rawType) throw createValidationError("Reward type is required.");
+  if (!REWARD_TYPES.includes(type)) throw createValidationError("Reward type is invalid.");
+  if (!rarity || (rawRarity && !REWARD_RARITIES.includes(rarity))) throw createValidationError("Reward rarity is invalid.");
   if (!Number.isFinite(weight) || weight <= 0) throw createValidationError("Reward weight must be greater than zero.");
-  if (!Number.isFinite(quantity) || quantity < 0) throw createValidationError("Reward quantity cannot be negative.");
-  if (!Number.isFinite(expirationDays) || expirationDays < 0) throw createValidationError("Reward expiration days cannot be negative.");
-  if (discountType === "Percentage" && (discountValue <= 0 || discountValue > 100)) {
-    throw createValidationError("Percentage rewards must be greater than zero and at most 100.");
+  if (["Percentage Discount", "Fixed Discount"].includes(type) && !PROMOTION_DISCOUNT_TYPES.includes(discountType)) {
+    throw createValidationError("Reward discount type must be Percentage or Fixed.");
   }
-  if (discountType === "Fixed" && discountValue <= 0) {
-    throw createValidationError("Fixed rewards must be greater than zero.");
+  if (discountType === "Percentage" && discountValue > 100) {
+    throw createValidationError("Percentage reward value cannot exceed 100%.");
   }
 
   return {
@@ -391,7 +421,7 @@ function normalizeRewardDefinitionPayload(body = {}, existing = {}) {
     type,
     rewardType: type,
     description,
-    value: legacyValue || (discountType === "Percentage" ? `${discountValue}% Discount` : discountType === "Fixed" ? `P ${discountValue} Discount` : type),
+    value: rawValue || (discountType === "Percentage" ? `${discountValue}% Discount` : discountType === "Fixed" ? `P ${discountValue} Discount` : type),
     discountType,
     discountValue: roundMoney(discountValue),
     rarity,
@@ -408,7 +438,7 @@ function normalizeRewardDefinitionPayload(body = {}, existing = {}) {
 
 function extractLegacyRewardNumericValue(value) {
   const raw = String(value || "").replace(/,/g, "");
-  const match = raw.match(/(\d+(?:\.\d+)?)/);
+  const match = raw.match(/(-?\d+(?:\.\d+)?)/);
   return match ? Number(match[1]) : 0;
 }
 
@@ -544,6 +574,7 @@ module.exports = {
   REWARD_MILESTONE_SIZE,
   REWARD_RARITIES,
   REWARD_STATUSES,
+  REWARD_TYPES,
   calculatePromotionDiscount,
   calculateRewardDiscount,
   createValidationError,
