@@ -27,6 +27,8 @@ const customerUser = {
   cars: [{ vehicle: "Civic", size: "Sedan / Small Car", plate: "ABC123" }],
 };
 const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer One", userType: "Staff", role: "Senior Detailer", status: "active" };
+const secondDetailerUser = { id: "STF-2", email: "detailer2@example.com", name: "Detailer Two", userType: "Staff", role: "Junior Detailer", status: "active" };
+const deletedDetailerUser = { id: "STF-DEL", email: "deleted-detailer@example.com", name: "Deleted Detailer", userType: "Staff", role: "Senior Detailer", status: "deleted" };
 const service = {
   id: "SVC-1",
   name: "Ceramic Coating",
@@ -35,6 +37,7 @@ const service = {
   mins: 60,
   allowedArrivalTimes: ["10:00", "13:00"],
 };
+const testUsers = [adminUser, marketingUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -127,12 +130,12 @@ async function request(path, { method = "GET", token = auth(), body } = {}) {
 }
 
 function findUser(query = {}) {
-  if (query.id) return [adminUser, marketingUser, customerUser, detailerUser].find((user) => user.id === query.id);
+  if (query.id) return testUsers.find((user) => user.id === query.id);
   if (query.email && typeof query.email === "string") {
-    return [adminUser, marketingUser, customerUser, detailerUser].find((user) => user.email === query.email);
+    return testUsers.find((user) => user.email === query.email);
   }
   if (query.$or) {
-    return [adminUser, marketingUser, customerUser, detailerUser].find((user) =>
+    return testUsers.find((user) =>
       query.$or.some((condition) => {
         if (condition.id) return user.id === condition.id;
         if (condition.email?.$regex) return new RegExp(condition.email.$regex, condition.email.$options).test(user.email);
@@ -155,7 +158,7 @@ function resetData(seedBookings = []) {
 
 beforeAll(async () => {
   stub(__testModels.User, "findOne", (query) => doc(findUser(query)));
-  stub(__testModels.User, "find", () => chain([adminUser, marketingUser, customerUser, detailerUser]));
+  stub(__testModels.User, "find", () => chain(testUsers));
   stub(__testModels.Service, "findOne", () => doc(service));
   stub(__testModels.Service, "find", () => chain([service]));
   stub(__testModels.Booking, "find", (query = {}) => {
@@ -344,5 +347,41 @@ describe("Admin booking schedule conflict route protection", () => {
     expect(response.status).toBe(200);
     expect(bookings).toHaveLength(1);
     expect(bookings[0].issueNote).toBe("Updated note");
+  });
+
+  test("updating a tracking assignment to another active detailer persists the normalized staff name", async () => {
+    resetData([
+      { id: "B-1", customer: "Customer One", customerEmail: "customer@example.com", vehicle: "Civic", plate: "ABC123", date: "2099-12-31", time: "10:00", placeSlot: 1, status: "Scheduled", service: "Ceramic Coating", carSize: "Sedan / Small Car", amount: 1000, assigned: "Detailer One" },
+    ]);
+    payments.push({ id: "PAY-1", bookingId: "B-1", totalAmount: 1000, finalAmount: 1000 });
+
+    const response = await request("/api/admin/bookings/B-1", {
+      method: "PUT",
+      body: { ...bookings[0], assigned: "STF-2", auditUser: "admin@example.com" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0].assigned).toBe("Detailer Two");
+    expect(auditLogs.some((log) => log.action === "Updated service tracking" && log.meta?.assigned === "Detailer Two")).toBe(true);
+  });
+
+  test.each([
+    ["nonexistent staff", "Ghost Detailer"],
+    ["customer account", "Customer One"],
+    ["deleted detailer", "Deleted Detailer"],
+  ])("crafted assignment update to %s is rejected and does not mutate the booking", async (_label, assigned) => {
+    resetData([
+      { id: "B-1", customer: "Customer One", customerEmail: "customer@example.com", vehicle: "Civic", plate: "ABC123", date: "2099-12-31", time: "10:00", placeSlot: 1, status: "Scheduled", service: "Ceramic Coating", carSize: "Sedan / Small Car", amount: 1000, assigned: "Detailer One" },
+    ]);
+    payments.push({ id: "PAY-1", bookingId: "B-1", totalAmount: 1000, finalAmount: 1000 });
+
+    const response = await request("/api/admin/bookings/B-1", {
+      method: "PUT",
+      body: { ...bookings[0], assigned, auditUser: "admin@example.com" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Please choose an active Junior or Senior Detailer.");
+    expect(bookings[0].assigned).toBe("Detailer One");
   });
 });

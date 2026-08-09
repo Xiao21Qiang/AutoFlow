@@ -45,12 +45,17 @@ export function getStaffRoleLabel(role) {
     .join(" ");
 }
 
+export function isActiveDetailerStaff(user = {}) {
+  const status = String(user?.status || (user?.deleted ? "deleted" : "active")).trim().toLowerCase();
+  const active = user?.isActive === false ? false : !["inactive", "disabled", "deactivated", "deleted"].includes(status);
+  return active && String(user?.userType || "").trim().toLowerCase() === "staff" && isDetailerRole(user?.role);
+}
+
 export function getDetailerStaffOptions(users = []) {
   const seen = new Set();
 
   return (Array.isArray(users) ? users : [])
-    .filter((user) => String(user?.userType || "").trim().toLowerCase() === "staff")
-    .filter((user) => isDetailerRole(user?.role))
+    .filter(isActiveDetailerStaff)
     .map((user) => String(user?.name || `${String(user?.first || "").trim()} ${String(user?.last || "").trim()}`.trim() || user?.email || "").trim())
     .filter((name) => {
       const key = name.toLowerCase();

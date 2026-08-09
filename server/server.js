@@ -2370,8 +2370,9 @@ function canUpdatePlaceSlot(user, booking, users = []) {
 }
 
 function isActiveDetailerUser(user = {}) {
-  const status = String(user.status || user.isActive || "active").trim().toLowerCase();
-  const active = user.isActive === false ? false : !["inactive", "disabled", "deactivated"].includes(status);
+  if (!user) return false;
+  const status = String(user.status || (user.deleted ? "deleted" : "active")).trim().toLowerCase();
+  const active = user.isActive === false ? false : !["inactive", "disabled", "deactivated", "deleted"].includes(status);
   const role = normalizeRoleKey(user.role);
   return active && normalizeUserType(user.userType, user.role) === "staff" && (role === "junior detailer" || role === "senior detailer");
 }
@@ -7347,6 +7348,13 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     if (isCancelledStatus(existingBooking.status)) {
       res.status(400).json({ message: "Cancelled bookings are locked and cannot be edited." });
       return;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, "assigned") &&
+      String(req.body.assigned || "").trim() !== String(existingBooking.assigned || "").trim()
+    ) {
+      req.body.assigned = await resolveRequiredAssignedDetailer(req.body.assigned);
     }
 
     const bookingDate = String(req.body.date || existingBooking.date || "").trim();

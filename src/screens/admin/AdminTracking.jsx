@@ -7,6 +7,7 @@ import ToastMessage from "../../components/common/ToastMessage";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import carDiagram from "../../assets/IMAGE/car.jpg";
+import { getDetailerStaffOptions } from "../../utils/staffRoles";
 import { WARRANTY_COVERAGE_NOTES, WARRANTY_COVERAGE_OPTIONS, WARRANTY_ISSUE_TYPES, createWarrantyAcknowledgement, normalizeWarrantyChecklist } from "../../utils/warrantyChecklist";
 import {
   buildIssueNotePayload,
@@ -115,7 +116,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker, d
 }
 
 export default function AdminTracking() {
-  const { bookings, payments, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
+  const { bookings, payments, users, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -128,6 +129,8 @@ export default function AdminTracking() {
   const [toast, setToast] = useState(null);
   const [issueNoteMessage, setIssueNoteMessage] = useState("");
   const [warrantyMessage, setWarrantyMessage] = useState("");
+  const [assignmentMessage, setAssignmentMessage] = useState("");
+  const [isSavingTracking, setIsSavingTracking] = useState(false);
   const [issueNoteAi, setIssueNoteAi] = useState({
     status: "idle",
     message: "",
@@ -137,7 +140,17 @@ export default function AdminTracking() {
     model: "",
   });
   const mapRef = useRef(null);
+  const savingTrackingRef = useRef(false);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
+  const staffOptions = useMemo(() => getDetailerStaffOptions(users), [users]);
+  const staffOptionSet = useMemo(() => new Set(staffOptions.map((option) => option.toLowerCase())), [staffOptions]);
+  const assignmentOptions = useMemo(() => {
+    const currentAssigned = String(editForm.assignedTo || selectedRow?.assigned || "").trim();
+    if (currentAssigned && !staffOptionSet.has(currentAssigned.toLowerCase())) {
+      return [currentAssigned, ...staffOptions];
+    }
+    return staffOptions;
+  }, [editForm.assignedTo, selectedRow, staffOptionSet, staffOptions]);
   const issueNotesEditable = canEditIssueNotes({ booking: selectedRow, currentUser, allowAdmin: true });
   const issueNotesLockedMessage = getIssueNotesLockedMessage({ booking: selectedRow, currentUser, allowAdmin: true });
   const savedIssueNotesPresent = hasMeaningfulIssueNotes(selectedRow || {});
@@ -332,6 +345,20 @@ export default function AdminTracking() {
     event.preventDefault();
     setIssueNoteMessage("");
     setWarrantyMessage("");
+    setAssignmentMessage("");
+    if (savingTrackingRef.current) return;
+
+    const currentAssigned = String(selectedRow?.assigned || "").trim();
+    const nextAssigned = String(editForm.assignedTo || "").trim();
+    const assignmentChanged = nextAssigned !== currentAssigned;
+    if (assignmentChanged && !nextAssigned) {
+      setAssignmentMessage("Please select an assigned detailer.");
+      return;
+    }
+    if (assignmentChanged && !staffOptionSet.has(nextAssigned.toLowerCase())) {
+      setAssignmentMessage("Please choose an active Junior or Senior Detailer.");
+      return;
+    }
 
     if (editForm.status === "In Progress" && !savedIssueNotesPresent) {
       setIssueNoteMessage("Issue notes must be saved before starting the service.");
@@ -347,6 +374,7 @@ export default function AdminTracking() {
     const payload = {
       ...selectedRow,
       status: editForm.status,
+      assigned: nextAssigned || currentAssigned,
       issueNote: selectedRow.issueNote || "",
       issueMarkers: Array.isArray(selectedRow.issueMarkers) ? selectedRow.issueMarkers : [],
       issueTypes: Array.isArray(selectedRow.issueTypes) ? selectedRow.issueTypes : [],
@@ -360,6 +388,8 @@ export default function AdminTracking() {
     };
     const saveTracking = async (securityPayload = {}, keepModalError = false) => {
       try {
+        savingTrackingRef.current = true;
+        setIsSavingTracking(true);
         await updateBooking(selectedRow.id, { ...payload, ...securityPayload });
         showToast("success", "Service tracking updated.");
         setSecurityConfirm(null);
@@ -367,6 +397,9 @@ export default function AdminTracking() {
       } catch (error) {
         showToast("error", error.message || "Failed to update service tracking.");
         if (keepModalError) throw error;
+      } finally {
+        savingTrackingRef.current = false;
+        setIsSavingTracking(false);
       }
     };
     const needsPin = editForm.status === "Cancelled" || (releaseAllowed && !selectedRow.warrantyReleased);
@@ -398,7 +431,7 @@ export default function AdminTracking() {
           {paged.length === 0 ? <div className="stEmptyRow">No tracking records found.</div> : paged.map((r) => (
             <div className="stRow" key={r.id}>
               <div className="stId">{r.id}</div><div>{r.date}</div><div>{r.customer}</div><div>{r.vehicle}</div><div>{r.service}</div><div><span className={`stPill ${statusClass(r.status)}`}>{r.status}</span></div><div>{r.assigned}</div>
-              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setIssueNoteMessage(""); setWarrantyMessage(""); setModal("edit"); }}>Edit</button></div></div>
+              <div className="stActionsCell"><div className="stRowActions"><button className="stMiniBtn" onClick={() => { setSelectedRow(r); setEditForm(createEditForm(r)); resetIssueNoteAi(); setIssueNoteMessage(""); setWarrantyMessage(""); setAssignmentMessage(""); setModal("edit"); }}>Edit</button></div></div>
             </div>
           ))}
         </div>
@@ -416,8 +449,11 @@ export default function AdminTracking() {
               <label className="usersField"><span>Date</span><input type="date" value={editForm.date} readOnly disabled /></label>
               <label className="usersField"><span>Service</span><input value={editForm.service} readOnly disabled /></label>
               <label className="usersField"><span>Vehicle</span><input value={editForm.vehicle} readOnly disabled /></label>
-              <label className="usersField"><span>Assigned To</span><input value={editForm.assignedTo} readOnly disabled /></label>
-              <label className="usersField"><span>Status</span><select value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !completionReadiness.canComplete)}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}{completionReadinessMessage && <div className="trackWarrantyNotice">{completionReadinessMessage}</div>}</label>
+              <label className="usersField"><span>Assigned To</span><select aria-label="Assigned To" value={editForm.assignedTo} className={assignmentMessage ? "bookFieldInvalidInput" : ""} aria-invalid={assignmentMessage ? "true" : undefined} aria-describedby={assignmentMessage ? "tracking-assigned-error" : undefined} onChange={(e) => { setAssignmentMessage(""); setEditForm((prev) => ({ ...prev, assignedTo: e.target.value })); }}>
+                <option value="">Select detailer</option>
+                {assignmentOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>{assignmentMessage ? <div id="tracking-assigned-error" className="bookFieldError">{assignmentMessage}</div> : null}</label>
+              <label className="usersField"><span>Status</span><select aria-label="Status" value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))}>{STATUS_OPTIONS.map((option) => <option key={option} disabled={(option === "In Progress" && !savedIssueNotesPresent) || (option === "Completed" && !completionReadiness.canComplete)}>{option}</option>)}</select>{!savedIssueNotesPresent && <div className="trackIssueHelper">Issue notes must be saved before starting the service.</div>}{completionReadinessMessage && <div className="trackWarrantyNotice">{completionReadinessMessage}</div>}</label>
               <div className="bookIssueSection">
                 <div className="bookIssueSectionHead"><div className="bookIssueTitle">Problem Location</div><div className="bookIssueSub">Issue details are managed in Service Tracking.</div></div>
                 <div className="bookIssueLayout">
@@ -525,7 +561,7 @@ export default function AdminTracking() {
                 </div>
               </div>
               </div>
-              <div className="usersModalActions trackModalFoot"><button className="usersTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="usersPrimaryBtn" type="submit">Save</button></div>
+              <div className="usersModalActions trackModalFoot"><button className="usersTextBtn" type="button" onClick={() => setModal(null)} disabled={isSavingTracking}>Cancel</button><button className="usersPrimaryBtn" type="submit" disabled={isSavingTracking}>{isSavingTracking ? "Saving..." : "Save"}</button></div>
             </form>
           </div>
         </div>
