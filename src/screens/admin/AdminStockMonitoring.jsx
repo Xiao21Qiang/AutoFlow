@@ -17,6 +17,7 @@ const STOCK_LEGEND = [
   { tone: "warning", label: "Low", range: "At or below reorder level", note: "Watch usage level" },
   { tone: "healthy", label: "Healthy", range: "Above reorder level", note: "Stock level is good" },
 ];
+const EMPTY_ADD_STOCK_FORM = { name: "", category: "Coating", currentStock: "0", maxStock: "0", reorderLevel: "0", pricePerUnit: "0" };
 
 function clampNumber(value) {
   const n = Number(value);
@@ -68,6 +69,53 @@ function validateStockLimit({ currentStock, maxStock, reorderLevel = null, qtyTo
   return "";
 }
 
+function parseRequiredNonNegativeNumber(value, label) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return { value: 0, error: `${label} is required.` };
+  const number = Number(rawValue);
+  if (!Number.isFinite(number)) return { value: 0, error: `${label} must be a valid number.` };
+  if (number < 0) return { value: number, error: `${label} cannot be negative.` };
+  return { value: number, error: "" };
+}
+
+function getAddStockFieldErrors(form = {}) {
+  const errors = {};
+  if (!String(form.name || "").trim()) {
+    errors.name = "Item name is required.";
+  }
+  if (!CATEGORY_OPTIONS.includes(String(form.category || "").trim())) {
+    errors.category = "Please select a valid category.";
+  }
+
+  const currentStock = parseRequiredNonNegativeNumber(form.currentStock, "Current stock quantity");
+  const maxStock = parseRequiredNonNegativeNumber(form.maxStock, "Max stock quantity");
+  const reorderLevel = parseRequiredNonNegativeNumber(form.reorderLevel, "Reorder level");
+  const pricePerUnit = parseRequiredNonNegativeNumber(form.pricePerUnit, "Price per unit");
+
+  if (currentStock.error) errors.currentStock = currentStock.error;
+  if (maxStock.error) errors.maxStock = maxStock.error;
+  if (reorderLevel.error) errors.reorderLevel = reorderLevel.error;
+  if (pricePerUnit.error) errors.pricePerUnit = pricePerUnit.error;
+
+  if (!currentStock.error && !maxStock.error && !reorderLevel.error) {
+    const stockLimitError = validateStockLimit({
+      currentStock: currentStock.value,
+      maxStock: maxStock.value,
+      reorderLevel: reorderLevel.value,
+    });
+    if (stockLimitError) {
+      if (stockLimitError.includes("Current stock")) errors.currentStock = stockLimitError;
+      else if (stockLimitError.includes("Max stock")) errors.maxStock = stockLimitError;
+      else if (stockLimitError.includes("Reorder level")) errors.reorderLevel = stockLimitError;
+      else errors.currentStock = stockLimitError;
+    }
+  }
+
+  return errors;
+}
+
+const ADD_STOCK_FIELDS = ["name", "category", "currentStock", "maxStock", "reorderLevel", "pricePerUnit"];
+
 function getStockPercent(item) {
   return getSharedStockPercent(item);
 }
@@ -103,7 +151,10 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const [restockTouchedFields, setRestockTouchedFields] = useState({});
   const [restockSubmitAttempted, setRestockSubmitAttempted] = useState(false);
   const [isRestockSubmitting, setIsRestockSubmitting] = useState(false);
-  const [addForm, setAddForm] = useState({ name: "", category: "Coating", currentStock: "0", maxStock: "0", reorderLevel: "0", pricePerUnit: "0" });
+  const [addForm, setAddForm] = useState(EMPTY_ADD_STOCK_FORM);
+  const [addTouchedFields, setAddTouchedFields] = useState({});
+  const [addSubmitAttempted, setAddSubmitAttempted] = useState(false);
+  const [isAddSubmitting, setIsAddSubmitting] = useState(false);
 
   const selectedItem = stockMonitoring.find((item) => item.id === selectedItemId) || null;
   const filtered = useMemo(() => {
@@ -143,9 +194,17 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
     setIsRestockSubmitting(false);
   };
 
+  const resetAddValidation = () => {
+    setAddTouchedFields({});
+    setAddSubmitAttempted(false);
+    setIsAddSubmitting(false);
+    setAddForm(EMPTY_ADD_STOCK_FORM);
+  };
+
   const closeModal = () => {
     setModal(null);
     resetRestockValidation();
+    resetAddValidation();
   };
 
   const openRestockModal = (item) => {
@@ -163,6 +222,13 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
   const restockQuantityError = restockTouchedFields.qtyToAdd || restockSubmitAttempted ? restockFieldErrors.qtyToAdd : "";
   const restockUnitCostError = restockTouchedFields.costPerUnit || restockSubmitAttempted ? restockFieldErrors.costPerUnit : "";
   const isSaveRestockDisabled = isRestockSubmitting || !isRestockFormReady(restockForm);
+  const addFieldErrors = getAddStockFieldErrors(addForm);
+  const getAddFieldError = (field) => (
+    addTouchedFields[field] || addSubmitAttempted ? addFieldErrors[field] || "" : ""
+  );
+  const markAddFieldTouched = (field) => {
+    setAddTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
 
   const handleEditSubmit = async (event) => {
     event.preventDefault();
@@ -217,22 +283,22 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
 
   const handleAddSubmit = async (event) => {
     event.preventDefault();
+    setAddSubmitAttempted(true);
+    setAddTouchedFields(Object.fromEntries(ADD_STOCK_FIELDS.map((field) => [field, true])));
+    if (isAddSubmitting) return;
+    if (Object.keys(addFieldErrors).length > 0) {
+      return;
+    }
     try {
-      const validationMessage = validateStockLimit({
-        currentStock: addForm.currentStock,
-        maxStock: addForm.maxStock,
-        reorderLevel: addForm.reorderLevel,
-      });
-      if (validationMessage) {
-        showToast("error", validationMessage);
-        return;
-      }
-      await createStockMonitoringItem({ name: addForm.name.trim(), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), reorderLevel: clampNumber(addForm.reorderLevel), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] });
+      setIsAddSubmitting(true);
+      await createStockMonitoringItem({ name: addForm.name.trim().replace(/\s+/g, " "), category: addForm.category, currentStock: clampNumber(addForm.currentStock), maxStock: clampNumber(addForm.maxStock), reorderLevel: clampNumber(addForm.reorderLevel), pricePerUnit: clampNumber(addForm.pricePerUnit), lastRestocked: formatDateInput(), restockHistory: [], soldHistory: [] });
       setPage(1);
       showToast("success", "Stock item added.");
-      setModal(null);
+      closeModal();
     } catch (error) {
       showToast("error", getErrorMessage(error, "Could not add stock item."));
+    } finally {
+      setIsAddSubmitting(false);
     }
   };
 
@@ -276,18 +342,18 @@ export default function AdminStockMonitoring({ initialAction = null, onActionHan
       {modal === "add" && (
         <div className="invModalOverlay">
           <div className="invModalCard">
-            <button className="invModalClose" type="button" onClick={() => setModal(null)}>x</button>
+            <button className="invModalClose" type="button" onClick={closeModal}>x</button>
             <form onSubmit={handleAddSubmit}>
               <div className="invModalTitle invModalTitleAdd">Add Item</div>
-              <label className="invField"><span>Item Name</span><input value={addForm.name} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required /></label>
-              <label className="invField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
+              <label className="invField"><span>Item Name</span><input value={addForm.name} onBlur={() => markAddFieldTouched("name")} onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))} required aria-invalid={getAddFieldError("name") ? "true" : undefined} aria-describedby={getAddFieldError("name") ? "admin-add-stock-name-error" : undefined} />{getAddFieldError("name") ? <div className="invFieldError" id="admin-add-stock-name-error">{getAddFieldError("name")}</div> : null}</label>
+              <label className="invField"><span>Category</span><select value={addForm.category} onBlur={() => markAddFieldTouched("category")} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))} aria-invalid={getAddFieldError("category") ? "true" : undefined} aria-describedby={getAddFieldError("category") ? "admin-add-stock-category-error" : undefined}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select>{getAddFieldError("category") ? <div className="invFieldError" id="admin-add-stock-category-error">{getAddFieldError("category")}</div> : null}</label>
               <div className="invFieldGrid">
-                <label className="invField"><span>Current Stock (Qty)</span><input type="number" min="0" value={addForm.currentStock} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} /></label>
-                <label className="invField"><span>Max Stock (Qty)</span><input type="number" min="0" value={addForm.maxStock} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} /></label>
-                <label className="invField"><span>Reorder Level</span><input type="number" min="0" value={addForm.reorderLevel} onChange={(e) => setAddForm((prev) => ({ ...prev, reorderLevel: e.target.value }))} /></label>
+                <label className="invField"><span>Current Stock (Qty)</span><input type="number" min="0" value={addForm.currentStock} onBlur={() => markAddFieldTouched("currentStock")} onChange={(e) => setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))} aria-invalid={getAddFieldError("currentStock") ? "true" : undefined} aria-describedby={getAddFieldError("currentStock") ? "admin-add-stock-current-error" : undefined} />{getAddFieldError("currentStock") ? <div className="invFieldError" id="admin-add-stock-current-error">{getAddFieldError("currentStock")}</div> : null}</label>
+                <label className="invField"><span>Max Stock (Qty)</span><input type="number" min="0" value={addForm.maxStock} onBlur={() => markAddFieldTouched("maxStock")} onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))} aria-invalid={getAddFieldError("maxStock") ? "true" : undefined} aria-describedby={getAddFieldError("maxStock") ? "admin-add-stock-max-error" : undefined} />{getAddFieldError("maxStock") ? <div className="invFieldError" id="admin-add-stock-max-error">{getAddFieldError("maxStock")}</div> : null}</label>
+                <label className="invField"><span>Reorder Level</span><input type="number" min="0" value={addForm.reorderLevel} onBlur={() => markAddFieldTouched("reorderLevel")} onChange={(e) => setAddForm((prev) => ({ ...prev, reorderLevel: e.target.value }))} aria-invalid={getAddFieldError("reorderLevel") ? "true" : undefined} aria-describedby={getAddFieldError("reorderLevel") ? "admin-add-stock-reorder-error" : undefined} />{getAddFieldError("reorderLevel") ? <div className="invFieldError" id="admin-add-stock-reorder-error">{getAddFieldError("reorderLevel")}</div> : null}</label>
               </div>
-              <label className="invField"><span>Price Per Unit (P)</span><input type="number" min="0" value={addForm.pricePerUnit} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} /></label>
-              <div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={() => setModal(null)}>Cancel</button><button className="invPrimaryBtn" type="submit">Add Item</button></div>
+              <label className="invField"><span>Price Per Unit (P)</span><input type="number" min="0" value={addForm.pricePerUnit} onBlur={() => markAddFieldTouched("pricePerUnit")} onChange={(e) => setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))} aria-invalid={getAddFieldError("pricePerUnit") ? "true" : undefined} aria-describedby={getAddFieldError("pricePerUnit") ? "admin-add-stock-price-error" : undefined} />{getAddFieldError("pricePerUnit") ? <div className="invFieldError" id="admin-add-stock-price-error">{getAddFieldError("pricePerUnit")}</div> : null}</label>
+              <div className="invModalActions invModalActionsAdd"><button className="invTextBtn" type="button" onClick={closeModal}>Cancel</button><button className="invPrimaryBtn" type="submit" disabled={isAddSubmitting}>{isAddSubmitting ? "Adding..." : "Add Item"}</button></div>
             </form>
           </div>
         </div>

@@ -7,6 +7,25 @@ function normalizeStockQuantity(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function parseStockQuantityForValidation(value, label, { required = false } = {}) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) {
+    return required
+      ? { valid: false, message: `${label} is required.`, value: 0 }
+      : { valid: true, message: "", value: 0 };
+  }
+
+  const number = Number(rawValue);
+  if (!Number.isFinite(number)) {
+    return { valid: false, message: `${label} must be a valid number.`, value: 0 };
+  }
+  if (number < 0) {
+    return { valid: false, message: `${label} cannot be negative.`, value: number };
+  }
+
+  return { valid: true, message: "", value: number };
+}
+
 function normalizeRestockUnitCost(value) {
   const rawValue = String(value ?? "").trim();
   if (!rawValue) return NaN;
@@ -57,12 +76,27 @@ function getStockPercent(item = {}) {
   return Math.max(0, Math.min(100, Math.round((currentStock / maxStock) * 100)));
 }
 
-function validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd = null, existing = {} }) {
-  const nextCurrentStock = normalizeStockQuantity(currentStock ?? existing.currentStock);
-  const nextMaxStock = normalizeStockQuantity(maxStock ?? existing.maxStock);
+function validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd = null, existing = {}, requireFields = false }) {
+  const currentStockCheck = parseStockQuantityForValidation(currentStock ?? existing.currentStock, "Current stock quantity", {
+    required: requireFields,
+  });
+  if (!currentStockCheck.valid) return currentStockCheck.message;
+
+  const maxStockCheck = parseStockQuantityForValidation(maxStock ?? existing.maxStock, "Max stock quantity", {
+    required: requireFields,
+  });
+  if (!maxStockCheck.valid) return maxStockCheck.message;
+
   const hasReorderLevel = reorderLevel !== undefined && reorderLevel !== null && String(reorderLevel) !== "";
-  const nextReorderLevel = hasReorderLevel
-    ? normalizeStockQuantity(reorderLevel)
+  const reorderLevelCheck = hasReorderLevel || requireFields
+    ? parseStockQuantityForValidation(reorderLevel, "Reorder level", { required: requireFields })
+    : { valid: true, message: "", value: getEffectiveReorderLevel({ ...existing, maxStock: maxStockCheck.value }) };
+  if (!reorderLevelCheck.valid) return reorderLevelCheck.message;
+
+  const nextCurrentStock = currentStockCheck.value;
+  const nextMaxStock = maxStockCheck.value;
+  const nextReorderLevel = hasReorderLevel || requireFields
+    ? reorderLevelCheck.value
     : getEffectiveReorderLevel({ ...existing, maxStock: nextMaxStock });
 
   if (nextCurrentStock < 0) return "Current stock quantity cannot be negative.";
@@ -71,7 +105,9 @@ function validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd =
   if (nextMaxStock > 0 && nextReorderLevel > nextMaxStock) return "Reorder level cannot exceed max stock quantity.";
 
   if (qtyToAdd !== null) {
-    const nextQtyToAdd = normalizeStockQuantity(qtyToAdd);
+    const qtyToAddCheck = parseStockQuantityForValidation(qtyToAdd, "Restock quantity", { required: true });
+    if (!qtyToAddCheck.valid) return qtyToAddCheck.message;
+    const nextQtyToAdd = qtyToAddCheck.value;
     if (nextQtyToAdd <= 0) return "Restock quantity must be greater than zero.";
     if (nextMaxStock > 0 && nextCurrentStock + nextQtyToAdd > nextMaxStock) {
       return `This restock would exceed the max stock quantity of ${nextMaxStock}.`;
@@ -88,6 +124,12 @@ function validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd =
 
 function normalizeStockPayload(payload = {}, existing = {}) {
   const next = { ...payload };
+  if (Object.prototype.hasOwnProperty.call(payload, "name")) {
+    next.name = String(payload.name || "").trim().replace(/\s+/g, " ");
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "category")) {
+    next.category = String(payload.category || "").trim();
+  }
   if (Object.prototype.hasOwnProperty.call(payload, "currentStock")) {
     next.currentStock = normalizeStockQuantity(payload.currentStock);
   }
@@ -110,6 +152,7 @@ module.exports = {
   normalizeRestockUnitCost,
   normalizeStockPayload,
   normalizeStockQuantity,
+  parseStockQuantityForValidation,
   validateRestockUnitCost,
   validateStockPayload,
 };

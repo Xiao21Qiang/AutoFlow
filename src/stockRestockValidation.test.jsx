@@ -40,6 +40,44 @@ function renderStockScreen(Component, overrides = {}) {
   return { restockStockMonitoringItem };
 }
 
+function renderAdminAddStock(overrides = {}) {
+  const createStockMonitoringItem = jest.fn(async (payload) => ({ id: "INV-2", ...payload }));
+  useAdminData.mockReturnValue({
+    stockMonitoring: [stockItem],
+    currentUser: { email: "admin@example.com", userType: "Admin", role: "Admin" },
+    createStockMonitoringItem,
+    updateStockMonitoringItem: jest.fn(),
+    restockStockMonitoringItem: jest.fn(),
+    deleteStockMonitoringItem: jest.fn(),
+    ...overrides,
+  });
+
+  render(<AdminStockMonitoring initialAction="open-add-stock-item" onActionHandled={jest.fn()} />);
+  return { createStockMonitoringItem };
+}
+
+function addStockControls() {
+  return {
+    name: screen.getByLabelText(/^Item Name/i),
+    category: screen.getByLabelText(/^Category/i),
+    currentStock: screen.getByLabelText(/^Current Stock \(Qty\)/i),
+    maxStock: screen.getByLabelText(/^Max Stock \(Qty\)/i),
+    reorderLevel: screen.getByLabelText(/^Reorder Level/i),
+    pricePerUnit: screen.getByLabelText(/^Price Per Unit \(P\)/i),
+    add: screen.getByRole("button", { name: /Add Item|Adding/i }),
+  };
+}
+
+function fillValidAddStock({ name = "Microfiber Towels", currentStock = "10", maxStock = "100", reorderLevel = "20", pricePerUnit = "30" } = {}) {
+  const controls = addStockControls();
+  fireEvent.change(controls.name, { target: { value: name } });
+  fireEvent.change(controls.currentStock, { target: { value: currentStock } });
+  fireEvent.change(controls.maxStock, { target: { value: maxStock } });
+  fireEvent.change(controls.reorderLevel, { target: { value: reorderLevel } });
+  fireEvent.change(controls.pricePerUnit, { target: { value: pricePerUnit } });
+  return controls;
+}
+
 function getRestockFormControls() {
   return {
     quantity: screen.getByLabelText(/Quantity to Add/i),
@@ -159,5 +197,75 @@ describe.each([
     fireEvent.click(screen.getByRole("button", { name: "Restock" }));
 
     expect(screen.queryByText(RESTOCK_UNIT_COST_ERROR)).not.toBeInTheDocument();
+  });
+});
+
+describe("Admin Add Stock Item quick action validation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("dashboard quick action opens the shared Add Item modal", () => {
+    renderAdminAddStock();
+    expect(screen.getByRole("button", { name: "Add Item" })).toBeInTheDocument();
+  });
+
+  test.each(["", "   "])("blank item name %s shows inline validation and blocks creation", (name) => {
+    const { createStockMonitoringItem } = renderAdminAddStock();
+    fillValidAddStock({ name });
+    fireEvent.submit(addStockControls().add.closest("form"));
+    expect(screen.getByText("Item name is required.")).toBeInTheDocument();
+    expect(createStockMonitoringItem).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["blank current stock", { currentStock: "" }, "Current stock quantity is required."],
+    ["negative current stock", { currentStock: "-5" }, "Current stock quantity cannot be negative."],
+    ["blank max stock", { maxStock: "" }, "Max stock quantity is required."],
+    ["negative max stock", { maxStock: "-1" }, "Max stock quantity cannot be negative."],
+    ["blank reorder level", { reorderLevel: "" }, "Reorder level is required."],
+    ["reorder above max", { maxStock: "5", reorderLevel: "6" }, "Reorder level cannot exceed the max stock quantity of 5."],
+    ["current stock above max", { currentStock: "11", maxStock: "10", reorderLevel: "5" }, "Current stock quantity cannot exceed the max stock quantity of 10."],
+    ["negative price", { pricePerUnit: "-1" }, "Price per unit cannot be negative."],
+    ["blank price", { pricePerUnit: "" }, "Price per unit is required."],
+  ])("%s shows inline validation and does not call the API", (_label, values, message) => {
+    const { createStockMonitoringItem } = renderAdminAddStock();
+    fillValidAddStock(values);
+    fireEvent.submit(addStockControls().add.closest("form"));
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
+    expect(createStockMonitoringItem).not.toHaveBeenCalled();
+  });
+
+  test("valid corrected inputs remove inline errors and create one stock item", async () => {
+    const { createStockMonitoringItem } = renderAdminAddStock();
+    fillValidAddStock({ name: "   " });
+    fireEvent.submit(addStockControls().add.closest("form"));
+    expect(screen.getByText("Item name is required.")).toBeInTheDocument();
+    fireEvent.change(addStockControls().name, { target: { value: "  Microfiber Towels  " } });
+    expect(screen.queryByText("Item name is required.")).not.toBeInTheDocument();
+    fireEvent.click(addStockControls().add);
+    await waitFor(() => expect(createStockMonitoringItem).toHaveBeenCalledTimes(1));
+    expect(createStockMonitoringItem).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Microfiber Towels",
+      currentStock: 10,
+      maxStock: 100,
+      reorderLevel: 20,
+      pricePerUnit: 30,
+    }));
+  });
+
+  test("duplicate submit while adding is guarded", async () => {
+    let resolveCreate;
+    const createStockMonitoringItem = jest.fn(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    renderAdminAddStock({ createStockMonitoringItem });
+    fillValidAddStock();
+    const add = addStockControls().add;
+    fireEvent.click(add);
+    fireEvent.click(add);
+    expect(createStockMonitoringItem).toHaveBeenCalledTimes(1);
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Adding/i })).not.toBeInTheDocument());
   });
 });

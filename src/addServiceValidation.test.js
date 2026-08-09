@@ -71,6 +71,10 @@ function openAddService() {
   fireEvent.click(screen.getByRole("button", { name: "Add New Service" }));
 }
 
+function openQuickAddService() {
+  render(<AdminServices initialAction="open-add-service" onActionHandled={jest.fn()} />);
+}
+
 function getAddForm() {
   return screen.getByRole("button", { name: "Add Service" }).closest("form");
 }
@@ -134,6 +138,52 @@ describe("Add New Service validation", () => {
         Soap: { sedanSmallCar: 1, midsizePickupMpv: 1, suv: 1, xlVanSemiTruck: 1 },
       },
     });
+  });
+
+  test("dashboard quick action opens the shared Add Service modal", () => {
+    openQuickAddService();
+    expect(addButton()).toBeInTheDocument();
+  });
+
+  test.each(["", "   "])("blank service name %s shows inline validation and never opens confirmation", (name) => {
+    openAddService();
+    fillRequiredFields({ name });
+    fireEvent.submit(getAddForm());
+    expect(screen.getAllByText("Service name is required.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument();
+    expect(mockCreateService).not.toHaveBeenCalled();
+  });
+
+  test("blank required price shows inline validation and blocks confirmation", () => {
+    openAddService();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Sedan / Small Car Price (P)"), { target: { value: "" } });
+    fireEvent.submit(getAddForm());
+    expect(screen.getAllByText("Sedan / Small Car price is required.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument();
+    expect(mockCreateService).not.toHaveBeenCalled();
+  });
+
+  test("negative required price shows inline validation and blocks confirmation", () => {
+    openAddService();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("SUV Price (P)"), { target: { value: "-5" } });
+    fireEvent.submit(getAddForm());
+    expect(screen.getAllByText("SUV price cannot be negative.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument();
+    expect(mockCreateService).not.toHaveBeenCalled();
+  });
+
+  test("blank required duration and status show inline validation and block confirmation", () => {
+    openAddService();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Duration (Hrs)"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "" } });
+    fireEvent.submit(getAddForm());
+    expect(screen.getByText("Duration is required.")).toBeInTheDocument();
+    expect(screen.getAllByText("Please select a service status.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument();
+    expect(mockCreateService).not.toHaveBeenCalled();
   });
 
   test.each(["Car Wash", "car wash", " Car  Wash "])("duplicate service name %s prevents submission and shows a clear message", (name) => {
@@ -220,8 +270,25 @@ describe("Add New Service validation", () => {
         if (checkbox.checked) fireEvent.click(checkbox);
       });
     fireEvent.submit(getAddForm());
-    expect(screen.getByText("Select at least one required time of arrival.")).toBeInTheDocument();
+    expect(screen.getAllByText("Select at least one required time of arrival.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument();
     expect(mockCreateService).not.toHaveBeenCalled();
+  });
+
+  test("duplicate confirmation clicks submit a valid service only once", async () => {
+    let resolveCreate;
+    mockCreateService.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    openAddService();
+    fillRequiredFields({ name: "Single Submit Service" });
+    fireEvent.submit(getAddForm());
+    const confirm = await screen.findByRole("button", { name: "Confirm Security" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(mockCreateService).toHaveBeenCalledTimes(1);
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add Service" })).not.toBeInTheDocument());
   });
 
   test("existing invalid-price validation remains in place", () => {

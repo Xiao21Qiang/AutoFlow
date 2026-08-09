@@ -72,6 +72,7 @@ describe("stock restock route unit cost validation", () => {
   };
   let item;
   let stockFindOneMock;
+  let createdStockItems;
 
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
@@ -85,6 +86,11 @@ describe("stock restock route unit cost validation", () => {
     stub(__testModels.Expense, "create", jest.fn(async (payload) => payload));
     stockFindOneMock = jest.fn();
     stub(__testModels.StockMonitoringItem, "findOne", stockFindOneMock);
+    stub(__testModels.StockMonitoringItem, "create", jest.fn(async (payload) => {
+      const saved = clone(payload);
+      createdStockItems.push(saved);
+      return doc(saved);
+    }));
   });
 
   afterAll(() => {
@@ -109,6 +115,8 @@ describe("stock restock route unit cost validation", () => {
     __testModels.Expense.create.mockClear();
     stockFindOneMock.mockReset();
     stockFindOneMock.mockImplementation(async () => item);
+    createdStockItems = [];
+    __testModels.StockMonitoringItem.create.mockClear();
   });
 
   async function postRestock(body) {
@@ -163,5 +171,50 @@ describe("stock restock route unit cost validation", () => {
       action: "Restocked stock monitoring item",
       targetId: "INV-1",
     }));
+  });
+
+  describe("stock item creation validation", () => {
+    async function postStockItem(body) {
+      return request("/api/admin/stock-monitoring", {
+        token: auth(admin),
+        body: {
+          name: "Microfiber Towels",
+          category: "Cleaning",
+          currentStock: 10,
+          maxStock: 100,
+          reorderLevel: 20,
+          pricePerUnit: 30,
+          lastRestocked: "2026-08-02",
+          auditUser: "admin@example.com",
+          ...body,
+        },
+      });
+    }
+
+    test.each([
+      ["missing name", { name: "" }, "Item name is required."],
+      ["whitespace name", { name: "   " }, "Item name is required."],
+      ["invalid category", { category: "" }, "Please select a valid category."],
+      ["blank current stock", { currentStock: "" }, "Current stock quantity is required."],
+      ["non-numeric current stock", { currentStock: "abc" }, "Current stock quantity must be a valid number."],
+      ["infinite current stock", { currentStock: "Infinity" }, "Current stock quantity must be a valid number."],
+      ["negative current stock", { currentStock: "-5" }, "Current stock quantity cannot be negative."],
+      ["blank max stock", { maxStock: "" }, "Max stock quantity is required."],
+      ["negative max stock", { maxStock: "-1" }, "Max stock quantity cannot be negative."],
+      ["blank reorder level", { reorderLevel: "" }, "Reorder level is required."],
+      ["reorder above max", { maxStock: "5", reorderLevel: "6" }, "Reorder level cannot exceed max stock quantity."],
+      ["current stock above max", { currentStock: "11", maxStock: "10", reorderLevel: "5" }, "Current stock quantity cannot exceed the max stock quantity of 10."],
+      ["blank price per unit", { pricePerUnit: "" }, "Price per unit is required."],
+      ["non-numeric price per unit", { pricePerUnit: "abc" }, "Price per unit must be a valid number."],
+      ["negative price per unit", { pricePerUnit: "-1" }, "Price per unit cannot be negative."],
+    ])("rejects %s before creating stock", async (_label, override, message) => {
+      const response = await postStockItem(override);
+      expect(response.status).toBe(400);
+      expect(response.body.message).toBe(message);
+      expect(createdStockItems).toHaveLength(0);
+      expect(__testModels.StockMonitoringItem.create).not.toHaveBeenCalled();
+      expect(__testModels.Expense.create).not.toHaveBeenCalled();
+      expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
+    });
   });
 });

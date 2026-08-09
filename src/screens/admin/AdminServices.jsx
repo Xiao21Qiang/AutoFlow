@@ -2,7 +2,7 @@ import "../../styles/css/admin/adminServicesStyle.css";
 import FilterModal from "../../components/common/FilterModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
@@ -32,6 +32,13 @@ const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"
 const SERVICE_TYPE_OPTIONS = ["Basic Service", "Package"];
 const DUPLICATE_SERVICE_MESSAGE = "A service with this name already exists.";
 const MISSING_CONSUMABLE_MESSAGE = "Please select at least one consumable.";
+const PRICE_FIELD_LABELS = {
+  sedanSmallCar: "Sedan / Small Car price",
+  midsizePickupMpv: "Midsize / Pickup / MPV price",
+  suv: "SUV price",
+  xlVanSemiTruck: "XL / Van / Semi Truck price",
+};
+const ADD_SERVICE_FIELDS = ["name", "category", "status", "durationHours", "allowedArrivalTimes", "consumables", ...Object.keys(PRICE_FIELD_LABELS)];
 
 function normalizeServiceNameKey(value = "") {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -69,6 +76,64 @@ function buildPriceBySizePayload(priceBySize) {
   };
 }
 
+function createEmptyAddServiceForm() {
+  return {
+    name: "",
+    serviceType: "Basic Service",
+    category: "",
+    priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }),
+    durationHours: "",
+    status: "",
+    allowedArrivalTimes: getDefaultArrivalTimesForDuration(0),
+    consumablesBySize: {},
+  };
+}
+
+function parseRequiredNonNegativeNumber(value, label) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return { value: 0, error: `${label} is required.` };
+  const number = Number(rawValue);
+  if (!Number.isFinite(number)) return { value: 0, error: `${label} must be a valid number.` };
+  if (number < 0) return { value: number, error: `${label} cannot be negative.` };
+  return { value: number, error: "" };
+}
+
+function getAddServiceFieldErrors({ form, duplicateNameError = "", consumablesError = "" }) {
+  const errors = {};
+  if (!String(form.name || "").trim()) {
+    errors.name = "Service name is required.";
+  } else if (duplicateNameError) {
+    errors.name = duplicateNameError;
+  }
+  if (!CATEGORY_OPTIONS.includes(String(form.category || "").trim())) {
+    errors.category = "Please select a valid service category.";
+  }
+  if (!["Active", "Inactive"].includes(String(form.status || "").trim())) {
+    errors.status = "Please select a service status.";
+  }
+
+  Object.entries(PRICE_FIELD_LABELS).forEach(([key, label]) => {
+    const parsed = parseRequiredNonNegativeNumber(form.priceBySize?.[key], label);
+    if (parsed.error) errors[key] = parsed.error;
+  });
+
+  const duration = parseRequiredNonNegativeNumber(form.durationHours, "Duration");
+  if (duration.error) {
+    errors.durationHours = duration.error;
+  } else if (duration.value <= 0) {
+    errors.durationHours = "Duration must be greater than zero.";
+  }
+
+  if (!form.allowedArrivalTimes?.length) {
+    errors.allowedArrivalTimes = "Select at least one required time of arrival.";
+  }
+  if (consumablesError) {
+    errors.consumables = consumablesError;
+  }
+
+  return errors;
+}
+
 export default function AdminServices({ initialAction = null, onActionHandled }) {
   const { services, stockMonitoring, currentUser, createService, updateService, toggleService, deleteService } = useAdminData();
   const [query, setQuery] = useState("");
@@ -84,6 +149,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   const [editTouchedFields, setEditTouchedFields] = useState({});
   const [addSelectedConsumableKeys, setAddSelectedConsumableKeys] = useState([]);
   const [editSelectedConsumableKeys, setEditSelectedConsumableKeys] = useState([]);
+  const [addSubmitAttempted, setAddSubmitAttempted] = useState(false);
+  const [isAddServiceSubmitting, setIsAddServiceSubmitting] = useState(false);
+  const isAddServiceSubmittingRef = useRef(false);
   const [form, setForm] = useState({
     name: "",
     desc: "",
@@ -94,16 +162,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     allowedArrivalTimes: getDefaultArrivalTimesForDuration(0),
     consumablesBySize: {},
   });
-  const [addForm, setAddForm] = useState({
-    name: "",
-    serviceType: "Basic Service",
-    category: "",
-    priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }),
-    durationHours: "",
-    status: "",
-    allowedArrivalTimes: getDefaultArrivalTimesForDuration(0),
-    consumablesBySize: {},
-  });
+  const [addForm, setAddForm] = useState(createEmptyAddServiceForm);
   const [serviceFormError, setServiceFormError] = useState("");
 
   const filtered = useMemo(() => {
@@ -139,7 +198,12 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       ? DUPLICATE_SERVICE_MESSAGE
       : "";
   }, [addForm.name, services]);
-  const isAddServiceReady = hasAddSelectedConsumable && !addDuplicateNameError;
+  const addFieldErrors = getAddServiceFieldErrors({
+    form: addForm,
+    duplicateNameError: addDuplicateNameError,
+    consumablesError: addConsumablesError,
+  });
+  const isAddServiceReady = hasAddSelectedConsumable && !addDuplicateNameError && !isAddServiceSubmitting;
 
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -161,8 +225,27 @@ export default function AdminServices({ initialAction = null, onActionHandled })
   }, [form.name, selectedService, services]);
   const isEditServiceReady = hasEditSelectedConsumable && !editDuplicateNameError;
 
+  const resetAddServiceState = ({ resetValues = false } = {}) => {
+    setAddTouchedFields({});
+    setAddSubmitAttempted(false);
+    setAddSelectedConsumableKeys([]);
+    setServiceFormError("");
+    setIsAddServiceSubmitting(false);
+    isAddServiceSubmittingRef.current = false;
+    if (resetValues) setAddForm(createEmptyAddServiceForm());
+  };
+
+  const markAddFieldTouched = (field) => {
+    setAddTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const getAddFieldError = (field) => (
+    addTouchedFields[field] || addSubmitAttempted ? addFieldErrors[field] || "" : ""
+  );
+
   useEffect(() => {
     if (initialAction !== "open-add-service") return;
+    resetAddServiceState({ resetValues: true });
     setIsAddOpen(true);
     onActionHandled?.();
   }, [initialAction, onActionHandled]);
@@ -348,6 +431,9 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 type="number"
                 min="0"
                 value={priceBySize?.[key] || ""}
+                onBlur={() => {
+                  if (mode === "add") markAddFieldTouched(key);
+                }}
                 onChange={(e) =>
                   setter((prev) => ({
                     ...prev,
@@ -357,8 +443,12 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                     },
                   }))
                 }
+                className={mode === "add" && getAddFieldError(key) ? "svcFieldInvalidInput" : ""}
                 required
+                aria-invalid={mode === "add" && getAddFieldError(key) ? "true" : undefined}
+                aria-describedby={mode === "add" && getAddFieldError(key) ? `add-service-${key}-error` : undefined}
               />
+              {mode === "add" && getAddFieldError(key) ? <div className="svcFieldError" id={`add-service-${key}-error`}>{getAddFieldError(key)}</div> : null}
             </label>
           );
         })}
@@ -386,6 +476,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
 
   const toggleArrivalTime = (mode, time) => {
     const setter = mode === "add" ? setAddForm : setForm;
+    if (mode === "add") markAddFieldTouched("allowedArrivalTimes");
     setter((prev) => {
       const current = new Set(prev.allowedArrivalTimes || []);
       if (current.has(time)) {
@@ -511,7 +602,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       <div className="servicesRow">
         <div className="svcSearchBox"><img className="svcSearchIcon" src={icoSearch} alt="" /><input className="svcSearchInput" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Services..." /></div>
         <button className="svcFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img className="svcFilterIcon" src={icoFilter} alt="" /></button>
-        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setIsAddOpen(true); }}>Add New Service</button></div>
+        <div className="svcActionBtns"><button className="svcBtn svcBtnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="svcBtn svcBtnGold" type="button" onClick={() => { resetAddServiceState({ resetValues: true }); setIsAddOpen(true); }}>Add New Service</button></div>
       </div>
 
       <div className="svcBoard">
@@ -627,24 +718,23 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       {isAddOpen && (
         <div className="svcModalOverlay">
           <div className="svcModalCard svcModalCardWide" role="dialog" aria-modal="true">
-            <button className="svcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>x</button>
+            <button className="svcModalClose" type="button" onClick={() => { resetAddServiceState({ resetValues: true }); setIsAddOpen(false); }}>x</button>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                setAddTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
-                if (addDuplicateNameError) {
-                  setServiceFormError(addDuplicateNameError);
-                  return;
-                }
-                if (addConsumablesError) {
-                  setServiceFormError(addConsumablesError);
+                setAddSubmitAttempted(true);
+                setAddTouchedFields(Object.fromEntries(ADD_SERVICE_FIELDS.map((field) => [field, true])));
+                if (isAddServiceSubmittingRef.current) return;
+                const currentErrors = getAddServiceFieldErrors({
+                  form: addForm,
+                  duplicateNameError: addDuplicateNameError,
+                  consumablesError: addConsumablesError,
+                });
+                if (Object.keys(currentErrors).length > 0) {
+                  setServiceFormError(Object.values(currentErrors)[0]);
                   return;
                 }
                 const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
-                if (!addForm.allowedArrivalTimes?.length) {
-                  setServiceFormError("Select at least one required time of arrival.");
-                  return;
-                }
                 const mins = (Number(addForm.durationHours) || 0) * 60;
                 const payload = {
                   name: addForm.name.trim().replace(/\s+/g, " "),
@@ -660,7 +750,22 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                     filterConsumablesBySelectedKeys(addForm.consumablesBySize, addSelectedConsumableKeys, stockMonitoringOptions)
                   ),
                 };
-                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => { await createService(payload); setSecurityConfirm(null); setPage(1); setIsAddOpen(false); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); } });
+                setServiceFormError("");
+                setSecurityConfirm({ mode: "password", title: "Add Service", message: "Enter the special password before adding a new service.", onConfirm: async () => {
+                  if (isAddServiceSubmittingRef.current) return;
+                  isAddServiceSubmittingRef.current = true;
+                  setIsAddServiceSubmitting(true);
+                  try {
+                    await createService(payload);
+                    setSecurityConfirm(null);
+                    setPage(1);
+                    setIsAddOpen(false);
+                    resetAddServiceState({ resetValues: true });
+                  } finally {
+                    isAddServiceSubmittingRef.current = false;
+                    setIsAddServiceSubmitting(false);
+                  }
+                } });
               }}
             >
               <div className="svcModalTitle">Add Service</div>
@@ -669,17 +774,17 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   <span>Service Name</span>
                   <input
                     value={addForm.name}
-                    onBlur={() => setAddTouchedFields((prev) => ({ ...prev, name: true }))}
+                    onBlur={() => markAddFieldTouched("name")}
                     onChange={(e) => {
                       setServiceFormError("");
                       setAddForm((prev) => ({ ...prev, name: e.target.value }));
                     }}
-                    className={addTouchedFields.name && addDuplicateNameError ? "svcFieldInvalidInput" : ""}
+                    className={getAddFieldError("name") ? "svcFieldInvalidInput" : ""}
                     required
-                    aria-invalid={addTouchedFields.name && addDuplicateNameError ? "true" : undefined}
-                    aria-describedby={addTouchedFields.name && addDuplicateNameError ? "add-service-name-error" : undefined}
+                    aria-invalid={getAddFieldError("name") ? "true" : undefined}
+                    aria-describedby={getAddFieldError("name") ? "add-service-name-error" : undefined}
                   />
-                  {addTouchedFields.name && addDuplicateNameError ? <div className="svcFieldError" id="add-service-name-error">{addDuplicateNameError}</div> : null}
+                  {getAddFieldError("name") ? <div className="svcFieldError" id="add-service-name-error">{getAddFieldError("name")}</div> : null}
                 </label>
                 <div className="svcFieldGrid">
                   <label className="svcField">
@@ -690,34 +795,38 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   </label>
                   <label className="svcField">
                     <span>Category</span>
-                    <select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))} required>
+                    <select value={addForm.category} onBlur={() => markAddFieldTouched("category")} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))} className={getAddFieldError("category") ? "svcFieldInvalidInput" : ""} required aria-invalid={getAddFieldError("category") ? "true" : undefined} aria-describedby={getAddFieldError("category") ? "add-service-category-error" : undefined}>
                       <option value="" disabled>Select category</option>
                       {CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
                     </select>
+                    {getAddFieldError("category") ? <div className="svcFieldError" id="add-service-category-error">{getAddFieldError("category")}</div> : null}
                   </label>
                 </div>
                 {renderPriceFields("add", addForm.priceBySize)}
                 <div className="svcFieldGrid">
                   <label className="svcField">
                     <span>Duration (Hrs)</span>
-                    <input type="number" min="1" value={addForm.durationHours} onChange={(e) => updateServiceDuration("add", e.target.value)} required />
+                    <input type="number" min="1" value={addForm.durationHours} onBlur={() => markAddFieldTouched("durationHours")} onChange={(e) => updateServiceDuration("add", e.target.value)} className={getAddFieldError("durationHours") ? "svcFieldInvalidInput" : ""} required aria-invalid={getAddFieldError("durationHours") ? "true" : undefined} aria-describedby={getAddFieldError("durationHours") ? "add-service-duration-error" : undefined} />
+                    {getAddFieldError("durationHours") ? <div className="svcFieldError" id="add-service-duration-error">{getAddFieldError("durationHours")}</div> : null}
                   </label>
                   <label className="svcField">
                     <span>Status</span>
-                    <select value={addForm.status} onChange={(e) => setAddForm((prev) => ({ ...prev, status: e.target.value }))} required>
+                    <select value={addForm.status} onBlur={() => markAddFieldTouched("status")} onChange={(e) => setAddForm((prev) => ({ ...prev, status: e.target.value }))} className={getAddFieldError("status") ? "svcFieldInvalidInput" : ""} required aria-invalid={getAddFieldError("status") ? "true" : undefined} aria-describedby={getAddFieldError("status") ? "add-service-status-error" : undefined}>
                       <option value="" disabled>Select status</option>
                       <option value="Active">Active</option>
                       <option value="Inactive">Inactive</option>
                     </select>
+                    {getAddFieldError("status") ? <div className="svcFieldError" id="add-service-status-error">{getAddFieldError("status")}</div> : null}
                   </label>
                 </div>
               </div>
               {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
+              {getAddFieldError("allowedArrivalTimes") ? <div className="svcFormError">{getAddFieldError("allowedArrivalTimes")}</div> : null}
               {renderConsumablesPicker("add", addForm.consumablesBySize, addSelectedConsumableKeys)}
               {serviceFormError ? <div className="svcFormError">{serviceFormError}</div> : null}
               <div className="svcModalActions">
-                <button className="svcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button>
-                <button className="svcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button>
+                <button className="svcTextBtn" type="button" onClick={() => { resetAddServiceState({ resetValues: true }); setIsAddOpen(false); }}>Cancel</button>
+                <button className="svcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>{isAddServiceSubmitting ? "Adding..." : "Add Service"}</button>
               </div>
             </form>
           </div>

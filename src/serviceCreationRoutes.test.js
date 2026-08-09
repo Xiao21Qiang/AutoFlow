@@ -196,6 +196,18 @@ describe("Admin service creation route validation", () => {
   });
 
   test.each([
+    ["missing service name", { name: "" }, "Service name is required."],
+    ["whitespace-only service name", { name: "   " }, "Service name is required."],
+    ["invalid category", { category: "" }, "Please select a valid service category."],
+    ["missing service status", { enabled: undefined }, "Service status is required."],
+    ["blank sedan price", { priceBySize: { sedanSmallCar: "", midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 } }, "Sedan / Small Car price is required."],
+    ["non-numeric sedan price", { priceBySize: { sedanSmallCar: "abc", midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 } }, "Sedan / Small Car price must be a valid number."],
+    ["infinite sedan price", { priceBySize: { sedanSmallCar: "Infinity", midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 } }, "Sedan / Small Car price must be a valid number."],
+    ["negative sedan price", { priceBySize: { sedanSmallCar: -1, midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 } }, "Sedan / Small Car price cannot be negative."],
+    ["blank duration", { mins: "" }, "Service duration is required."],
+    ["non-numeric duration", { mins: "abc" }, "Service duration must be a valid number."],
+    ["negative duration", { mins: -1 }, "Service duration cannot be negative."],
+    ["zero duration", { mins: 0 }, "Service duration must be greater than zero."],
     ["missing consumables field", { consumablesBySize: undefined, consumables: undefined }, "Please select at least one consumable."],
     ["empty consumables array", { consumablesBySize: {}, consumables: [] }, "Please select at least one consumable."],
     ["malformed consumables value", { consumablesBySize: "Soap", consumables: "Soap" }, "Please select at least one consumable."],

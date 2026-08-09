@@ -58,6 +58,10 @@ function openModal() {
   fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
 }
 
+function openQuickModal() {
+  render(<AdminBookings initialAction="open-add-booking" onActionHandled={jest.fn()} />);
+}
+
 function selectModalOption(label, option) {
   fireEvent.click(screen.getByRole("button", { name: label }));
   fireEvent.click(screen.getByRole("button", { name: option }));
@@ -91,6 +95,12 @@ beforeEach(() => {
 });
 
 describe("Admin Add New Booking validation", () => {
+  test("dashboard quick action opens the shared New Booking modal", () => {
+    openQuickModal();
+    expect(screen.getByText("New Booking")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+  });
+
   test("a fully valid Admin booking form enables Save Booking", async () => {
     openModal();
     await fillValidForm();
@@ -107,6 +117,17 @@ describe("Admin Add New Booking validation", () => {
     fireEvent.blur(screen.getByLabelText(label));
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
     expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
+  test("whitespace-only vehicle is treated as blank and blocks the quick-action save", async () => {
+    openQuickModal();
+    await fillValidForm({ skip: ["vehicle", "placeSlot"] });
+    fireEvent.change(screen.getByLabelText("Vehicle"), { target: { value: "     " } });
+    fireEvent.blur(screen.getByLabelText("Vehicle"));
+    expect(screen.getByText("Vehicle is required.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+    expect(mockCreateBooking).not.toHaveBeenCalled();
   });
 
   test.each([

@@ -3564,6 +3564,8 @@ const CAR_SIZE_PRICE_LABELS = {
 };
 
 const SERVICE_CONSUMABLE_SIZE_KEYS = Object.values(CAR_SIZE_PRICE_LABELS);
+const SERVICE_CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"];
+const STOCK_CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Tools"];
 
 function normalizeCarSizeLabel(value) {
   const raw = String(value || "").trim().toLowerCase();
@@ -3589,6 +3591,83 @@ function buildServicePriceBySize(priceBySize, fallbackPrice = 0) {
     suv: Math.max(0, Number(source.suv) || basePrice),
     xlVanSemiTruck: Math.max(0, Number(source.xlVanSemiTruck) || basePrice),
   };
+}
+
+function parseRequiredNonNegativeFiniteNumber(value, label) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) {
+    throwValidationError(`${label} is required.`);
+  }
+  const number = Number(rawValue);
+  if (!Number.isFinite(number)) {
+    throwValidationError(`${label} must be a valid number.`);
+  }
+  if (number < 0) {
+    throwValidationError(`${label} cannot be negative.`);
+  }
+  return number;
+}
+
+function buildServicePriceBySizeForMutation(priceBySize, fallbackPrice = undefined) {
+  const source = priceBySize && typeof priceBySize === "object" ? priceBySize : null;
+  if (source) {
+    return {
+      sedanSmallCar: parseRequiredNonNegativeFiniteNumber(source.sedanSmallCar, "Sedan / Small Car price"),
+      midsizePickupMpv: parseRequiredNonNegativeFiniteNumber(source.midsizePickupMpv, "Midsize / Pickup / MPV price"),
+      suv: parseRequiredNonNegativeFiniteNumber(source.suv, "SUV price"),
+      xlVanSemiTruck: parseRequiredNonNegativeFiniteNumber(source.xlVanSemiTruck, "XL / Van / Semi Truck price"),
+    };
+  }
+
+  const fallback = parseRequiredNonNegativeFiniteNumber(fallbackPrice, "Service price");
+  return {
+    sedanSmallCar: fallback,
+    midsizePickupMpv: fallback,
+    suv: fallback,
+    xlVanSemiTruck: fallback,
+  };
+}
+
+function parseServiceDurationMinutes(value) {
+  const mins = parseRequiredNonNegativeFiniteNumber(value, "Service duration");
+  if (mins <= 0) {
+    throwValidationError("Service duration must be greater than zero.");
+  }
+  return mins;
+}
+
+function normalizeRequiredServiceCategory(value) {
+  const category = String(value || "").trim();
+  if (!SERVICE_CATEGORY_OPTIONS.includes(category)) {
+    throwValidationError("Please select a valid service category.");
+  }
+  return category;
+}
+
+function validateServiceEnabledStatus(value) {
+  if (typeof value !== "boolean") {
+    throwValidationError("Service status is required.");
+  }
+  return value;
+}
+
+function validateStockCreatePayload(payload = {}) {
+  const name = String(payload.name || "").trim().replace(/\s+/g, " ");
+  if (!name) {
+    throwValidationError("Item name is required.");
+  }
+
+  const category = String(payload.category || "").trim();
+  if (!STOCK_CATEGORY_OPTIONS.includes(category)) {
+    throwValidationError("Please select a valid category.");
+  }
+
+  const validationMessage = stockDomain.validateStockPayload({ ...payload, requireFields: true });
+  if (validationMessage) {
+    throwValidationError(validationMessage);
+  }
+
+  parseRequiredNonNegativeFiniteNumber(payload.pricePerUnit, "Price per unit");
 }
 
 function hydrateService(service) {
@@ -7779,20 +7858,22 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
   try {
     const serviceName = normalizeServiceDisplayName(req.body.name);
     await ensureUniqueServiceName(serviceName);
-    const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price);
+    const priceBySize = buildServicePriceBySizeForMutation(req.body.priceBySize, req.body.price);
     const consumablesBySize = await validateServiceConsumablesBySize(
       buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables)
     );
-    const mins = Math.max(0, Number(req.body.mins) || 0);
+    const mins = parseServiceDurationMinutes(req.body.mins);
     validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
     const payload = {
       ...req.body,
       name: serviceName,
       serviceType: normalizeServiceType(req.body.serviceType, serviceName, req.body.desc),
-      price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
+      category: normalizeRequiredServiceCategory(req.body.category),
+      price: priceBySize.sedanSmallCar,
       priceBySize,
       mins,
       allowedArrivalTimes: normalizeAllowedArrivalTimes(req.body.allowedArrivalTimes, mins),
+      enabled: validateServiceEnabledStatus(req.body.enabled),
       consumablesBySize,
       consumables: buildLegacyConsumables(consumablesBySize),
     };
@@ -7828,8 +7909,12 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
       await ensureUniqueServiceName(serviceName, { excludeId: req.params.id });
     }
 
-    const priceBySize = buildServicePriceBySize(req.body.priceBySize, req.body.price ?? existingService?.price);
-    const mins = Math.max(0, Number(req.body.mins ?? existingService?.mins) || 0);
+    const priceBySize = isDetailUpdate
+      ? buildServicePriceBySizeForMutation(req.body.priceBySize ?? existingService?.priceBySize, req.body.price ?? existingService?.price)
+      : buildServicePriceBySize(existingService?.priceBySize, existingService?.price);
+    const mins = isDetailUpdate
+      ? parseServiceDurationMinutes(req.body.mins ?? existingService?.mins)
+      : Math.max(0, Number(existingService?.mins) || 0);
     if (hasBodyField("allowedArrivalTimes")) {
       validateAllowedArrivalTimesPayload(req.body.allowedArrivalTimes);
     }
@@ -7851,8 +7936,8 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
       name: serviceName,
       desc: hasBodyField("desc") ? String(req.body.desc || "").trim() : existingService?.desc || "",
       serviceType: normalizeServiceType(req.body.serviceType ?? existingService?.serviceType, serviceName, req.body.desc ?? existingService?.desc),
-      category: hasBodyField("category") ? req.body.category : existingService?.category,
-      price: Math.max(0, Number(req.body.price) || priceBySize.sedanSmallCar || 0),
+      category: hasBodyField("category") ? normalizeRequiredServiceCategory(req.body.category) : existingService?.category,
+      price: priceBySize.sedanSmallCar,
       priceBySize,
       mins,
       allowedArrivalTimes: normalizeAllowedArrivalTimes(
@@ -7910,11 +7995,7 @@ function validateStockQuantityLimit({ currentStock, maxStock, reorderLevel, qtyT
 
 app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
   try {
-    const validationMessage = stockDomain.validateStockPayload(req.body);
-    if (validationMessage) {
-      res.status(400).json({ message: validationMessage });
-      return;
-    }
+    validateStockCreatePayload(req.body);
     const item = await StockMonitoringItem.create({
       id: createId("INV"),
       ...stockDomain.normalizeStockPayload(req.body),
