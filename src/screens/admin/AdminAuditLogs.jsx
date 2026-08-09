@@ -15,17 +15,22 @@ function getAuditDetail(log) {
 }
 
 export default function AdminAuditLogs() {
-  const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs, currentUser } = useAdminData();
+  const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs, getActiveAuditLogIds, currentUser } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ userId: "", action: "" });
   const [showArchived, setShowArchived] = useState(false);
   const [selectedLogIds, setSelectedLogIds] = useState([]);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
   const canArchiveLogs = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
 
-  const getLogSelectionKey = (log, fallbackIndex) => String(log.id || `audit-${fallbackIndex}`);
+  const getLogSelectionKey = (log) => String(log?.id || log?._id || "").trim();
+  const activeLogIds = useMemo(
+    () => auditLogs.map(getLogSelectionKey).filter(Boolean),
+    [auditLogs]
+  );
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -41,14 +46,21 @@ export default function AdminAuditLogs() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const pagedSelectionKeys = paged.map((log, index) => getLogSelectionKey(log, (safePage - 1) * pageSize + index));
+  const pagedSelectionKeys = paged.map(getLogSelectionKey).filter(Boolean);
   const allPagedSelected = pagedSelectionKeys.length > 0 && pagedSelectionKeys.every((key) => selectedLogIds.includes(key));
 
   useEffect(() => {
     setSelectedLogIds([]);
-  }, [showArchived, query, filters.userId, filters.action, sourceLogs]);
+  }, [showArchived]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   const toggleLogSelection = (selectionKey) => {
+    if (!selectionKey) return;
     setSelectedLogIds((prev) => (
       prev.includes(selectionKey)
         ? prev.filter((value) => value !== selectionKey)
@@ -64,6 +76,25 @@ export default function AdminAuditLogs() {
 
       return [...new Set([...prev, ...pagedSelectionKeys])];
     });
+  };
+
+  const selectAllActiveLogs = async () => {
+    if (showArchived) return;
+    setIsSelectingAll(true);
+    try {
+      const result = typeof getActiveAuditLogIds === "function" ? await getActiveAuditLogIds() : { ids: activeLogIds };
+      const ids = Array.isArray(result) ? result : result?.ids;
+      setSelectedLogIds([...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))]);
+    } finally {
+      setIsSelectingAll(false);
+    }
+  };
+
+  const archiveSelectedLogs = async () => {
+    const idsToArchive = [...new Set(selectedLogIds.map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!idsToArchive.length) return;
+    await archiveAuditLogs(idsToArchive);
+    setSelectedLogIds((prev) => prev.filter((id) => !idsToArchive.includes(id)));
   };
 
   const exportPdf = () =>
@@ -108,7 +139,8 @@ export default function AdminAuditLogs() {
         <div className="auditBtns">
           <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div>
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
-          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveAuditLogs}>Archive Logs</button> : null}
+          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllActiveLogs} disabled={isSelectingAll}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
+          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveSelectedLogs} disabled={!selectedLogIds.length}>Archive Logs</button> : null}
           {canArchiveLogs && showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Restore</button> : null}
         </div>
       </div>
@@ -127,7 +159,7 @@ export default function AdminAuditLogs() {
           <div className="auditEmptyRow"><div className="auditEmptyText">{showArchived ? "No archived audit records yet" : "No audit records yet"}</div></div>
         ) : (
           paged.map((r, idx) => {
-            const selectionKey = getLogSelectionKey(r, (safePage - 1) * pageSize + idx);
+            const selectionKey = getLogSelectionKey(r);
             const isSelected = selectedLogIds.includes(selectionKey);
 
             return (
@@ -141,6 +173,7 @@ export default function AdminAuditLogs() {
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    disabled={!selectionKey}
                     onChange={() => toggleLogSelection(selectionKey)}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Select audit log ${r.id || idx + 1}`}

@@ -125,6 +125,14 @@
 
 .auditBtnDark:hover { background: var(--action-dark-hover); }
 
+.auditBtnLight {
+  background: #f8fafc;
+  color: #111827;
+  border: 1px solid var(--line);
+}
+
+.auditBtnLight:hover { background: #eef2ff; }
+
 .auditBtnBlue {
   background: #1d4ed8;
   color: #fff;
@@ -138,6 +146,14 @@
 }
 
 .auditBtnRed:hover { background: #991b1b; }
+
+.auditBtn:disabled,
+.auditBtn:disabled:hover {
+  background: #e5e7eb;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
 
 /* BOARD */
 .auditBoard {

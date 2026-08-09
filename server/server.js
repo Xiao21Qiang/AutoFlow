@@ -9332,13 +9332,57 @@ app.delete("/api/admin/users/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
+function normalizeSelectedAuditLogIds(payload = {}) {
+  const rawIds = payload.ids ?? payload.selectedIds ?? payload.selectedAuditLogIds;
+  if (!Array.isArray(rawIds)) {
+    return { error: "Selected audit log IDs are required." };
+  }
+
+  const ids = [];
+  const seen = new Set();
+  for (const rawId of rawIds) {
+    if (typeof rawId !== "string") {
+      return { error: "Selected audit log IDs must be strings." };
+    }
+    const id = rawId.trim();
+    if (!id || id.length > 120 || !/^AUD-[A-Za-z0-9_-]+$/.test(id)) {
+      return { error: "Selected audit log IDs are invalid." };
+    }
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+
+  if (!ids.length) {
+    return { error: "Select at least one audit log to archive." };
+  }
+
+  return { ids };
+}
+
+app.get("/api/admin/audit-logs/active-ids", requireAdminUser, async (_req, res, next) => {
+  try {
+    const logs = await AuditLog.find({ archived: { $ne: true } }, { id: 1, _id: 0 }).sort({ createdAt: -1 }).lean();
+    res.json({ ids: logs.map((log) => String(log.id || "").trim()).filter(Boolean) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/audit-logs/archive", requireAdminUser, async (req, res, next) => {
   try {
     const auditUser = req.body?.auditUser || req.query?.auditUser || "system";
+    const selected = normalizeSelectedAuditLogIds(req.body);
+    if (selected.error) {
+      res.status(400).json({ message: selected.error });
+      return;
+    }
+
     const archivedAt = new Date().toISOString();
 
-    await AuditLog.updateMany(
-      { archived: { $ne: true } },
+    const updateResult = await AuditLog.updateMany(
+      { id: { $in: selected.ids }, archived: { $ne: true } },
       {
         $set: {
           archived: true,
@@ -9348,17 +9392,20 @@ app.post("/api/admin/audit-logs/archive", requireAdminUser, async (req, res, nex
       }
     );
 
-    await AuditLog.create({
-      id: createId("AUD"),
-      userId: auditUser,
-      action: "Archived audit logs",
-      targetId: "AUDIT",
-      ts: toTimestamp(),
-      meta: { archivedAt },
-      archived: true,
-      archivedAt,
-      archivedBy: auditUser,
-    });
+    const archivedCount = Number(updateResult?.modifiedCount ?? updateResult?.nModified ?? 0);
+    if (archivedCount > 0) {
+      await AuditLog.create({
+        id: createId("AUD"),
+        userId: auditUser,
+        action: "Archived audit logs",
+        targetId: "AUDIT",
+        ts: toTimestamp(),
+        meta: { archivedAt, archivedAuditLogIds: selected.ids, archivedCount },
+        archived: true,
+        archivedAt,
+        archivedBy: auditUser,
+      });
+    }
 
     res.status(204).end();
   } catch (error) {

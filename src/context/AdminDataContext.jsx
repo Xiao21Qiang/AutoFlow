@@ -694,10 +694,12 @@ export function AdminDataProvider({ children, session }) {
         refresh: false,
         applyResult: withUsers((users, result) => users.map((user) => matchesRecordId(user, id) || matchesRecordId(user, result?.id) || matchesRecordId(user, result?._id) ? { ...user, ...result } : user)),
       }),
-    archiveAuditLogs: () =>
+    getActiveAuditLogIds: () =>
+      apiRequest("/api/admin/audit-logs/active-ids"),
+    archiveAuditLogs: (ids) =>
       mutate("/api/admin/audit-logs/archive", {
         method: "POST",
-        body: JSON.stringify({ auditUser }),
+        body: JSON.stringify({ auditUser, ids }),
       }),
     unarchiveAuditLogs: () =>
       mutate("/api/admin/audit-logs/unarchive", {
