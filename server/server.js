@@ -935,8 +935,7 @@ function extractJsonObject(text) {
 }
 
 function buildAnalyticsAiInput(body = {}) {
-  const requestedAnalysisType = String(body.analysisType || body.type || "descriptive").trim().toLowerCase();
-  const analysisType = requestedAnalysisType === "predictive" ? "predictive" : "descriptive";
+  const analysisType = normalizeAnalyticsAnalysisType(body.analysisType || body.type);
   const totals = normalizeAiRecord(body.totals || body.summary || body.metrics, {
     maxEntries: 12,
     maxKeyLength: 40,
@@ -1129,8 +1128,7 @@ function buildFinancialAiInput(body = {}) {
 
 async function buildBackendAnalyticsAiInput(req) {
   const data = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
-  const requestedAnalysisType = String(req.body?.analysisType || req.body?.type || "descriptive").trim().toLowerCase();
-  const analysisType = requestedAnalysisType === "predictive" ? "predictive" : "descriptive";
+  const analysisType = normalizeAnalyticsAnalysisType(req.body?.analysisType || req.body?.type);
   const summary = buildBusinessSummary({
     bookings: data.bookings || [],
     payments: data.payments || [],
@@ -1313,6 +1311,11 @@ function normalizeAnalyticsItemType(value, fallback = "observation") {
   if (normalized.includes("predict")) return "prediction";
   if (normalized.includes("confidence")) return "confidence";
   return normalized || fallback;
+}
+
+function normalizeAnalyticsAnalysisType(value, fallback = "descriptive") {
+  const normalized = String(value || fallback).trim().toLowerCase();
+  return normalized === "predictive" ? "predictive" : "descriptive";
 }
 
 function titleFromItemType(type) {
@@ -1517,9 +1520,7 @@ function buildAnalyticsFallbackItems(input = {}, analysisType = "descriptive") {
 }
 
 function normalizeAnalyticsAiOutput(payload, sanitizedInput = {}) {
-  const analysisType = normalizeAnalyticsItemType(payload?.analysisType || sanitizedInput.analysisType || "descriptive", "descriptive") === "predictive"
-    ? "predictive"
-    : "descriptive";
+  const analysisType = normalizeAnalyticsAnalysisType(payload?.analysisType || sanitizedInput.analysisType);
   const fallbackItems = buildAnalyticsFallbackItems(sanitizedInput, analysisType);
   const normalizedItems = normalizeAnalyticsAiItems(payload, analysisType);
   const seen = new Set(normalizedItems.map((item) => `${item.type}:${item.title}:${item.text}`.toLowerCase()));
@@ -1548,6 +1549,25 @@ function normalizeAnalyticsAiOutput(payload, sanitizedInput = {}) {
     recommendations: groupedItems("recommendation").slice(0, 4),
     warnings: groupedItems("watchpoint").slice(0, 4),
     insights: items.map((item) => item.text).slice(0, 6),
+  };
+}
+
+function buildAnalyticsFallbackResponse(aiPayload = {}, sanitizedInput = {}) {
+  const analysisType = normalizeAnalyticsAnalysisType(sanitizedInput.analysisType);
+  const fallbackOutput = normalizeAnalyticsAiOutput({
+    analysisType,
+    items: buildAnalyticsFallbackItems(sanitizedInput, analysisType),
+  }, sanitizedInput);
+
+  return {
+    available: true,
+    fallback: true,
+    source: "deterministic-fallback",
+    feature: aiPayload.feature || (analysisType === "predictive" ? "analytics-predictive" : "analytics-descriptive"),
+    message: "",
+    warning: aiPayload.message || AI_PROVIDER_ERROR_MESSAGE,
+    model: aiPayload.model || "",
+    ...fallbackOutput,
   };
 }
 
@@ -1672,12 +1692,7 @@ async function handleAnalyticsAiInterpret(req, res, next) {
         errorCategory: "provider-unavailable",
         durationMs: Date.now() - startedAt,
       });
-      res.json({
-        ...aiPayload,
-        analysisType: sanitizedInput.analysisType,
-        generatedAt: new Date().toISOString(),
-        items: buildAnalyticsFallbackItems(sanitizedInput, sanitizedInput.analysisType),
-      });
+      res.json(buildAnalyticsFallbackResponse(aiPayload, sanitizedInput));
       return;
     }
 
@@ -9999,6 +10014,7 @@ module.exports = {
   buildWarrantyDto,
   buildBackendAnalyticsAiInput,
   buildBackendFinancialAiInput,
+  buildAnalyticsFallbackResponse,
   canPerformAction,
   canExportReport,
   canViewBooking,

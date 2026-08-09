@@ -261,6 +261,8 @@ function createAiState() {
     recommendations: [],
     warnings: [],
     model: "",
+    fallback: false,
+    source: "",
   };
 }
 
@@ -384,6 +386,7 @@ function getAiLines(aiState) {
 
 function AnalyticsAiCard({ title, type, buttonLabel, state, onGenerate }) {
   const lines = useMemo(() => getAiLines(state), [state]);
+  const hasAnalysis = lines.length > 0;
   const isPredictive = type === "predictive";
 
   return (
@@ -405,9 +408,9 @@ function AnalyticsAiCard({ title, type, buttonLabel, state, onGenerate }) {
       <div className={`anaAiStatus anaAiStatus-${state.status}`}>
         {state.status === "idle" && (isPredictive ? "Generate a forecast from current sales, booking, service, and review signals." : "Generate a descriptive summary from current analytics data.")}
         {state.status === "loading" && (isPredictive ? "Estimating likely trends from available records..." : "Summarizing current performance and customer behavior...")}
-        {state.status === "success" && `AI analysis ready${state.model ? ` - ${state.model}` : ""}`}
-        {state.status === "unavailable" && (state.message || "AI unavailable right now.")}
-        {state.status === "error" && (state.message || "Unable to generate analysis right now.")}
+        {state.status === "success" && `${state.fallback ? "Fallback analysis ready" : "AI analysis ready"}${state.model ? ` - ${state.model}` : ""}`}
+        {state.status === "unavailable" && !hasAnalysis && (state.message || "AI unavailable right now.")}
+        {state.status === "error" && !hasAnalysis && (state.message || "Unable to generate analysis right now.")}
       </div>
       <div className="anaAiList">
         {lines.length ? (
@@ -566,23 +569,36 @@ export default function AdminAnalytics() {
 
     try {
       const response = await generateAnalyticsInterpretation({ ...analyticsAiPayload, analysisType });
-      if (!response?.available) {
-        const normalized = normalizeAiAnalysisResponse(response || {}, analysisType);
+      const normalized = normalizeAiAnalysisResponse(response || {}, analysisType);
+      const hasUsableAnalysis = getAiLines(normalized).length > 0;
+
+      if (hasUsableAnalysis) {
         setState({
-          ...createAiState(),
-          status: "unavailable",
-          message: response?.message || "AI unavailable right now.",
           ...normalized,
+          status: "success",
+          message: "",
+          model: normalized.model || getAiItemText(response?.model),
+          fallback: Boolean(response?.fallback || response?.source === "deterministic-fallback" || !response?.available),
+          source: response?.source || "",
         });
         return;
       }
 
-      const normalized = normalizeAiAnalysisResponse(response, analysisType);
+      if (!response?.available) {
+        setState({
+          ...createAiState(),
+          status: "unavailable",
+          message: response?.message || "AI unavailable right now.",
+          analysisType,
+        });
+        return;
+      }
+
       setState({
-        ...normalized,
-        status: "success",
-        message: "",
-        model: normalized.model || getAiItemText(response.model),
+        ...createAiState(),
+        status: "error",
+        message: response?.message || "Unable to generate analysis right now.",
+        analysisType,
       });
     } catch (error) {
       setState({
