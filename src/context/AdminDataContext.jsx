@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../services/api";
+import { writeAuthSession } from "../utils/auth";
 import { isValidStaffRole, normalizeStaffRole } from "../utils/staffRoles";
 
 const AdminDataContext = createContext(null);
@@ -307,7 +308,7 @@ export function AdminDataProvider({ children, session }) {
 
   const currentUserFallback = useMemo(
     () => ({
-      id: "LOCAL-ADMIN",
+      id: session?.id || "LOCAL-ADMIN",
       name: session?.name || "Admin",
       first: session?.first || session?.firstName || "Admin",
       last: session?.last || session?.lastName || "",
@@ -563,7 +564,12 @@ export function AdminDataProvider({ children, session }) {
     apiRequest(`/api/admin/payments/${encodeURIComponent(paymentId || "")}/proof?stage=${encodeURIComponent(stage || "downPayment")}`), []);
 
   const updateProfile = async (payload) => {
-    await mutate("/api/admin/users/" + currentUser.id, {
+    const profileUserId = currentUser.id || session?.id;
+    if (!profileUserId) {
+      throw new Error("Could not identify the current profile.");
+    }
+
+    const result = await mutate("/api/admin/users/" + profileUserId + "?refreshSession=1", {
       method: "PUT",
       body: JSON.stringify({
         ...currentUser,
@@ -571,19 +577,26 @@ export function AdminDataProvider({ children, session }) {
         auditUser,
       }),
     });
+    const updatedUser = result?.user || result || {};
+    if (result?.token && result?.user) {
+      writeAuthSession(result.token, result.user);
+    }
 
     const nextUser = {
       ...JSON.parse(localStorage.getItem("user") || "{}"),
-      name: payload.name || (String(payload.first || "") + " " + String(payload.last || "")).trim() || currentUser.name,
-      email: payload.email || currentUser.email,
-      first: payload.first || currentUser.first,
-      last: payload.last || currentUser.last,
-      phone: payload.phone || currentUser.phone,
-      userType: currentUser.userType || session?.userType || normalizeUserType(currentUser.userType, currentUser.role),
-      role: payload.role || currentUser.role || session?.role || "New",
-      cars: Array.isArray(payload.cars) ? payload.cars : Array.isArray(currentUser.cars) ? currentUser.cars : [],
+      name: updatedUser.name || payload.name || (String(updatedUser.first || payload.first || "") + " " + String(updatedUser.last || payload.last || "")).trim() || currentUser.name,
+      email: updatedUser.email || payload.email || currentUser.email,
+      first: updatedUser.first || payload.first || currentUser.first,
+      last: updatedUser.last || payload.last || currentUser.last,
+      phone: updatedUser.phone || payload.phone || currentUser.phone,
+      userType: updatedUser.userType || currentUser.userType || session?.userType || normalizeUserType(currentUser.userType, currentUser.role),
+      role: updatedUser.role || payload.role || currentUser.role || session?.role || "New",
+      cars: Array.isArray(updatedUser.cars) ? updatedUser.cars : Array.isArray(payload.cars) ? payload.cars : Array.isArray(currentUser.cars) ? currentUser.cars : [],
     };
-    localStorage.setItem("user", JSON.stringify(nextUser));
+    if (!result?.token) {
+      localStorage.setItem("user", JSON.stringify(nextUser));
+    }
+    return nextUser;
   };
 
   const value = {

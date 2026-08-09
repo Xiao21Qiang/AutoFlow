@@ -7,6 +7,8 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 const DOWN_PAYMENT_MAX_AMOUNT = 1000000;
 const DOWN_PAYMENT_REQUIRED_MESSAGE = "Required down payment is required.";
 const DOWN_PAYMENT_INVALID_MESSAGE = "Required down payment must be greater than zero.";
+const PROFILE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PROFILE_NAME_REGEX = /^[\p{L}\s'.-]+$/u;
 
 function validateRequiredDownPaymentAmount(value) {
   const rawValue = String(value ?? "");
@@ -24,6 +26,37 @@ function validateRequiredDownPaymentAmount(value) {
   }
 
   return { valid: true, amount, message: "" };
+}
+
+function validateProfileForm(form) {
+  const payload = {
+    first: String(form.first || "").trim().replace(/\s+/g, " "),
+    last: String(form.last || "").trim().replace(/\s+/g, " "),
+    email: String(form.email || "").trim().toLowerCase(),
+    phone: String(form.phone || "").trim().replace(/\D/g, "").slice(0, 11),
+  };
+  const errors = {};
+
+  if (!payload.first) errors.first = "First name is required.";
+  else if (!PROFILE_NAME_REGEX.test(payload.first)) errors.first = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  if (!payload.last) errors.last = "Last name is required.";
+  else if (!PROFILE_NAME_REGEX.test(payload.last)) errors.last = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  if (!payload.email) errors.email = "Email is required.";
+  else if (!PROFILE_EMAIL_REGEX.test(payload.email)) errors.email = "Please enter a valid email address.";
+  if (!payload.phone) errors.phone = "Contact number is required.";
+  else if (!/^09\d{9}$/.test(payload.phone)) errors.phone = "Contact number must be 11 digits and start with 09.";
+
+  return { payload, errors, isValid: Object.keys(errors).length === 0 };
+}
+
+function getProfilePasswordError(password) {
+  const value = String(password || "");
+  if (!value) return "Please enter a new password.";
+  if (value.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(value)) return "Password must include at least 1 uppercase letter.";
+  if (!/[a-z]/.test(value)) return "Password must include at least 1 lowercase letter.";
+  if (!/\d/.test(value)) return "Password must include at least 1 number.";
+  return "";
 }
 
 export default function AdminProfile({ session }) {
@@ -47,7 +80,10 @@ export default function AdminProfile({ session }) {
   const [countdown, setCountdown] = useState(0);
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
-      const [passError, setPassError] = useState("");
+  const [passError, setPassError] = useState("");
+  const [profileErrors, setProfileErrors] = useState({});
+  const [profileSaveError, setProfileSaveError] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
   const [securityForm, setSecurityForm] = useState({ adminPin: "", adminPassword: "", staffPin: "", staffPassword: "", currentPassword: "" });
   const [securityMessage, setSecurityMessage] = useState("");
   const [securityStatus, setSecurityStatus] = useState({});
@@ -62,6 +98,7 @@ export default function AdminProfile({ session }) {
   const [downPaymentSaving, setDownPaymentSaving] = useState(false);
   const [visibleSecrets, setVisibleSecrets] = useState({});
   const downPaymentSavingRef = useRef(false);
+  const profileSavingRef = useRef(false);
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
 
@@ -132,12 +169,17 @@ export default function AdminProfile({ session }) {
     setNewPass("");
     setConfirmPass("");
     setPassError("");
+    setProfileErrors({});
+    setProfileSaveError("");
+    setProfileSaving(false);
+    profileSavingRef.current = false;
     setVisibleSecrets((prev) => ({ ...prev, newPass: false, confirmPass: false }));
     setAnimating(true);
     setModalOpen(true);
   };
 
-  const closeModal = () => {
+  const closeModal = ({ force = false } = {}) => {
+    if (profileSavingRef.current && !force) return;
     clearInterval(timerRef.current);
     setAnimating(false);
     setTimeout(() => setModalOpen(false), 180);
@@ -186,22 +228,74 @@ export default function AdminProfile({ session }) {
   };
 
   const handleSaveAll = async () => {
-    const payload = { first: form.first.trim(), last: form.last.trim(), email: form.email.trim(), phone: form.phone.trim() };
-    if (!payload.first || !payload.last) { window.alert("Please enter your first and last name."); return; }
-    if (!payload.email.includes("@")) { window.alert("Please enter a valid email address."); return; }
+    if (profileSavingRef.current) return;
+
+    const validation = validateProfileForm(form);
+    setProfileErrors(validation.errors);
+    setProfileSaveError("");
+    if (!validation.isValid) return;
+
     if (pwStep === "newpass") {
-      if (!newPass) { setPassError("Please enter a new password."); return; }
-      if (newPass.length < 8) { setPassError("Password must be at least 8 characters."); return; }
+      const passwordError = getProfilePasswordError(newPass);
+      if (passwordError) { setPassError(passwordError); return; }
       if (newPass !== confirmPass) { setPassError("Passwords do not match."); return; }
       if (!otpSession.verificationId) { setPassError("Please verify the OTP again."); return; }
-      await resetPasswordWithOtp({ verificationId: otpSession.verificationId, password: newPass });
     }
-    await updateProfile(payload);
-    setSaved(payload);
-    closeModal();
+
+    const savedComparable = {
+      first: String(saved.first || "").trim().replace(/\s+/g, " "),
+      last: String(saved.last || "").trim().replace(/\s+/g, " "),
+      email: String(saved.email || "").trim().toLowerCase(),
+      phone: String(saved.phone || "").trim().replace(/\D/g, "").slice(0, 11),
+    };
+    const hasProfileChanges = ["first", "last", "email", "phone"].some((key) => validation.payload[key] !== savedComparable[key]);
+    const hasPasswordChange = pwStep === "newpass";
+    if (!hasProfileChanges && !hasPasswordChange) {
+      closeModal({ force: true });
+      return;
+    }
+
+    profileSavingRef.current = true;
+    setProfileSaving(true);
+    try {
+      if (hasPasswordChange) {
+        await resetPasswordWithOtp({ verificationId: otpSession.verificationId, password: newPass });
+      }
+      if (hasProfileChanges) {
+        const updatedUser = await updateProfile(validation.payload);
+        setSaved({
+          first: updatedUser?.first || validation.payload.first,
+          last: updatedUser?.last || validation.payload.last,
+          email: updatedUser?.email || validation.payload.email,
+          phone: updatedUser?.phone || validation.payload.phone,
+        });
+      }
+      setNewPass("");
+      setConfirmPass("");
+      setPassError("");
+      setOtpSession({ verificationId: "", destination: "" });
+      setOtpDigits(["", "", "", "", "", ""]);
+      closeModal({ force: true });
+    } catch (error) {
+      setProfileSaveError(error.message || "Could not save account changes.");
+    } finally {
+      profileSavingRef.current = false;
+      setProfileSaving(false);
+    }
   };
 
-  const canSave = pwStep === "idle" || pwStep === "newpass";
+  const updateProfileField = (key, value) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setProfileSaveError("");
+    setProfileErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const canSave = (pwStep === "idle" || pwStep === "newpass") && !profileSaving;
   const saveSecurityControl = async (field) => {
     setSecurityMessage("");
     if (!securityForm.currentPassword.trim()) {
@@ -283,9 +377,10 @@ export default function AdminProfile({ session }) {
     setPendingDownPaymentAmount(null);
   };
 
-  const renderSecretInput = ({ visibleKey, className = "ap-input ap-editable-input", value, onChange, placeholder }) => (
+  const renderSecretInput = ({ visibleKey, className = "ap-input ap-editable-input", value, onChange, placeholder, ariaLabel }) => (
     <div className="ap-secret-row">
       <input
+        aria-label={ariaLabel}
         className={className}
         type={visibleSecrets[visibleKey] ? "text" : "password"}
         value={value}
@@ -406,20 +501,21 @@ export default function AdminProfile({ session }) {
       {modalOpen && (
         <div className={`m-overlay${animating ? " open" : ""}`} onClick={(e) => e.target === e.currentTarget && closeModal()}>
           <div className="m-box">
-            <div className="m-head"><div><p className="m-title">Edit Account</p><p className="m-sub">Update your personal information</p></div><button className="m-x" onClick={closeModal}>✕</button></div>
+            <div className="m-head"><div><p className="m-title">Edit Account</p><p className="m-sub">Update your personal information</p></div><button className="m-x" type="button" onClick={closeModal} disabled={profileSaving}>✕</button></div>
             <div className="m-body">
-              <div className="m-row2"><div className="m-field"><div className="m-label">First Name</div><input className="m-input" value={form.first} onChange={(e) => setForm((f) => ({ ...f, first: e.target.value }))} /></div><div className="m-field"><div className="m-label">Last Name</div><input className="m-input" value={form.last} onChange={(e) => setForm((f) => ({ ...f, last: e.target.value }))} /></div></div>
-              <div className="m-field"><div className="m-label">Email</div><input className="m-input" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} /></div>
-              <div className="m-field"><div className="m-label">Phone</div><input className="m-input" type="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }))} /></div>
+              <div className="m-row2"><div className="m-field"><div className="m-label">First Name</div><input aria-label="Edit first name" className={`m-input${profileErrors.first ? " eb" : ""}`} value={form.first} onChange={(e) => updateProfileField("first", e.target.value)} aria-invalid={profileErrors.first ? "true" : undefined} />{profileErrors.first && <div className="err-msg">{profileErrors.first}</div>}</div><div className="m-field"><div className="m-label">Last Name</div><input aria-label="Edit last name" className={`m-input${profileErrors.last ? " eb" : ""}`} value={form.last} onChange={(e) => updateProfileField("last", e.target.value)} aria-invalid={profileErrors.last ? "true" : undefined} />{profileErrors.last && <div className="err-msg">{profileErrors.last}</div>}</div></div>
+              <div className="m-field"><div className="m-label">Email</div><input aria-label="Edit email" className={`m-input${profileErrors.email ? " eb" : ""}`} type="email" value={form.email} onChange={(e) => updateProfileField("email", e.target.value)} aria-invalid={profileErrors.email ? "true" : undefined} />{profileErrors.email && <div className="err-msg">{profileErrors.email}</div>}</div>
+              <div className="m-field"><div className="m-label">Phone</div><input aria-label="Edit phone" className={`m-input${profileErrors.phone ? " eb" : ""}`} type="tel" value={form.phone} onChange={(e) => updateProfileField("phone", e.target.value.replace(/\D/g, "").slice(0, 11))} aria-invalid={profileErrors.phone ? "true" : undefined} />{profileErrors.phone && <div className="err-msg">{profileErrors.phone}</div>}</div>
               <div className="m-divider"><span>Password</span></div>
               <div className="pw-box">
-                {pwStep === "idle" && <><div><p className="pw-box-title">Change Password</p><p className="pw-box-sub">Verify your identity with a one-time code first.</p></div><button className="pw-trigger-btn" onClick={() => { setVerifyEmail(saved.email || initial.email || ""); setPwStep("email"); }}>Change Password →</button></>}
-                {pwStep === "email" && <><button className="back-btn" onClick={() => { setPwStep("idle"); setOtpError(""); }}>← Back</button><div className="m-field"><div className="m-label">Enter your email to receive OTP</div><input className={`m-input${otpError ? " eb" : ""}`} type="email" value={verifyEmail} onChange={(e) => { setVerifyEmail(e.target.value); setOtpError(""); }} placeholder="your@email.com" />{otpError && <div className="err-msg">{otpError}</div>}</div><button className="full-btn" onClick={handleSendOtp}>Send OTP</button></>}
-                {pwStep === "otp" && <><button className="back-btn" onClick={() => { setPwStep("email"); setOtpDigits(["", "", "", "", "", ""]); setOtpError(""); }}>← Back</button><p className="otp-hint">Enter the 6-digit code sent to <strong>{otpSession.destination || verifyEmail}</strong>.</p><div className="otp-boxes">{otpDigits.map((d, i) => (<input key={i} ref={(el) => { otpRefs.current[i] = el; }} className={`otp-box${d ? " ok" : ""}${otpError ? " bad" : ""}`} type="text" inputMode="numeric" maxLength={1} value={d} onChange={(e) => handleOtpChange(i, e.target.value)} onFocus={(e) => e.target.select()} />))}</div>{otpError && <div className="err-msg">{otpError}</div>}<div className="resend-row">{countdown > 0 ? `Resend in ${countdown}s` : <><span>Didn't get it? </span><button onClick={handleSendOtp}>Resend OTP</button></>}</div><button className="full-btn" onClick={handleVerifyOtp}>Verify OTP</button></>}
-                {pwStep === "newpass" && <><div className="verified-badge">✓ Identity verified — set your new password</div><div className="m-field"><div className="m-label">New Password</div>{renderSecretInput({ visibleKey: "newPass", className: `m-input${passError ? " eb" : ""}`, value: newPass, onChange: (e) => { setNewPass(e.target.value); setPassError(""); }, placeholder: "Min. 8 characters" })}</div><div className="m-field"><div className="m-label">Confirm Password</div>{renderSecretInput({ visibleKey: "confirmPass", className: `m-input${passError ? " eb" : ""}`, value: confirmPass, onChange: (e) => { setConfirmPass(e.target.value); setPassError(""); }, placeholder: "Re-enter new password" })}</div>{passError && <div className="err-msg">{passError}</div>}</>}
+                {pwStep === "idle" && <><div><p className="pw-box-title">Change Password</p><p className="pw-box-sub">Verify your identity with a one-time code first.</p></div><button className="pw-trigger-btn" type="button" onClick={() => { setVerifyEmail(saved.email || initial.email || ""); setPwStep("email"); }}>Change Password →</button></>}
+                {pwStep === "email" && <><button className="back-btn" type="button" onClick={() => { setPwStep("idle"); setOtpError(""); }}>← Back</button><div className="m-field"><div className="m-label">Enter your email to receive OTP</div><input aria-label="Password OTP email" className={`m-input${otpError ? " eb" : ""}`} type="email" value={verifyEmail} onChange={(e) => { setVerifyEmail(e.target.value); setOtpError(""); }} placeholder="your@email.com" />{otpError && <div className="err-msg">{otpError}</div>}</div><button className="full-btn" type="button" onClick={handleSendOtp}>Send OTP</button></>}
+                {pwStep === "otp" && <><button className="back-btn" type="button" onClick={() => { setPwStep("email"); setOtpDigits(["", "", "", "", "", ""]); setOtpError(""); }}>← Back</button><p className="otp-hint">Enter the 6-digit code sent to <strong>{otpSession.destination || verifyEmail}</strong>.</p><div className="otp-boxes">{otpDigits.map((d, i) => (<input key={i} aria-label={`Password OTP digit ${i + 1}`} ref={(el) => { otpRefs.current[i] = el; }} className={`otp-box${d ? " ok" : ""}${otpError ? " bad" : ""}`} type="text" inputMode="numeric" maxLength={1} value={d} onChange={(e) => handleOtpChange(i, e.target.value)} onFocus={(e) => e.target.select()} />))}</div>{otpError && <div className="err-msg">{otpError}</div>}<div className="resend-row">{countdown > 0 ? `Resend in ${countdown}s` : <><span>Didn't get it? </span><button type="button" onClick={handleSendOtp}>Resend OTP</button></>}</div><button className="full-btn" type="button" onClick={handleVerifyOtp}>Verify OTP</button></>}
+                {pwStep === "newpass" && <><div className="verified-badge">✓ Identity verified — set your new password</div><div className="m-field"><div className="m-label">New Password</div>{renderSecretInput({ visibleKey: "newPass", className: `m-input${passError ? " eb" : ""}`, value: newPass, onChange: (e) => { setNewPass(e.target.value); setPassError(""); }, placeholder: "Min. 8 characters", ariaLabel: "New password" })}</div><div className="m-field"><div className="m-label">Confirm Password</div>{renderSecretInput({ visibleKey: "confirmPass", className: `m-input${passError ? " eb" : ""}`, value: confirmPass, onChange: (e) => { setConfirmPass(e.target.value); setPassError(""); }, placeholder: "Re-enter new password", ariaLabel: "Confirm new password" })}</div>{passError && <div className="err-msg">{passError}</div>}</>}
               </div>
+              {profileSaveError && <div className="err-msg">{profileSaveError}</div>}
             </div>
-            <div className="m-foot"><button className="m-cancel" onClick={closeModal}>Cancel</button><button className="m-save" disabled={!canSave} onClick={handleSaveAll}>Save Changes</button></div>
+            <div className="m-foot"><button className="m-cancel" type="button" onClick={closeModal} disabled={profileSaving}>Cancel</button><button className="m-save" type="button" disabled={!canSave} onClick={handleSaveAll}>{profileSaving ? "Saving..." : "Save Changes"}</button></div>
           </div>
         </div>
       )}

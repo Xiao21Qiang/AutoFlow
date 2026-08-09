@@ -12,7 +12,7 @@ global.TextEncoder = global.TextEncoder || TextEncoder;
 
 const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
-const { __testModels, app, signJwt } = require("../server/server");
+const { __testModels, __testPasswordChangeOtpStore, app, signJwt } = require("../server/server");
 
 jest.setTimeout(15000);
 
@@ -263,6 +263,7 @@ afterAll(() => {
 
 beforeEach(() => {
   resetData();
+  __testPasswordChangeOtpStore.clear();
   __testModels.User.findOneAndUpdate.mockReset();
   __testModels.User.findOneAndUpdate.mockImplementation(updateUser);
   __testModels.User.findOneAndDelete.mockReset();
@@ -280,6 +281,85 @@ beforeEach(() => {
 });
 
 describe("Edit User route validation", () => {
+  test("authenticated Admin can update own valid profile and receive refreshed auth payload", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: {
+        first: "  Updated  ",
+        last: " Admin ",
+        email: "Updated.Admin@Example.com",
+        phone: "09998887777",
+        userType: "Admin",
+        role: "Admin",
+        status: "active",
+        auditUser: "spoofed@example.com",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.token).toEqual(expect.any(String));
+    expect(response.body.user).toEqual(expect.objectContaining({
+      id: "ADM-1",
+      first: "Updated",
+      last: "Admin",
+      name: "Updated Admin",
+      email: "updated.admin@example.com",
+      phone: "09998887777",
+    }));
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      first: "Updated",
+      last: "Admin",
+      email: "updated.admin@example.com",
+      phone: "09998887777",
+    }));
+  });
+
+  test.each([
+    ["blank first name", { first: "   ", last: "Admin" }, "First name is required."],
+    ["blank last name", { first: "Updated", last: "   " }, "Last name is required."],
+    ["invalid first name", { first: "Admin123", last: "Admin" }, "Name can only contain letters, spaces, hyphens, apostrophes, and periods."],
+    ["invalid last name", { first: "Updated", last: "Admin123" }, "Name can only contain letters, spaces, hyphens, apostrophes, and periods."],
+  ])("self profile rejects %s", async (_label, override, message) => {
+    const response = await putUser("ADM-1", {
+      ...adminUser,
+      ...override,
+      email: "admin@example.com",
+      phone: "09111111111",
+      userType: "Admin",
+      role: "Admin",
+      status: "active",
+    }, adminUser);
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(message);
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  test("unauthenticated profile update is rejected", async () => {
+    const response = await request("/api/admin/users/ADM-1", {
+      token: null,
+      body: { ...adminUser, first: "Updated" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  test("Admin cannot spoof an immutable ID while updating profile", async () => {
+    const response = await putUser("ADM-1", {
+      ...adminUser,
+      id: "ADM-2",
+      first: "Updated",
+      last: "Admin",
+      email: "admin@example.com",
+      phone: "09111111111",
+    }, adminUser);
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("User ID cannot be changed.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   test("valid update changes exactly one user, preserves ID, and returns a safe DTO", async () => {
     const response = await putUser("STF-1", validPayload({ name: "  Casey  Updated  ", email: "Casey.Updated@Example.com" }));
 
@@ -436,6 +516,71 @@ describe("Edit User route validation", () => {
     expect(savedPassword).toMatch(/^scrypt\$/);
     expect(savedPassword).not.toBe("NewPass1!");
     expect(validPasswordResponse.body).not.toHaveProperty("password");
+  });
+
+  test("password reset requires verified server-side OTP and ignores forgeable client booleans", async () => {
+    __testPasswordChangeOtpStore.set("OTP-PW-UNVERIFIED", {
+      userId: "ADM-1",
+      email: adminUser.email,
+      otp: "123456",
+      expiresAt: Date.now() + 60000,
+      attempts: 0,
+      verified: false,
+    });
+
+    const response = await request("/api/auth/password-change/reset", {
+      method: "POST",
+      token: null,
+      body: { verificationId: "OTP-PW-UNVERIFIED", password: "NewPass1!", otpVerified: true },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Please verify the OTP first.");
+    expect(users.find((user) => user.id === "ADM-1").password).toBe(adminUser.password);
+  });
+
+  test("expired password reset verification is rejected", async () => {
+    __testPasswordChangeOtpStore.set("OTP-PW-EXPIRED", {
+      userId: "ADM-1",
+      email: adminUser.email,
+      otp: "123456",
+      expiresAt: Date.now() - 1,
+      attempts: 0,
+      verified: true,
+    });
+
+    const response = await request("/api/auth/password-change/reset", {
+      method: "POST",
+      token: null,
+      body: { verificationId: "OTP-PW-EXPIRED", password: "NewPass1!" },
+    });
+
+    expect(response.status).toBe(410);
+    expect(response.body.message).toBe("This OTP has expired. Please request a new code.");
+    expect(users.find((user) => user.id === "ADM-1").password).toBe(adminUser.password);
+  });
+
+  test("verified password reset hashes new login password and consumes verification", async () => {
+    __testPasswordChangeOtpStore.set("OTP-PW-VERIFIED", {
+      userId: "ADM-1",
+      email: adminUser.email,
+      otp: "123456",
+      expiresAt: Date.now() + 60000,
+      attempts: 0,
+      verified: true,
+    });
+
+    const response = await request("/api/auth/password-change/reset", {
+      method: "POST",
+      token: null,
+      body: { verificationId: "OTP-PW-VERIFIED", password: "NewPass1!" },
+    });
+
+    expect(response.status).toBe(200);
+    const savedPassword = users.find((user) => user.id === "ADM-1").password;
+    expect(savedPassword).toMatch(/^scrypt\$/);
+    expect(savedPassword).not.toBe("NewPass1!");
+    expect(__testPasswordChangeOtpStore.has("OTP-PW-VERIFIED")).toBe(false);
   });
 
   test.each([

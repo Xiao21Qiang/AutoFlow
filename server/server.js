@@ -9014,7 +9014,27 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       res.status(400).json({ message: "Full name is required." });
       return;
     }
-    const nameFromParts = `${String(req.body.first ?? existingUser.first ?? "")} ${String(req.body.last ?? existingUser.last ?? "")}`.trim();
+    const submittedFirst = Object.prototype.hasOwnProperty.call(req.body || {}, "first")
+      ? String(req.body.first || "").trim().replace(/\s+/g, " ")
+      : String(existingUser.first || "").trim().replace(/\s+/g, " ");
+    const submittedLast = Object.prototype.hasOwnProperty.call(req.body || {}, "last")
+      ? String(req.body.last || "").trim().replace(/\s+/g, " ")
+      : String(existingUser.last || "").trim().replace(/\s+/g, " ");
+    if (hasSubmittedNameParts) {
+      if (!submittedFirst) {
+        res.status(400).json({ message: "First name is required." });
+        return;
+      }
+      if (!submittedLast) {
+        res.status(400).json({ message: "Last name is required." });
+        return;
+      }
+      if (!/^[\p{L}\s'.-]+$/u.test(submittedFirst) || !/^[\p{L}\s'.-]+$/u.test(submittedLast)) {
+        res.status(400).json({ message: "Name can only contain letters, spaces, hyphens, apostrophes, and periods." });
+        return;
+      }
+    }
+    const nameFromParts = `${submittedFirst} ${submittedLast}`.trim();
     const requestedName = String(
       hasSubmittedNameParts && nameFromParts
         ? nameFromParts
@@ -9176,8 +9196,8 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
 
     const nextUserType = actorType === "admin" ? toDisplayUserType(requestedUserType, requestedRole) : existingUser.userType;
     const requestedNameParts = requestedName.split(/\s+/).filter(Boolean);
-    const requestedFirst = req.body.first ?? requestedNameParts[0] ?? requestedName;
-    const requestedLast = req.body.last ?? requestedNameParts.slice(1).join(" ");
+    const requestedFirst = hasSubmittedNameParts ? submittedFirst : requestedNameParts[0] ?? requestedName;
+    const requestedLast = hasSubmittedNameParts ? submittedLast : requestedNameParts.slice(1).join(" ");
     const payload = actorType === "admin"
       ? {
           first: requestedFirst,
@@ -9253,6 +9273,11 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       },
       result: "allowed",
     });
+    if (isSelfUpdate && String(req.query?.refreshSession || "") === "1") {
+      res.json(buildAuthPayload(user));
+      return;
+    }
+
     res.json(sanitizeUser(user));
   } catch (error) {
     next(error);
@@ -10150,6 +10175,7 @@ module.exports = {
   MODULE_KEYS,
   QR_TOKEN_PURPOSES,
   toTimestamp,
+  __testPasswordChangeOtpStore: passwordChangeOtpStore,
   __testModels: {
     AuditLog,
     Booking,
