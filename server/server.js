@@ -1637,6 +1637,73 @@ function normalizeFinancialAiOutput(payload) {
   };
 }
 
+function formatFinancialAiPeso(value) {
+  return `P${Number(value || 0).toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+}
+
+function hasUsableFinancialInterpretation(output = {}) {
+  return Boolean(
+    normalizeAiText(output.summary, 1200) ||
+    normalizeAiStringList(output.keyObservations, { maxItems: 1, maxLength: 140 }).length ||
+    normalizeAiStringList(output.recommendations, { maxItems: 1, maxLength: 140 }).length ||
+    normalizeAiStringList(output.warnings, { maxItems: 1, maxLength: 140 }).length
+  );
+}
+
+function buildFinancialFallbackOutput(input = {}) {
+  const totals = input.totals || {};
+  const revenue = Number(totals.revenue || 0);
+  const expenses = Number(totals.expenses || 0);
+  const commissions = Number(totals.commissions || 0);
+  const netAfterExpenses = Number(totals.netAfterExpenses ?? revenue - expenses);
+  const netAfterCommissions = Number(totals.netAfterCommissions ?? revenue - expenses - commissions);
+  const expenseCategories = Array.isArray(input.expenseCategories) ? input.expenseCategories : [];
+  const topCommissionWorkers = Array.isArray(input.topCommissionWorkers) ? input.topCommissionWorkers : [];
+  const largestExpense = expenseCategories[0];
+  const leadingWorker = topCommissionWorkers[0];
+  const scope = input.scopeLabel || "All available records";
+  const profitTone = netAfterCommissions >= 0 ? "positive" : "under pressure";
+
+  const summary = `For ${scope}, backend-authoritative financial records show verified revenue of ${formatFinancialAiPeso(revenue)}, active expenses of ${formatFinancialAiPeso(expenses)}, and worker commissions of ${formatFinancialAiPeso(commissions)}. Net after expenses is ${formatFinancialAiPeso(netAfterExpenses)}, while net after commissions is ${formatFinancialAiPeso(netAfterCommissions)}, so the current financial position is ${profitTone}. ${largestExpense ? `${largestExpense.category} is the largest visible expense concentration at ${formatFinancialAiPeso(largestExpense.total)} across ${Number(largestExpense.count || 0)} record(s).` : "No expense category concentration is available in the selected records."} ${leadingWorker ? `${leadingWorker.worker} has the highest commission total at ${formatFinancialAiPeso(leadingWorker.total)} across ${Number(leadingWorker.count || 0)} commission record(s).` : "Commission activity is limited or absent in the selected records."} Management should compare confirmed revenue against recurring expense pressure before adding new spending, and review commission activity alongside completed paid services.`;
+
+  const warnings = [];
+  if (netAfterCommissions < 0) {
+    warnings.push("Net after commissions is negative in the selected scope, so expense control and revenue recovery need attention.");
+  } else if (expenses + commissions > revenue * 0.7 && revenue > 0) {
+    warnings.push("Expenses plus commissions consume a large share of verified revenue, which may narrow operating margin.");
+  }
+
+  return normalizeFinancialAiOutput({
+    summary,
+    keyObservations: [
+      `Verified revenue is ${formatFinancialAiPeso(revenue)} from ${Number(totals.paidTransactions || 0)} paid transaction(s).`,
+      `Active expenses total ${formatFinancialAiPeso(expenses)} across ${Number(totals.expenseEntries || 0)} expense record(s).`,
+      `Worker commissions total ${formatFinancialAiPeso(commissions)} across ${Number(totals.commissionEntries || 0)} commission record(s).`,
+    ],
+    warnings,
+    recommendations: [
+      largestExpense
+        ? `Review ${largestExpense.category} spending first because it is the largest expense category in scope.`
+        : "Keep expense categories updated so future financial interpretation can identify the strongest cost drivers.",
+      "Use verified paid revenue, active expenses, and commission totals together when deciding staffing, purchasing, and pricing actions.",
+    ],
+  });
+}
+
+function buildFinancialFallbackResponse(aiPayload = {}, sanitizedInput = {}) {
+  const fallbackOutput = buildFinancialFallbackOutput(sanitizedInput);
+  return {
+    available: true,
+    fallback: true,
+    source: "deterministic-fallback",
+    feature: aiPayload.feature || "financial-interpretation",
+    message: "",
+    warning: aiPayload.message || AI_PROVIDER_ERROR_MESSAGE,
+    model: aiPayload.model || "",
+    ...fallbackOutput,
+  };
+}
+
 async function handleAnalyticsAiInterpret(req, res, next) {
   const startedAt = Date.now();
   try {
@@ -1833,7 +1900,20 @@ async function handleFinancialAiInterpret(req, res, next) {
         dateRange: sanitizedInput.filters || {},
         durationMs: Date.now() - startedAt,
       });
-      res.json(aiPayload);
+      res.json(buildFinancialFallbackResponse(aiPayload, sanitizedInput));
+      return;
+    }
+
+    const normalizedOutput = normalizeFinancialAiOutput(aiPayload);
+    if (!hasUsableFinancialInterpretation(normalizedOutput)) {
+      await recordAiRequestAudit(req, "financial-interpretation", {
+        success: false,
+        model: aiPayload.model || "",
+        errorCategory: "provider-malformed",
+        dateRange: sanitizedInput.filters || {},
+        durationMs: Date.now() - startedAt,
+      });
+      res.json(buildFinancialFallbackResponse({ ...aiPayload, message: AI_PROVIDER_ERROR_MESSAGE }, sanitizedInput));
       return;
     }
 
@@ -1848,7 +1928,8 @@ async function handleFinancialAiInterpret(req, res, next) {
       feature: aiPayload.feature,
       message: "",
       model: aiPayload.model,
-      ...normalizeFinancialAiOutput(aiPayload),
+      fallback: false,
+      ...normalizedOutput,
     });
   } catch (error) {
     try {
@@ -10023,6 +10104,7 @@ module.exports = {
   buildBackendAnalyticsAiInput,
   buildBackendFinancialAiInput,
   buildAnalyticsFallbackResponse,
+  buildFinancialFallbackResponse,
   canPerformAction,
   canExportReport,
   canViewBooking,

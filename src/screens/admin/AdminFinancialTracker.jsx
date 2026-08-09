@@ -1,5 +1,5 @@
 import "../../styles/css/admin/adminFinancialTrackerStyle.css";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
@@ -55,6 +55,7 @@ export default function AdminFinancialTracker() {
   const [expenseType, setExpenseType] = useState("All types");
   const [expensePage, setExpensePage] = useState(1);
   const [workerQuery, setWorkerQuery] = useState("");
+  const [commissionPage, setCommissionPage] = useState(1);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [modal, setModal] = useState(null);
@@ -65,6 +66,7 @@ export default function AdminFinancialTracker() {
   const [aiInterpretation, setAiInterpretation] = useState(null);
   const [aiState, setAiState] = useState("idle");
   const [aiMessage, setAiMessage] = useState("");
+  const aiGeneratingRef = useRef(false);
   const [showArchivedExpenses, setShowArchivedExpenses] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState("");
   const canCreateExpense = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
@@ -113,6 +115,16 @@ export default function AdminFinancialTracker() {
       return String(item.worker || "").trim().toLowerCase().includes(normalizedWorker);
     });
   }, [commissions, workerQuery]);
+  const commissionPageSize = 5;
+  const commissionTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredCommissions.length / commissionPageSize)),
+    [filteredCommissions.length]
+  );
+  const safeCommissionPage = Math.min(Math.max(commissionPage, 1), commissionTotalPages);
+  const visibleCommissions = useMemo(
+    () => filteredCommissions.slice((safeCommissionPage - 1) * commissionPageSize, safeCommissionPage * commissionPageSize),
+    [filteredCommissions, safeCommissionPage]
+  );
 
   const filteredRevenuePayments = useMemo(
     () =>
@@ -222,12 +234,41 @@ export default function AdminFinancialTracker() {
     setAiMessage("");
   }, [payments, expenses, commissions, dateFrom, dateTo, expenseType, workerQuery]);
 
+  useEffect(() => {
+    setCommissionPage(1);
+  }, [workerQuery, commissions]);
+
   const handleGenerateAiInterpretation = async () => {
+    if (aiGeneratingRef.current) return;
+    aiGeneratingRef.current = true;
     setAiState("loading");
     setAiMessage("");
 
     try {
       const payload = await generateFinancialInterpretation(financialAiPayload);
+      const nextInterpretation = {
+        summary: payload?.summary || "",
+        keyObservations: Array.isArray(payload?.keyObservations) ? payload.keyObservations : [],
+        warnings: Array.isArray(payload?.warnings) ? payload.warnings : [],
+        recommendations: Array.isArray(payload?.recommendations) ? payload.recommendations : [],
+        model: payload?.model || "",
+        fallback: Boolean(payload?.fallback || payload?.source === "deterministic-fallback"),
+        source: payload?.source || "",
+      };
+      const hasInterpretation = Boolean(
+        nextInterpretation.summary.trim() ||
+        nextInterpretation.keyObservations.length ||
+        nextInterpretation.warnings.length ||
+        nextInterpretation.recommendations.length
+      );
+
+      if (hasInterpretation) {
+        setAiInterpretation(nextInterpretation);
+        setAiState("success");
+        setAiMessage("");
+        return;
+      }
+
       if (!payload?.available) {
         setAiInterpretation(null);
         setAiState("unavailable");
@@ -235,18 +276,15 @@ export default function AdminFinancialTracker() {
         return;
       }
 
-      setAiInterpretation({
-        summary: payload.summary || "",
-        keyObservations: Array.isArray(payload.keyObservations) ? payload.keyObservations : [],
-        warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
-        recommendations: Array.isArray(payload.recommendations) ? payload.recommendations : [],
-        model: payload.model || "",
-      });
-      setAiState("success");
+      setAiInterpretation(null);
+      setAiState("error");
+      setAiMessage(payload?.message || "Unable to generate interpretation right now.");
     } catch (error) {
       setAiInterpretation(null);
       setAiState("error");
       setAiMessage(error.message || "Unable to generate interpretation right now.");
+    } finally {
+      aiGeneratingRef.current = false;
     }
   };
 
@@ -438,7 +476,7 @@ export default function AdminFinancialTracker() {
             <div className="finInterpretationHead">
               <div className="finCardTitle">Interpretation</div>
               <div className="finInterpretationMeta">
-                {aiState === "success" ? <div className="finInterpretationStatus">AI ready</div> : null}
+                {aiState === "success" ? <div className="finInterpretationStatus">{aiInterpretation?.fallback ? "Fallback ready" : "AI ready"}</div> : null}
                 {aiState === "loading" ? <div className="finInterpretationStatus">Generating...</div> : null}
                 {aiState === "unavailable" ? <div className="finInterpretationStatus fallback">AI unavailable</div> : null}
                 {aiState === "error" ? <div className="finInterpretationStatus fallback">Unable to generate</div> : null}
@@ -452,7 +490,7 @@ export default function AdminFinancialTracker() {
                 </button>
               </div>
             </div>
-            {aiMessage ? <div className="finInterpretationError">{aiMessage}</div> : null}
+            {aiMessage && displayedInterpretationLines.length === 0 ? <div className="finInterpretationError">{aiMessage}</div> : null}
             <div className="finInterpretationList">
               {aiState === "loading" ? (
                 <div className="finInterpretationEmpty">Generating a short financial interpretation from the current tracker data...</div>
@@ -481,23 +519,37 @@ export default function AdminFinancialTracker() {
             <div className="finCardSub">Entries are created automatically when an eligible completed booking has verified paid service value.</div>
           </div>
           <div className="finWorkerSearchWrap">
-            <input className="finSearchInput finWorkerSearch" placeholder="Search worker..." value={workerQuery} onChange={(e) => setWorkerQuery(e.target.value)} list="fin-worker-list" />
+            <input className="finSearchInput finWorkerSearch" placeholder="Search worker..." value={workerQuery} onChange={(e) => { setWorkerQuery(e.target.value); setCommissionPage(1); }} list="fin-worker-list" />
             <datalist id="fin-worker-list">
               {staffOptions.map((name) => <option key={name} value={name} />)}
             </datalist>
           </div>
         </div>
 
-        <table className="finTable finCommissionTable">
-          <thead><tr><th>Date</th><th>Worker</th><th>Role</th><th>Service Rendered</th><th>Service Value</th><th>Rate</th><th>Earned</th></tr></thead>
-          <tbody>
-            {filteredCommissions.length === 0 ? (
-              <tr><td colSpan={7}>No commission records yet.</td></tr>
-            ) : filteredCommissions.map((item) => (
-              <tr key={item.id}><td>{item.date}</td><td>{item.worker}</td><td>{item.role}</td><td>{item.service}</td><td>{peso(item.serviceValue)}</td><td>{item.rate}%</td><td>{peso(item.earned)}</td></tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="finCommissionTableWrap">
+          <table className="finTable finCommissionTable">
+            <thead><tr><th>Date</th><th>Worker</th><th>Role</th><th>Service Rendered</th><th>Service Value</th><th>Rate</th><th>Earned</th></tr></thead>
+            <tbody>
+              {filteredCommissions.length === 0 ? (
+                <tr><td colSpan={7}>No commission records yet.</td></tr>
+              ) : visibleCommissions.map((item) => (
+                <tr key={item.id}><td>{item.date}</td><td>{item.worker}</td><td>{item.role}</td><td>{item.service}</td><td>{peso(item.serviceValue)}</td><td>{item.rate}%</td><td>{peso(item.earned)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="finFooterStat commission">Total commissions shown: {peso(visibleCommissions.reduce((sum, item) => sum + Number(item.earned || 0), 0))}</div>
+        <div className="finMiniPager">
+          <button className="finMiniPagerBtn nav" type="button" onClick={() => setCommissionPage((prev) => Math.max(1, prev - 1))} disabled={safeCommissionPage === 1} aria-label="Previous commission page">
+            <span className="finMiniPagerChevron left" aria-hidden="true" />
+          </button>
+          <div className="finMiniPagerCurrent" aria-label={`Commission page ${safeCommissionPage}`}>
+            {safeCommissionPage}
+          </div>
+          <button className="finMiniPagerBtn nav" type="button" onClick={() => setCommissionPage((prev) => Math.min(commissionTotalPages, prev + 1))} disabled={safeCommissionPage === commissionTotalPages} aria-label="Next commission page">
+            <span className="finMiniPagerChevron right" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       {canCreateExpense && modal === "expense" && (
