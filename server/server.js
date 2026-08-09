@@ -9010,7 +9010,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
 
     const hasSubmittedName = Object.prototype.hasOwnProperty.call(req.body || {}, "name");
     const hasSubmittedNameParts = Object.prototype.hasOwnProperty.call(req.body || {}, "first") || Object.prototype.hasOwnProperty.call(req.body || {}, "last");
-    if (!hasSubmittedName && !hasSubmittedNameParts) {
+    if (!hasSubmittedName && !hasSubmittedNameParts && !isSelfUpdate) {
       res.status(400).json({ message: "Full name is required." });
       return;
     }
@@ -9047,11 +9047,14 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       return;
     }
 
-    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "email")) {
+    const emailWasSubmitted = Object.prototype.hasOwnProperty.call(req.body || {}, "email");
+    if (!emailWasSubmitted && !isSelfUpdate) {
       res.status(400).json({ message: "Email is required." });
       return;
     }
-    const requestedEmail = String(req.body.email ?? "").trim().toLowerCase();
+    const requestedEmail = emailWasSubmitted
+      ? String(req.body.email ?? "").trim().toLowerCase()
+      : String(existingUser.email ?? "").trim().toLowerCase();
     if (!requestedEmail) {
       res.status(400).json({ message: "Email is required." });
       return;
@@ -9067,6 +9070,88 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       : String(existingUser.phone || "").trim();
     if (requestedPhone && !/^09\d{9}$/.test(requestedPhone)) {
       res.status(400).json({ message: "Please enter a valid phone number." });
+      return;
+    }
+
+    const isRefreshSessionRequest = String(req.query?.refreshSession || "") === "1";
+    const protectedSelfProfileFields = [
+      "userType",
+      "role",
+      "status",
+      "password",
+      "cars",
+      "isActive",
+      "active",
+      "deleted",
+      "deletedAt",
+      "deactivatedAt",
+      "deactivatedBy",
+      "adminSpecialPin",
+      "adminSpecialPassword",
+      "staffSpecialPin",
+      "staffSpecialPassword",
+      "adminSpecialPinHash",
+      "adminSpecialPasswordHash",
+      "staffSpecialPinHash",
+      "staffSpecialPasswordHash",
+    ];
+    const hasProtectedSelfProfilePayload = protectedSelfProfileFields.some((key) =>
+      Object.prototype.hasOwnProperty.call(req.body || {}, key)
+    );
+    if (isSelfUpdate && isRefreshSessionRequest && hasProtectedSelfProfilePayload) {
+      res.status(403).json({ message: "Profile updates cannot change protected account fields." });
+      return;
+    }
+    if (isSelfUpdate && !hasProtectedSelfProfilePayload) {
+      const [duplicateEmail, duplicatePhone] = await Promise.all([
+        User.findOne({ email: requestedEmail }).lean(),
+        requestedPhone ? User.findOne({ phone: requestedPhone }).lean() : Promise.resolve(null),
+      ]);
+      if (duplicateEmail && String(duplicateEmail.id || "") !== String(existingUser.id || "")) {
+        res.status(409).json({ message: "That email is already registered." });
+        return;
+      }
+      if (duplicatePhone && String(duplicatePhone.id || "") !== String(existingUser.id || "")) {
+        res.status(409).json({ message: "That contact number is already registered." });
+        return;
+      }
+
+      const payload = {
+        first: submittedFirst,
+        last: submittedLast,
+        name: requestedName,
+        email: requestedEmail,
+        phone: requestedPhone,
+      };
+      const user = await User.findOneAndUpdate({ id: req.params.id }, payload, { new: true });
+      if (!user) {
+        res.status(404).json({ message: "User not found." });
+        return;
+      }
+      await recordAudit(req.authUser?.email, getUserAuditAction(existingUser, payload), req.params.id, {
+        actorId: req.authUser?.id || "",
+        actorName: req.authUser?.name || req.authUser?.email || "",
+        actorRole: req.authUser?.role || "",
+        targetType: "User",
+        email: payload.email,
+        status: existingUser.status,
+        previousState: {
+          userType: existingUser.userType,
+          role: existingUser.role,
+          status: existingUser.status,
+        },
+        newState: {
+          userType: user.userType,
+          role: user.role,
+          status: user.status,
+        },
+        result: "allowed",
+      });
+      if (isRefreshSessionRequest) {
+        res.json(buildAuthPayload(user));
+        return;
+      }
+      res.json(sanitizeUser(user));
       return;
     }
 

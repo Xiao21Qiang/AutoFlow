@@ -568,14 +568,17 @@ export function AdminDataProvider({ children, session }) {
     if (!profileUserId) {
       throw new Error("Could not identify the current profile.");
     }
+    const profilePayload = {
+      first: payload.first,
+      last: payload.last,
+      email: payload.email,
+      phone: payload.phone,
+      auditUser,
+    };
 
     const result = await mutate("/api/admin/users/" + profileUserId + "?refreshSession=1", {
       method: "PUT",
-      body: JSON.stringify({
-        ...currentUser,
-        ...payload,
-        auditUser,
-      }),
+      body: JSON.stringify(profilePayload),
     });
     const updatedUser = result?.user || result || {};
     if (result?.token && result?.user) {

@@ -408,6 +408,74 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
     expect(apiRequest).toHaveBeenCalledTimes(1);
     expect(apiRequest).toHaveBeenCalledWith("/api/admin/payments/PAY-1/proof?stage=downPayment");
   });
+
+  test("profile update sends an allowlisted body and stores refreshed auth session", async () => {
+    const legacyAdmin = {
+      id: "USR-ADMIN",
+      email: "admin@example.com",
+      name: "Admin One",
+      first: "Admin",
+      last: "One",
+      phone: "09111111111",
+      userType: "Admin",
+      role: "Owner",
+      status: "active",
+    };
+    const updatedAdmin = {
+      ...legacyAdmin,
+      name: "Updated Admin One",
+      first: "Updated Admin",
+      email: "updated@example.com",
+      phone: "09998887777",
+    };
+    await renderAndResolveInitial(buildPayload({ users: [legacyAdmin] }));
+
+    apiRequest.mockImplementation((path, options) => {
+      if (path === "/api/admin/users/USR-ADMIN?refreshSession=1") {
+        return Promise.resolve({ token: "token-refreshed", user: updatedAdmin });
+      }
+      if (path === "/api/admin/bootstrap") {
+        return Promise.resolve(buildPayload({ users: [updatedAdmin] }));
+      }
+      return Promise.resolve({});
+    });
+
+    let returnedUser;
+    await act(async () => {
+      returnedUser = await context.updateProfile({
+        first: "Updated Admin",
+        last: "One",
+        email: "updated@example.com",
+        phone: "09998887777",
+      });
+    });
+
+    const [profilePath, profileOptions] = apiRequest.mock.calls[0];
+    const submittedBody = JSON.parse(profileOptions.body);
+    expect(profilePath).toBe("/api/admin/users/USR-ADMIN?refreshSession=1");
+    expect(submittedBody).toEqual({
+      first: "Updated Admin",
+      last: "One",
+      email: "updated@example.com",
+      phone: "09998887777",
+      auditUser: "admin@example.com",
+    });
+    expect(submittedBody).not.toHaveProperty("role");
+    expect(submittedBody).not.toHaveProperty("userType");
+    expect(submittedBody).not.toHaveProperty("status");
+    expect(localStorage.getItem("token")).toBe("token-refreshed");
+    expect(JSON.parse(localStorage.getItem("user"))).toEqual(expect.objectContaining({
+      id: "USR-ADMIN",
+      first: "Updated Admin",
+      email: "updated@example.com",
+      role: "Owner",
+    }));
+    expect(returnedUser).toEqual(expect.objectContaining({
+      first: "Updated Admin",
+      email: "updated@example.com",
+      role: "Owner",
+    }));
+  });
 });
 
 describe("security validation refresh behavior", () => {

@@ -42,6 +42,19 @@ const secondAdminUser = {
   password: "AdminPass1!",
 };
 
+const legacyOwnerAdminUser = {
+  id: "ADM-LEGACY",
+  email: "owner@example.com",
+  name: "Owner Admin",
+  first: "Owner",
+  last: "Admin",
+  phone: "09444444444",
+  userType: "",
+  role: "Owner",
+  status: "active",
+  password: "AdminPass1!",
+};
+
 const staffUser = {
   id: "STF-1",
   email: "casey.staff@example.com",
@@ -281,17 +294,11 @@ beforeEach(() => {
 });
 
 describe("Edit User route validation", () => {
-  test("authenticated Admin can update own valid profile and receive refreshed auth payload", async () => {
+  test("authenticated Admin can update own first name and receive refreshed auth payload without role payload", async () => {
     const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
       token: auth(adminUser),
       body: {
         first: "  Updated  ",
-        last: " Admin ",
-        email: "Updated.Admin@Example.com",
-        phone: "09998887777",
-        userType: "Admin",
-        role: "Admin",
-        status: "active",
         auditUser: "spoofed@example.com",
       },
     });
@@ -301,17 +308,174 @@ describe("Edit User route validation", () => {
     expect(response.body.user).toEqual(expect.objectContaining({
       id: "ADM-1",
       first: "Updated",
+      last: "One",
+      name: "Updated One",
+      email: "admin@example.com",
+      phone: "09111111111",
+      userType: "admin",
+      role: "admin",
+    }));
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      first: "Updated",
+      last: "One",
+      email: "admin@example.com",
+      phone: "09111111111",
+      userType: "Admin",
+      role: "Admin",
+    }));
+    expect(__testModels.User.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty("role");
+    expect(__testModels.User.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty("userType");
+    expect(__testModels.User.findOneAndUpdate.mock.calls[0][1]).not.toHaveProperty("status");
+  });
+
+  test("authenticated Admin can update own last name only", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: { last: "  Updated  " },
+    });
+
+    expect(response.status).toBe(200);
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      first: "Admin",
+      last: "Updated",
+      name: "Admin Updated",
+      role: "Admin",
+    }));
+  });
+
+  test("authenticated Admin can update own valid unique email only", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: { email: " Updated.Admin@Example.com " },
+    });
+
+    expect(response.status).toBe(200);
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      email: "updated.admin@example.com",
+      role: "Admin",
+    }));
+    expect(response.body.token).toEqual(expect.any(String));
+  });
+
+  test("authenticated Admin can update own valid phone only", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: { phone: "09998887777" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      phone: "09998887777",
+      role: "Admin",
+    }));
+  });
+
+  test("authenticated Admin can update all normal profile fields while preserving Admin role", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: {
+        first: "  Updated  ",
+        last: " Admin ",
+        email: "Updated.Admin@Example.com",
+        phone: "09998887777",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
+      first: "Updated",
       last: "Admin",
       name: "Updated Admin",
       email: "updated.admin@example.com",
       phone: "09998887777",
+      userType: "Admin",
+      role: "Admin",
     }));
+  });
+
+  test("legacy Owner Admin can update profile without being rejected by canonical Admin role validation", async () => {
+    resetData([legacyOwnerAdminUser]);
+    const response = await request("/api/admin/users/ADM-LEGACY?refreshSession=1", {
+      token: auth(legacyOwnerAdminUser),
+      body: {
+        first: "Updated Owner",
+        email: "updated.owner@example.com",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.user).toEqual(expect.objectContaining({
+      id: "ADM-LEGACY",
+      first: "Updated Owner",
+      email: "updated.owner@example.com",
+      userType: "admin",
+      role: "owner",
+    }));
+    expect(users.find((user) => user.id === "ADM-LEGACY")).toEqual(expect.objectContaining({
+      first: "Updated Owner",
+      email: "updated.owner@example.com",
+      userType: "",
+      role: "Owner",
+    }));
+  });
+
+  test("crafted self-profile request cannot change role or protected account fields", async () => {
+    const response = await request("/api/admin/users/ADM-1?refreshSession=1", {
+      token: auth(adminUser),
+      body: {
+        first: "Updated",
+        role: "Staff",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Profile updates cannot change protected account fields.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
     expect(users.find((user) => user.id === "ADM-1")).toEqual(expect.objectContaining({
-      first: "Updated",
-      last: "Admin",
-      email: "updated.admin@example.com",
-      phone: "09998887777",
+      role: "Admin",
+      userType: "Admin",
     }));
+  });
+
+  test("Admin cannot use profile refresh endpoint to spoof another user's identity", async () => {
+    resetData([secondAdminUser]);
+    const response = await request("/api/admin/users/ADM-2?refreshSession=1", {
+      token: auth(adminUser),
+      body: {
+        first: "Spoofed",
+        last: "Admin",
+        email: "spoofed@example.com",
+        phone: "09998887777",
+      },
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Special password is required.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(users.find((user) => user.id === "ADM-2")).toEqual(expect.objectContaining({
+      first: "Admin",
+      email: "admin.two@example.com",
+    }));
+  });
+
+  test("User Management still rejects invalid Admin role mutation", async () => {
+    resetData([secondAdminUser]);
+    const response = await putUser("ADM-2", {
+      id: "ADM-2",
+      name: "Admin Two",
+      first: "Admin",
+      last: "Two",
+      userType: "Admin",
+      role: "Owner",
+      email: "admin.two@example.com",
+      phone: "09222222222",
+      status: "active",
+      specialPassword: "AdminSpecial1!",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Admin accounts must use the Admin role.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   test.each([

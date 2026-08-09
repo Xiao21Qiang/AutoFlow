@@ -145,6 +145,9 @@ describe("Admin Profile Edit Account", () => {
 
     expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
     expect(mockUpdateProfile).toHaveBeenCalledWith(expectedPayload);
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("role");
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("userType");
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("status");
   });
 
   test("multiple valid profile fields update together and reflected values are shown", async () => {
@@ -168,6 +171,30 @@ describe("Admin Profile Edit Account", () => {
     expect(screen.getByDisplayValue("Admin")).toBeInTheDocument();
     expect(screen.getByDisplayValue("updated@example.com")).toBeInTheDocument();
     expect(screen.getByDisplayValue("09998887777")).toBeInTheDocument();
+  });
+
+  test("first-name update does not surface Admin role validation for legacy admin role data", async () => {
+    mockUpdateProfile.mockImplementationOnce(async (payload) => {
+      if (Object.prototype.hasOwnProperty.call(payload, "role")) {
+        throw new Error("Admin accounts must use the Admin role.");
+      }
+      return { ...session, ...payload, role: "Owner" };
+    });
+    renderProfile({ role: "Owner" });
+    openEditAccount();
+
+    fireEvent.change(input("Edit first name"), { target: { value: "Updated Admin" } });
+    await saveChanges();
+
+    await waitFor(() => expect(screen.queryByText("Admin accounts must use the Admin role.")).not.toBeInTheDocument());
+    expect(mockUpdateProfile).toHaveBeenCalledWith({
+      first: "Updated Admin",
+      last: "One",
+      email: "admin@example.com",
+      phone: "09111111111",
+    });
+    await waitFor(() => expect(screen.queryByText("Update your personal information")).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue("Updated Admin")).toBeInTheDocument();
   });
 
   test("backend error keeps modal open and shows the error", async () => {
