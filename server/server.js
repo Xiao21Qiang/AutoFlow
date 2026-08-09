@@ -437,7 +437,7 @@ function ensureUserDocumentId(user, prefix = "USR") {
 }
 
 function toTimestamp() {
-  return new Date().toLocaleString("en-PH", { hour12: true });
+  return new Date().toISOString();
 }
 
 function toDateKey(date = new Date()) {
@@ -9332,7 +9332,7 @@ app.delete("/api/admin/users/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
-function normalizeSelectedAuditLogIds(payload = {}) {
+function normalizeSelectedAuditLogIds(payload = {}, action = "archive") {
   const rawIds = payload.ids ?? payload.selectedIds ?? payload.selectedAuditLogIds;
   if (!Array.isArray(rawIds)) {
     return { error: "Selected audit log IDs are required." };
@@ -9355,16 +9355,28 @@ function normalizeSelectedAuditLogIds(payload = {}) {
   }
 
   if (!ids.length) {
-    return { error: "Select at least one audit log to archive." };
+    return { error: `Select at least one audit log to ${action}.` };
   }
 
   return { ids };
 }
 
+async function sendAuditLogIds(res, filter) {
+  const logs = await AuditLog.find(filter, { id: 1, _id: 0 }).sort({ createdAt: -1 }).lean();
+  res.json({ ids: logs.map((log) => String(log.id || "").trim()).filter(Boolean) });
+}
+
 app.get("/api/admin/audit-logs/active-ids", requireAdminUser, async (_req, res, next) => {
   try {
-    const logs = await AuditLog.find({ archived: { $ne: true } }, { id: 1, _id: 0 }).sort({ createdAt: -1 }).lean();
-    res.json({ ids: logs.map((log) => String(log.id || "").trim()).filter(Boolean) });
+    await sendAuditLogIds(res, { archived: { $ne: true } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admin/audit-logs/archived-ids", requireAdminUser, async (_req, res, next) => {
+  try {
+    await sendAuditLogIds(res, { archived: true });
   } catch (error) {
     next(error);
   }
@@ -9401,9 +9413,6 @@ app.post("/api/admin/audit-logs/archive", requireAdminUser, async (req, res, nex
         targetId: "AUDIT",
         ts: toTimestamp(),
         meta: { archivedAt, archivedAuditLogIds: selected.ids, archivedCount },
-        archived: true,
-        archivedAt,
-        archivedBy: auditUser,
       });
     }
 
@@ -9416,9 +9425,14 @@ app.post("/api/admin/audit-logs/archive", requireAdminUser, async (req, res, nex
 app.post("/api/admin/audit-logs/unarchive", requireAdminUser, async (req, res, next) => {
   try {
     const auditUser = req.body?.auditUser || req.query?.auditUser || "system";
+    const selected = normalizeSelectedAuditLogIds(req.body, "restore");
+    if (selected.error) {
+      res.status(400).json({ message: selected.error });
+      return;
+    }
 
-    await AuditLog.updateMany(
-      { archived: true },
+    const updateResult = await AuditLog.updateMany(
+      { id: { $in: selected.ids }, archived: true },
       {
         $set: {
           archived: false,
@@ -9428,7 +9442,13 @@ app.post("/api/admin/audit-logs/unarchive", requireAdminUser, async (req, res, n
       }
     );
 
-    await recordAudit(auditUser, "Unarchived audit logs", "AUDIT");
+    const restoredCount = Number(updateResult?.modifiedCount ?? updateResult?.nModified ?? 0);
+    if (restoredCount > 0) {
+      await recordAudit(auditUser, "Unarchived audit logs", "AUDIT", {
+        restoredAuditLogIds: selected.ids,
+        restoredCount,
+      });
+    }
 
     res.status(204).end();
   } catch (error) {
@@ -10129,6 +10149,7 @@ module.exports = {
   ACTION_KEYS,
   MODULE_KEYS,
   QR_TOKEN_PURPOSES,
+  toTimestamp,
   __testModels: {
     AuditLog,
     Booking,

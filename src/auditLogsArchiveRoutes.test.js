@@ -10,7 +10,7 @@ global.TextEncoder = global.TextEncoder || TextEncoder;
 
 const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
-const { __testModels, app, signJwt } = require("../server/server");
+const { __testModels, app, signJwt, toTimestamp } = require("../server/server");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -87,6 +87,10 @@ describe("Audit log archive routes", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     __testModels.AuditLog.updateMany.mockReset();
     __testModels.AuditLog.updateMany.mockResolvedValue({ modifiedCount: 2 });
@@ -99,6 +103,49 @@ describe("Audit log archive routes", () => {
       }),
     });
   });
+
+  function installAuditLogStore(initialLogs) {
+    const logs = initialLogs.map((log) => clone(log));
+
+    __testModels.AuditLog.updateMany.mockImplementation(async (query = {}, update = {}) => {
+      const selectedIds = query.id?.$in || [];
+      let modifiedCount = 0;
+      logs.forEach((log) => {
+        const matchesId = selectedIds.includes(log.id);
+        const matchesArchivedState = query.archived === true
+          ? log.archived === true
+          : query.archived?.$ne === true
+            ? log.archived !== true
+            : true;
+        if (!matchesId || !matchesArchivedState) return;
+
+        Object.assign(log, clone(update.$set || {}));
+        modifiedCount += 1;
+      });
+      return { modifiedCount };
+    });
+
+    __testModels.AuditLog.create.mockImplementation(async (payload) => {
+      const saved = clone({ id: payload.id || `AUD-CREATED-${logs.length + 1}`, ...payload });
+      logs.push(saved);
+      return saved;
+    });
+
+    __testModels.AuditLog.find.mockImplementation((query = {}) => {
+      const rows = logs.filter((log) => {
+        if (query.archived === true) return log.archived === true;
+        if (query.archived?.$ne === true) return log.archived !== true;
+        return true;
+      });
+      return {
+        sort: () => ({
+          lean: async () => clone(rows),
+        }),
+      };
+    });
+
+    return logs;
+  }
 
   test("archives only selected active audit log IDs and records the action after mutation", async () => {
     const response = await request("/api/admin/audit-logs/archive", {
@@ -119,12 +166,13 @@ describe("Audit log archive routes", () => {
     );
     expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
       action: "Archived audit logs",
-      archived: true,
       meta: expect.objectContaining({
         archivedAuditLogIds: ["AUD-1", "AUD-7"],
         archivedCount: 2,
       }),
     }));
+    expect(__testModels.AuditLog.create.mock.calls[0][0]).not.toHaveProperty("archived", true);
+    expect(__testModels.AuditLog.create.mock.calls[0][0]).not.toHaveProperty("archivedAt");
   });
 
   test.each([
@@ -154,5 +202,114 @@ describe("Audit log archive routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ids: ["AUD-1", "AUD-7"] });
     expect(__testModels.AuditLog.find).toHaveBeenCalledWith({ archived: { $ne: true } }, { id: 1, _id: 0 });
+  });
+
+  test("returns all archived audit log IDs for explicit archived Select All", async () => {
+    const response = await request("/api/admin/audit-logs/archived-ids", {
+      token: auth(admin),
+      method: "GET",
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ids: ["AUD-1", "AUD-7"] });
+    expect(__testModels.AuditLog.find).toHaveBeenCalledWith({ archived: true }, { id: 1, _id: 0 });
+  });
+
+  test("selected archive keeps the newly-created archive action audit record active", async () => {
+    const logs = installAuditLogStore([
+      { id: "AUD-A", action: "A", archived: false },
+      { id: "AUD-B", action: "B", archived: false },
+      { id: "AUD-C", action: "C", archived: false },
+    ]);
+
+    const response = await request("/api/admin/audit-logs/archive", {
+      token: auth(admin),
+      body: { auditUser: admin.email, ids: ["AUD-A"] },
+    });
+
+    expect(response.status).toBe(204);
+    expect(logs.find((log) => log.id === "AUD-A")).toEqual(expect.objectContaining({ archived: true }));
+    expect(logs.find((log) => log.id === "AUD-B").archived).not.toBe(true);
+    expect(logs.find((log) => log.id === "AUD-C").archived).not.toBe(true);
+    expect(logs.filter((log) => log.archived === true).map((log) => log.id)).toEqual(["AUD-A"]);
+
+    const actionLog = logs.find((log) => log.action === "Archived audit logs");
+    expect(actionLog).toBeTruthy();
+    expect(actionLog.archived).not.toBe(true);
+  });
+
+  test("global Select All archives only the captured pre-operation IDs and leaves the action record active", async () => {
+    const logs = installAuditLogStore([
+      { id: "AUD-A", action: "A", archived: false },
+      { id: "AUD-B", action: "B", archived: false },
+      { id: "AUD-C", action: "C", archived: false },
+    ]);
+
+    const selectionResponse = await request("/api/admin/audit-logs/active-ids", {
+      token: auth(admin),
+      method: "GET",
+    });
+
+    expect(selectionResponse.body).toEqual({ ids: ["AUD-A", "AUD-B", "AUD-C"] });
+
+    const archiveResponse = await request("/api/admin/audit-logs/archive", {
+      token: auth(admin),
+      body: { auditUser: admin.email, ids: selectionResponse.body.ids },
+    });
+
+    expect(archiveResponse.status).toBe(204);
+    expect(logs.filter((log) => log.archived === true).map((log) => log.id)).toEqual(["AUD-A", "AUD-B", "AUD-C"]);
+
+    const actionLog = logs.find((log) => log.action === "Archived audit logs");
+    expect(actionLog).toBeTruthy();
+    expect(actionLog.archived).not.toBe(true);
+  });
+
+  test("restore only selected archived IDs and records an active restore action", async () => {
+    const logs = installAuditLogStore([
+      { id: "AUD-A", action: "A", archived: true, archivedAt: "2026-08-09T01:00:00.000Z", archivedBy: "admin@example.com" },
+      { id: "AUD-B", action: "B", archived: true, archivedAt: "2026-08-09T01:00:00.000Z", archivedBy: "admin@example.com" },
+      { id: "AUD-C", action: "C", archived: false },
+    ]);
+
+    const response = await request("/api/admin/audit-logs/unarchive", {
+      token: auth(admin),
+      body: { auditUser: admin.email, ids: ["AUD-A"] },
+    });
+
+    expect(response.status).toBe(204);
+    expect(logs.find((log) => log.id === "AUD-A")).toEqual(expect.objectContaining({ archived: false, archivedAt: "", archivedBy: "" }));
+    expect(logs.find((log) => log.id === "AUD-B")).toEqual(expect.objectContaining({ archived: true }));
+
+    const actionLog = logs.find((log) => log.action === "Unarchived audit logs");
+    expect(actionLog).toBeTruthy();
+    expect(actionLog.archived).not.toBe(true);
+    expect(actionLog.meta).toEqual(expect.objectContaining({
+      restoredAuditLogIds: ["AUD-A"],
+      restoredCount: 1,
+    }));
+  });
+
+  test.each([
+    ["missing ids", {}],
+    ["empty ids", { ids: [] }],
+    ["non-audit id", { ids: ["PAY-1"] }],
+  ])("restore rejects %s without restoring anything", async (_label, body) => {
+    const response = await request("/api/admin/audit-logs/unarchive", {
+      token: auth(admin),
+      body: { auditUser: admin.email, ...body },
+    });
+
+    expect(response.status).toBe(400);
+    expect(__testModels.AuditLog.updateMany).not.toHaveBeenCalled();
+    expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
+  });
+
+  test("generates authoritative UTC ISO audit timestamps", () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-09T19:45:00.000Z"));
+
+    expect(toTimestamp()).toBe("2026-08-09T19:45:00.000Z");
+
+    jest.useRealTimers();
   });
 });

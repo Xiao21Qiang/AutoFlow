@@ -283,7 +283,7 @@ function buildReport(type, data = {}, filters = {}) {
       sections: [{
         title: "Audit Logs",
         columns: ["Audit ID", "Actor", "Action", "Entity", "Result", "Timestamp"],
-        rows: (data.auditLogs || []).map((log) => [log.id, log.userId, log.action, log.targetId || "-", log.meta?.result || "recorded", log.ts || log.createdAt || "-"]),
+        rows: (data.auditLogs || []).map((log) => [log.id, log.userId, log.action, log.targetId || "-", log.meta?.result || "recorded", formatDateTime(log.ts || log.createdAt) || log.ts || log.createdAt || "-"]),
       }],
     }),
     reviews: () => ({

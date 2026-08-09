@@ -1,23 +1,24 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import AdminAuditLogs from "./screens/admin/AdminAuditLogs";
+import AdminAuditLogs, { formatAuditTimestamp } from "./screens/admin/AdminAuditLogs";
 
 let mockAdminData;
 const mockArchiveAuditLogs = jest.fn();
 const mockUnarchiveAuditLogs = jest.fn();
 const mockGetActiveAuditLogIds = jest.fn();
+const mockGetArchivedAuditLogIds = jest.fn();
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: () => mockAdminData,
 }));
 
-function buildLogs(count) {
+function buildLogs(count, prefix = "AUD", action = "Viewed dashboard") {
   return Array.from({ length: count }, (_value, index) => {
     const number = index + 1;
     return {
-      id: `AUD-${number}`,
+      id: `${prefix}-${number}`,
       userId: `user-${number}@example.com`,
-      action: number === 3 ? "Special searched action" : "Viewed dashboard",
-      ts: `2026-08-${String(number).padStart(2, "0")} 10:00 AM`,
+      action: number === 3 ? "Special searched action" : action,
+      ts: `2026-08-${String(number).padStart(2, "0")}T02:00:00.000Z`,
       meta: {},
     };
   });
@@ -26,10 +27,11 @@ function buildLogs(count) {
 function renderAuditLogs(overrides = {}) {
   mockAdminData = {
     auditLogs: buildLogs(12),
-    archivedAuditLogs: [],
+    archivedAuditLogs: buildLogs(12, "AUD-ARCH", "Archived action"),
     archiveAuditLogs: mockArchiveAuditLogs,
     unarchiveAuditLogs: mockUnarchiveAuditLogs,
     getActiveAuditLogIds: mockGetActiveAuditLogIds,
+    getArchivedAuditLogIds: mockGetArchivedAuditLogIds,
     currentUser: { userType: "Admin" },
     ...overrides,
   };
@@ -40,11 +42,22 @@ beforeEach(() => {
   mockArchiveAuditLogs.mockReset();
   mockArchiveAuditLogs.mockResolvedValue(undefined);
   mockUnarchiveAuditLogs.mockReset();
+  mockUnarchiveAuditLogs.mockResolvedValue(undefined);
   mockGetActiveAuditLogIds.mockReset();
   mockGetActiveAuditLogIds.mockResolvedValue({ ids: buildLogs(80).map((log) => log.id) });
+  mockGetArchivedAuditLogIds.mockReset();
+  mockGetArchivedAuditLogIds.mockResolvedValue({ ids: buildLogs(42, "AUD-ARCH").map((log) => log.id) });
 });
 
 describe("AdminAuditLogs selection", () => {
+  test("shows Select All and Deselect All controls on the active tab", () => {
+    renderAuditLogs();
+
+    expect(screen.getByRole("button", { name: "Select All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect All" })).toBeDisabled();
+  });
+
   test("archives only IDs selected across pages", async () => {
     renderAuditLogs();
 
@@ -61,6 +74,23 @@ describe("AdminAuditLogs selection", () => {
 
     expect(mockArchiveAuditLogs).toHaveBeenCalledTimes(1);
     expect(mockArchiveAuditLogs).toHaveBeenCalledWith(["AUD-1", "AUD-11"]);
+  });
+
+  test("header checkbox selects only the current visible page", async () => {
+    renderAuditLogs();
+
+    fireEvent.click(screen.getByLabelText("Select all visible logs"));
+    expect(screen.getByText("10 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("›"));
+    expect(screen.getByLabelText("Select audit log AUD-11")).not.toBeChecked();
+    expect(screen.getByText("10 selected")).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Archive Logs" }));
+    });
+
+    expect(mockArchiveAuditLogs).toHaveBeenCalledWith(buildLogs(10).map((log) => log.id));
   });
 
   test("global Select All uses every active ID, not the current search results", async () => {
@@ -84,6 +114,21 @@ describe("AdminAuditLogs selection", () => {
     expect(mockArchiveAuditLogs).toHaveBeenCalledWith(buildLogs(80).map((log) => log.id));
   });
 
+  test("Deselect All clears active selections across pages", () => {
+    renderAuditLogs();
+
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-1"));
+    fireEvent.click(screen.getByText("›"));
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-11"));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deselect All" }));
+
+    expect(screen.getByText("Select logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive Logs" })).toBeDisabled();
+    expect(screen.getByLabelText("Select audit log AUD-11")).not.toBeChecked();
+  });
+
   test("does not call archive when no audit logs are selected", () => {
     renderAuditLogs();
 
@@ -92,5 +137,81 @@ describe("AdminAuditLogs selection", () => {
 
     fireEvent.click(archiveButton);
     expect(mockArchiveAuditLogs).not.toHaveBeenCalled();
+  });
+
+  test("shows archived Select All and Deselect All controls and restores selected archived IDs", async () => {
+    renderAuditLogs();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(screen.getByRole("button", { name: "Select All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-ARCH-1"));
+    fireEvent.click(screen.getByText("›"));
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-ARCH-11"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    });
+
+    expect(mockUnarchiveAuditLogs).toHaveBeenCalledWith(["AUD-ARCH-1", "AUD-ARCH-11"]);
+  });
+
+  test("archived Select All is global and Deselect All clears hidden archived selections", async () => {
+    renderAuditLogs();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    fireEvent.change(screen.getByPlaceholderText("Search Logs..."), { target: { value: "Special searched action" } });
+    expect(screen.getByText("AUD-ARCH-3")).toBeInTheDocument();
+    expect(screen.queryByText("AUD-ARCH-4")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Select All" }));
+    });
+
+    await waitFor(() => expect(screen.getByText("42 selected")).toBeInTheDocument());
+    expect(mockGetArchivedAuditLogIds).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Deselect All" }));
+
+    expect(screen.getByText("Select logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeDisabled();
+  });
+
+  test("tab changes clear selection so active and archived IDs cannot contaminate each other", () => {
+    renderAuditLogs();
+
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-1"));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+
+    expect(screen.getByText("Select logs")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore" })).toBeDisabled();
+  });
+});
+
+describe("formatAuditTimestamp", () => {
+  test("formats a stored UTC ISO instant through the user's local formatter exactly once", () => {
+    const formatterSpy = jest.spyOn(Date.prototype, "toLocaleString").mockImplementation(function mockFormatter(locale, options) {
+      expect(this.toISOString()).toBe("2026-08-09T19:45:00.000Z");
+      expect(locale).toBe("en-PH");
+      expect(options).toEqual(expect.objectContaining({
+        hour12: true,
+        second: "2-digit",
+      }));
+      return "8/10/2026, 3:45:00 AM";
+    });
+
+    expect(formatAuditTimestamp("2026-08-09T19:45:00.000Z")).toBe("8/10/2026, 3:45:00 AM");
+    expect(formatterSpy).toHaveBeenCalledTimes(1);
+
+    formatterSpy.mockRestore();
+  });
+
+  test("preserves legacy timezone-less timestamp strings as readable text", () => {
+    expect(formatAuditTimestamp("8/10/2026, 3:45:00 AM")).toBe("8/10/2026, 3:45:00 AM");
   });
 });

@@ -696,15 +696,17 @@ export function AdminDataProvider({ children, session }) {
       }),
     getActiveAuditLogIds: () =>
       apiRequest("/api/admin/audit-logs/active-ids"),
+    getArchivedAuditLogIds: () =>
+      apiRequest("/api/admin/audit-logs/archived-ids"),
     archiveAuditLogs: (ids) =>
       mutate("/api/admin/audit-logs/archive", {
         method: "POST",
         body: JSON.stringify({ auditUser, ids }),
       }),
-    unarchiveAuditLogs: () =>
+    unarchiveAuditLogs: (ids) =>
       mutate("/api/admin/audit-logs/unarchive", {
         method: "POST",
-        body: JSON.stringify({ auditUser }),
+        body: JSON.stringify({ auditUser, ids }),
       }),
     createReview: (payload) => mutate("/api/admin/reviews", { method: "POST", body: JSON.stringify({ ...payload, auditUser }) }),
     updateReview: (id, payload) => mutate("/api/admin/reviews/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),

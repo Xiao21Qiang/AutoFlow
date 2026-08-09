@@ -14,8 +14,33 @@ function getAuditDetail(log) {
   return "";
 }
 
+export function formatAuditTimestamp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleString("en-PH", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+}
+
 export default function AdminAuditLogs() {
-  const { auditLogs, archivedAuditLogs, archiveAuditLogs, unarchiveAuditLogs, getActiveAuditLogIds, currentUser } = useAdminData();
+  const {
+    auditLogs,
+    archivedAuditLogs,
+    archiveAuditLogs,
+    unarchiveAuditLogs,
+    getActiveAuditLogIds,
+    getArchivedAuditLogIds,
+    currentUser,
+  } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -27,15 +52,15 @@ export default function AdminAuditLogs() {
   const canArchiveLogs = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
 
   const getLogSelectionKey = (log) => String(log?.id || log?._id || "").trim();
-  const activeLogIds = useMemo(
-    () => auditLogs.map(getLogSelectionKey).filter(Boolean),
-    [auditLogs]
+  const sourceLogIds = useMemo(
+    () => sourceLogs.map(getLogSelectionKey).filter(Boolean),
+    [sourceLogs]
   );
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
     return sourceLogs.filter((l) => {
-      const matchesQuery = !q || `${l.id} ${l.userId} ${l.action} ${l.ts} ${getAuditDetail(l)}`.toLowerCase().includes(q);
+      const matchesQuery = !q || `${l.id} ${l.userId} ${l.action} ${l.ts} ${formatAuditTimestamp(l.ts)} ${getAuditDetail(l)}`.toLowerCase().includes(q);
       const matchesUser = !filters.userId || l.userId === filters.userId;
       const matchesAction = !filters.action || l.action === filters.action;
       return matchesQuery && matchesUser && matchesAction;
@@ -78,11 +103,11 @@ export default function AdminAuditLogs() {
     });
   };
 
-  const selectAllActiveLogs = async () => {
-    if (showArchived) return;
+  const selectAllLogs = async () => {
     setIsSelectingAll(true);
     try {
-      const result = typeof getActiveAuditLogIds === "function" ? await getActiveAuditLogIds() : { ids: activeLogIds };
+      const fetchIds = showArchived ? getArchivedAuditLogIds : getActiveAuditLogIds;
+      const result = typeof fetchIds === "function" ? await fetchIds() : { ids: sourceLogIds };
       const ids = Array.isArray(result) ? result : result?.ids;
       setSelectedLogIds([...new Set((ids || []).map((id) => String(id || "").trim()).filter(Boolean))]);
     } finally {
@@ -90,11 +115,22 @@ export default function AdminAuditLogs() {
     }
   };
 
+  const deselectAllLogs = () => {
+    setSelectedLogIds([]);
+  };
+
   const archiveSelectedLogs = async () => {
     const idsToArchive = [...new Set(selectedLogIds.map((id) => String(id || "").trim()).filter(Boolean))];
     if (!idsToArchive.length) return;
     await archiveAuditLogs(idsToArchive);
     setSelectedLogIds((prev) => prev.filter((id) => !idsToArchive.includes(id)));
+  };
+
+  const restoreSelectedLogs = async () => {
+    const idsToRestore = [...new Set(selectedLogIds.map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!idsToRestore.length) return;
+    await unarchiveAuditLogs(idsToRestore);
+    setSelectedLogIds((prev) => prev.filter((id) => !idsToRestore.includes(id)));
   };
 
   const exportPdf = () =>
@@ -139,9 +175,10 @@ export default function AdminAuditLogs() {
         <div className="auditBtns">
           <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div>
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
-          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllActiveLogs} disabled={isSelectingAll}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
-          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveSelectedLogs} disabled={!selectedLogIds.length}>Archive Logs</button> : null}
-          {canArchiveLogs && showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={unarchiveAuditLogs}>Restore</button> : null}
+          {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllLogs} disabled={isSelectingAll || sourceLogIds.length === 0}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
+          {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={deselectAllLogs} disabled={!selectedLogIds.length || isSelectingAll}>Deselect All</button> : null}
+          {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveSelectedLogs} disabled={!selectedLogIds.length || isSelectingAll}>Archive Logs</button> : null}
+          {canArchiveLogs && showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={restoreSelectedLogs} disabled={!selectedLogIds.length || isSelectingAll}>Restore</button> : null}
         </div>
       </div>
 
@@ -185,7 +222,7 @@ export default function AdminAuditLogs() {
                   <span>{r.action}</span>
                   {getAuditDetail(r) ? <span className="auditActionDetail">{getAuditDetail(r)}</span> : null}
                 </span>
-                <span className="auditTime">{r.ts}</span>
+                <span className="auditTime">{formatAuditTimestamp(r.ts)}</span>
               </button>
             );
           })
