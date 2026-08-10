@@ -361,6 +361,13 @@
   border-radius: 12px;
   background: #fff;
   padding: 8px 10px;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.stOverviewItem.stAttentionItemClickable:hover {
+  background: #fafafa;
+  border-color: var(--gold-dark);
+  box-shadow: 0 2px 8px rgba(212, 160, 23, 0.08);
 }
 
 .stOverviewName {
@@ -432,8 +439,36 @@
   line-height: 1.35;
 }
 
+.stQuoteDetailItem select {
+  height: 36px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #111827;
+}
+
 .stQuoteDetailItemWide {
   grid-column: 1 / -1;
+}
+
+.stDetailModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.stDetailModalCard {
+  width: min(100%, 760px);
+  max-height: 88vh;
+  overflow-y: auto;
+  margin: 0;
 }
 
 /* ── RESPONSIVE ── */

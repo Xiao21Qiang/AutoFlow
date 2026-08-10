@@ -1,6 +1,7 @@
 import "../../styles/css/staff/staffDashboardStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { DashboardBookingModal, DashboardQuoteRequestModal, quoteStatusLabel } from "../../components/dashboard/DashboardDetailModals";
 import { getOutstandingBalance, getRecognizedRevenue, getStockState, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -45,6 +46,7 @@ export default function StaffDashboard({ goTo }) {
   const [monthDate, setMonthDate] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today));
   const [selectedQuoteRequest, setSelectedQuoteRequest] = useState(null);
+  const [selectedBookingId, setSelectedBookingId] = useState("");
 
   const bookingsByDate = useMemo(() => {
     const map = new Map();
@@ -69,7 +71,14 @@ export default function StaffDashboard({ goTo }) {
   const pendingPaymentsCount = pendingPayments.length;
   const pendingPaymentsTotal = pendingPayments.reduce((sum, payment) => sum + getOutstandingBalance(payment), 0);
   const recentQuoteRequests = quoteRequests;
-  const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
+  const paymentByBookingId = useMemo(
+    () => new Map(payments.map((payment) => [payment.bookingId || payment.id, payment])),
+    [payments]
+  );
+  const selectedBooking = useMemo(
+    () => bookings.find((booking) => String(booking.id || "") === selectedBookingId) || null,
+    [bookings, selectedBookingId]
+  );
   const stockSummary = useMemo(() => {
     const criticalItems = [];
     const lowItems = [];
@@ -182,40 +191,22 @@ export default function StaffDashboard({ goTo }) {
         </div>
       </div>
 
-      {selectedQuoteRequest && (
-        <div className="stDashCard stQuoteDetailCard">
-          <div className="stQuoteDetailHead">
-            <div>
-              <div className="stDashTitle">Quote Request Details</div>
-              <div className="stDashSub">Review the selected landing-page quote request.</div>
-            </div>
-            <button type="button" className="stQuoteDetailClose" onClick={() => setSelectedQuoteRequest(null)}>Close</button>
-          </div>
-          <div className="stQuoteDetailGrid">
-            <div className="stQuoteDetailItem"><span>Name</span><strong>{selectedQuoteRequest.fullName || "-"}</strong></div>
-            <div className="stQuoteDetailItem"><span>Phone</span><strong>{selectedQuoteRequest.phone || "-"}</strong></div>
-            <div className="stQuoteDetailItem"><span>Vehicle Type</span><strong>{selectedQuoteRequest.vehicleType || "-"}</strong></div>
-            <div className="stQuoteDetailItem"><span>Car Size</span><strong>{selectedQuoteRequest.carSize || "-"}</strong></div>
-            <div className="stQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
-            <div className="stQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
-            <div className="stQuoteDetailItem stQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <label className="stQuoteDetailItem stQuoteDetailItemWide">
-              <span>Status</span>
-              <select
-                value={quoteStatusLabel(selectedQuoteRequest.status)}
-                onChange={async (event) => {
-                  const status = event.target.value;
-                  await updateQuoteRequest(selectedQuoteRequest.id, { status });
-                  setSelectedQuoteRequest((prev) => ({ ...prev, status }));
-                }}
-              >
-                <option>Under Review</option>
-                <option>Received</option>
-              </select>
-            </label>
-          </div>
-        </div>
-      )}
+      <DashboardQuoteRequestModal
+        selectedQuoteRequest={selectedQuoteRequest}
+        onClose={() => setSelectedQuoteRequest(null)}
+        updateQuoteRequest={async (id, payload) => {
+          await updateQuoteRequest(id, payload);
+          setSelectedQuoteRequest((prev) => (prev?.id === id ? { ...prev, ...payload } : prev));
+        }}
+        classPrefix="st"
+      />
+
+      <DashboardBookingModal
+        selectedBooking={selectedBooking}
+        onClose={() => setSelectedBookingId("")}
+        paymentByBookingId={paymentByBookingId}
+        classPrefix="st"
+      />
 
       <div className="stCalendarCard">
         <div className="stDashTitle">Calendar Summary</div>
@@ -272,10 +263,10 @@ export default function StaffDashboard({ goTo }) {
                 {upcomingBookings.length === 0 ? (
                   <div className="stOverviewItem"><div className="stOverviewName">No upcoming bookings</div><div className="stOverviewMeta">Future schedules will appear here once new appointments are added.</div></div>
                 ) : upcomingBookings.map((b) => (
-                  <div className="stOverviewItem" key={`upcoming-${b.id}`}>
+                  <button className="stOverviewItem stAttentionItemClickable" type="button" key={`upcoming-${b.id}`} onClick={() => setSelectedBookingId(String(b.id || ""))}>
                     <div className="stOverviewName">{b.customer} — {b.service}</div>
                     <div className="stOverviewMeta">{b.date} {b.time ? `• ${b.time}` : ""} • {b.status}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -283,10 +274,10 @@ export default function StaffDashboard({ goTo }) {
               {selectedBookings.length === 0 ? (
                 <div className="stOverviewItem"><div className="stOverviewName">No bookings</div><div className="stOverviewMeta">No records for this day.</div></div>
               ) : selectedBookings.map((b) => (
-                <div className="stOverviewItem" key={b.id}>
+                <button className="stOverviewItem stAttentionItemClickable" type="button" key={b.id} onClick={() => setSelectedBookingId(String(b.id || ""))}>
                   <div className="stOverviewName">{b.customer} — {b.service}</div>
                   <div className="stOverviewMeta">{b.vehicle} • Status: {b.status}</div>
-                </div>
+                </button>
               ))}
             </div>
           </div>

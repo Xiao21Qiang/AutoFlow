@@ -1,6 +1,7 @@
 import "../../styles/css/admin/adminDashboardStyle.css";
 import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
+import { DashboardBookingModal, DashboardQuoteRequestModal, quoteStatusLabel } from "../../components/dashboard/DashboardDetailModals";
 import { getOutstandingBalance, getRecognizedRevenue, getStockState, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -113,7 +114,6 @@ export default function AdminDashboard({ goTo }) {
     () => new Map(payments.map((payment) => [payment.bookingId || payment.id, payment])),
     [payments]
   );
-  const quoteStatusLabel = (status) => String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 
   return (
     <div className="adminDashWrap">
@@ -171,56 +171,20 @@ export default function AdminDashboard({ goTo }) {
         </div>
       </div>
 
-      {selectedQuoteRequest && (
-        <div className="adminDetailModalOverlay" onClick={() => setSelectedQuoteRequest(null)}>
-        <div className="adminDashCard adminQuoteDetailCard adminDetailModalCard" onClick={(e) => e.stopPropagation()}>
-          <div className="adminQuoteDetailHead">
-            <div>
-              <div className="adminDashTitle">Quote Request Details</div>
-              <div className="adminDashSub">Review the selected landing-page quote request.</div>
-            </div>
-            <button type="button" className="adminQuoteDetailClose" onClick={() => setSelectedQuoteRequest(null)}>Close</button>
-          </div>
-          <div className="adminQuoteDetailGrid">
-            <div className="adminQuoteDetailItem"><span>Name</span><strong>{selectedQuoteRequest.fullName || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Phone</span><strong>{selectedQuoteRequest.phone || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Vehicle Type</span><strong>{selectedQuoteRequest.vehicleType || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Car Size</span><strong>{selectedQuoteRequest.carSize || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedQuoteRequest.service || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Estimate</span><strong>{selectedQuoteRequest.estimateLabel || "Custom quote available upon review"}</strong></div>
-            <div className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Message</span><strong>{selectedQuoteRequest.message || "No additional notes provided."}</strong></div>
-            <label className="adminQuoteDetailItem adminQuoteDetailItemWide"><span>Status</span><select value={quoteStatusLabel(selectedQuoteRequest.status)} onChange={async (event) => { await updateQuoteRequest(selectedQuoteRequest.id, { status: event.target.value }); setSelectedQuoteRequest((prev) => ({ ...prev, status: event.target.value })); }}><option>Under Review</option><option>Received</option></select></label>
-          </div>
-        </div>
-        </div>
-      )}
+      <DashboardQuoteRequestModal
+        selectedQuoteRequest={selectedQuoteRequest}
+        onClose={() => setSelectedQuoteRequest(null)}
+        updateQuoteRequest={async (id, payload) => {
+          await updateQuoteRequest(id, payload);
+          setSelectedQuoteRequest((prev) => (prev?.id === id ? { ...prev, ...payload } : prev));
+        }}
+      />
 
-      {selectedBooking && (
-        <div className="adminDetailModalOverlay" onClick={() => setSelectedBooking(null)}>
-        <div className="adminDashCard adminQuoteDetailCard adminDetailModalCard" onClick={(e) => e.stopPropagation()}>
-          <div className="adminQuoteDetailHead">
-            <div>
-              <div className="adminDashTitle">Booking Details</div>
-              <div className="adminDashSub">Selected booking summary.</div>
-            </div>
-            <button type="button" className="adminQuoteDetailClose" onClick={() => setSelectedBooking(null)}>Close</button>
-          </div>
-          <div className="adminQuoteDetailGrid">
-            <div className="adminQuoteDetailItem"><span>Booking ID</span><strong>{selectedBooking.id || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Customer</span><strong>{selectedBooking.customer || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Vehicle</span><strong>{selectedBooking.vehicle || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Plate Number</span><strong>{selectedBooking.plate || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Service</span><strong>{selectedBooking.service || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Promo</span><strong>{selectedBooking.promoTitle || selectedBooking.promoId || "No promo"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Car Size</span><strong>{selectedBooking.carSize || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Date</span><strong>{selectedBooking.date || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Time</span><strong>{selectedBooking.time || "No time selected"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Status</span><strong>{selectedBooking.status || "-"}</strong></div>
-            <div className="adminQuoteDetailItem"><span>Payment Status</span><strong>{paymentByBookingId.get(selectedBooking.id)?.status || "-"}</strong></div>
-          </div>
-        </div>
-        </div>
-      )}
+      <DashboardBookingModal
+        selectedBooking={selectedBooking}
+        onClose={() => setSelectedBooking(null)}
+        paymentByBookingId={paymentByBookingId}
+      />
 
       <div className="adminCalendarCard">
         <div className="adminDashTitle">Calendar Summary</div>
