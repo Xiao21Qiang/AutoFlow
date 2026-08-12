@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminTracking from "./screens/admin/AdminTracking";
+import { ACTION_KEYS } from "./utils/rbac";
 
 const mockUpdateBooking = jest.fn();
 const mockGenerateTrackingIssueNote = jest.fn();
+const mockSecurityConfirm = jest.fn();
 
 let mockBookings = [];
+let mockCurrentUser = null;
 
 const activeDetailerOne = {
   id: "STF-1",
@@ -38,6 +41,8 @@ const deletedDetailer = {
   role: "Senior Detailer",
   status: "deleted",
 };
+const mockAdminUser = { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" };
+const generalManagerUser = { id: "STF-GM", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" };
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: () => ({
@@ -48,13 +53,19 @@ jest.mock("./context/AdminDataContext", () => ({
       activeDetailerTwo,
       customerUser,
       deletedDetailer,
-      { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin", status: "active" },
+      { ...mockAdminUser, status: "active" },
     ],
-    currentUser: { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" },
+    currentUser: mockCurrentUser,
     updateBooking: mockUpdateBooking,
     generateTrackingIssueNote: mockGenerateTrackingIssueNote,
   }),
 }));
+
+jest.mock("./components/common/SecurityConfirmModal", () => (props) => {
+  mockSecurityConfirm(props);
+  if (!props.open) return null;
+  return <div role="dialog" aria-label={props.title || "Security confirmation"}>{props.message}</div>;
+});
 
 function seedBookings(overrides = {}) {
   mockBookings = [
@@ -92,8 +103,10 @@ function selectOptionValues(select) {
 
 beforeEach(() => {
   seedBookings();
+  mockCurrentUser = mockAdminUser;
   mockUpdateBooking.mockReset();
   mockGenerateTrackingIssueNote.mockReset();
+  mockSecurityConfirm.mockReset();
   mockUpdateBooking.mockImplementation(async (id, payload) => {
     const index = mockBookings.findIndex((booking) => booking.id === id);
     const updated = { ...mockBookings[index], ...payload };
@@ -178,5 +191,25 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(mockUpdateBooking).toHaveBeenCalledTimes(1);
     resolveUpdate();
     await waitFor(() => expect(screen.queryByText("Saving...")).not.toBeInTheDocument());
+  });
+
+  test("uses actor-derived special credential scope for General Manager tracking cancellation", () => {
+    mockCurrentUser = generalManagerUser;
+    openEditModal();
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "Cancelled" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByRole("dialog", { name: "Cancel Tracking Record" })).toBeInTheDocument();
+    expect(screen.getByText("Enter the special PIN before cancelling this tracking record.")).toBeInTheDocument();
+
+    const openSecurityProps = mockSecurityConfirm.mock.calls
+      .map(([props]) => props)
+      .reverse()
+      .find((props) => props.open);
+    expect(openSecurityProps.currentUser).toEqual(generalManagerUser);
+    expect(openSecurityProps.scope).toBeUndefined();
+    expect(openSecurityProps.actionKey).toBe(ACTION_KEYS.bookingUpdateStatus);
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 });

@@ -114,3 +114,39 @@ describe("General Manager Bookings parity shell", () => {
     expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
   });
 });
+
+describe("General Manager Service Tracking parity shell", () => {
+  test("uses canonical Admin Tracking features for unassigned tracking records", () => {
+    setContext({
+      bookings: [{
+        ...baseData.bookings[0],
+        id: "B-TRACK-1",
+        status: "Scheduled",
+        assigned: "Detailer One",
+        issueNote: "",
+        issueTypes: [],
+        issueMarkers: [],
+        warrantyChecklistItems: [],
+      }],
+    });
+    renderStaffMain();
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.queryByText("View only")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit Tracking Row")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assigned To")).toBeEnabled();
+  });
+
+  test("other Staff roles keep assigned-only Staff Tracking behavior", () => {
+    setContext({ currentUser: seniorDetailer });
+    renderStaffMain(seniorDetailer);
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+
+    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
+    expect(screen.getByText("View only")).toBeInTheDocument();
+  });
+});

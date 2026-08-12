@@ -1,3 +1,5 @@
+import { ACTION_KEYS, canPerformAction, getEffectiveRole } from "./rbac";
+
 export function normalizeComparable(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -72,10 +74,17 @@ export function isAssignedStaffForBooking(booking = {}, user = {}) {
   return bookingAssignedValues.some((assignedValue) => userValues.includes(assignedValue));
 }
 
+export function canManageTrackingAction(user = {}, actionKey = "") {
+  return (
+    isAdminUser(user) ||
+    (getEffectiveRole(user) === "general manager" && canPerformAction(user, actionKey))
+  );
+}
+
 export function canEditIssueNotes({ booking = {}, currentUser = {}, allowAdmin = false } = {}) {
   const safeBooking = booking || {};
   if (!isScheduledStatus(safeBooking.status)) return false;
-  if (allowAdmin && isAdminUser(currentUser)) return true;
+  if (allowAdmin && canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes)) return true;
   return isAssignedStaffForBooking(safeBooking, currentUser);
 }
 
@@ -87,7 +96,7 @@ export function getIssueNotesLockedMessage({ booking = {}, currentUser = {}, all
   if (!allowAdmin && !isAssignedStaffForBooking(safeBooking, currentUser)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
-  if (allowAdmin && !isAdminUser(currentUser) && !isAssignedStaffForBooking(safeBooking, currentUser)) {
+  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes) && !isAssignedStaffForBooking(safeBooking, currentUser)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
   return "";

@@ -1,5 +1,6 @@
 import { getLinkedPaymentForBooking as findLinkedPaymentForBooking } from "./bookingWorkflow";
-import { isAdminUser, isAssignedStaffForBooking, normalizeComparable } from "./trackingIssueNotes";
+import { ACTION_KEYS } from "./rbac";
+import { canManageTrackingAction, isAssignedStaffForBooking, normalizeComparable } from "./trackingIssueNotes";
 
 const WARRANTY_EXEMPT_SERVICES = new Set([
   "car wash",
@@ -44,7 +45,7 @@ export function canEditWarranty(booking = {}, payment = null, currentUser = {}, 
   if (isWarrantyExemptService(booking)) return false;
   if (!isInProgressStatus(booking.status)) return false;
   if (!isFullPaymentPaid(payment)) return false;
-  if (allowAdmin && isAdminUser(currentUser)) return true;
+  if (allowAdmin && canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateWarranty)) return true;
   return isAssignedStaffForBooking(booking, currentUser);
 }
 
@@ -64,7 +65,7 @@ export function getWarrantyBlockReason(booking = {}, payment = null, currentUser
   if (!allowAdmin && !isAssignedStaffForBooking(booking, currentUser)) {
     return "Only the assigned staff can edit warranty details for this booking.";
   }
-  if (allowAdmin && !isAdminUser(currentUser) && !isAssignedStaffForBooking(booking, currentUser)) {
+  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateWarranty) && !isAssignedStaffForBooking(booking, currentUser)) {
     return "Only the assigned staff can edit warranty details for this booking.";
   }
   return "";
