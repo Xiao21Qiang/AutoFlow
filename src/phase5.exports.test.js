@@ -127,6 +127,9 @@ describe("Phase 5 export helpers", () => {
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "financial")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "my-work")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "commissions")).toBe(true);
+    expect(canExportReport({ userType: "Admin", role: "Admin" }, "reward-history")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "General Manager" }, "reward-history")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "reward-history")).toBe(false);
     expect(ACTION_KEYS.commissionExport).toBe("commission.export");
   });
 });

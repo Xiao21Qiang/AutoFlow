@@ -108,6 +108,7 @@ describe("Phase 1 private bootstrap visibility", () => {
     ],
     users: [
       { id: "USR-CUSTOMER", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New" },
+      { id: "GM", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" },
       { id: "SENIOR", email: "senior@example.com", name: "Senior One", userType: "Staff", role: "Senior Detailer", status: "active" },
       { id: "JUNIOR", email: "junior@example.com", name: "Junior One", userType: "Staff", role: "Junior Detailer", status: "active" },
     ],
@@ -124,7 +125,7 @@ describe("Phase 1 private bootstrap visibility", () => {
       { id: "COM-SENIOR", bookingId: "BK-OWN", worker: "Senior One", earned: 1000 },
       { id: "COM-JUNIOR", bookingId: "BK-JUNIOR", worker: "Junior One", earned: 500 },
     ],
-    rewards: [],
+    rewards: [{ id: "RWD-1", name: "Loyalty Spark", active: true }],
     customerRewards: [
       { id: "CR-OWN", customerId: "USR-CUSTOMER", customerEmail: "customer@example.com" },
       { id: "CR-OTHER", customerId: "USR-OTHER", customerEmail: "other@example.com" },
@@ -161,5 +162,19 @@ describe("Phase 1 private bootstrap visibility", () => {
     expect(scoped.bookings.map((item) => item.id)).toEqual(["BK-OWN", "BK-JUNIOR"]);
     expect(scoped.commissions.map((item) => item.id)).toEqual(["COM-SENIOR"]);
     expect(scoped.commissions.some((item) => item.id === "COM-JUNIOR" || item.earned === 500)).toBe(false);
+  });
+
+  test("staff Engagement bootstrap includes Reward Pool definitions but excludes Admin-only Reward History", () => {
+    const scoped = filterBootstrapDataForRole(baseData, {
+      id: "GM",
+      email: "gm@example.com",
+      name: "General Manager",
+      userType: "Staff",
+      role: "General Manager",
+    });
+
+    expect(scoped.reviews.map((item) => item.id)).toEqual(["REV-OWN", "REV-OTHER"]);
+    expect(scoped.rewards.map((item) => item.id)).toEqual(["RWD-1"]);
+    expect(scoped.customerRewards).toEqual([]);
   });
 });

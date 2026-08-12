@@ -153,6 +153,112 @@
   font-weight: 700 !important;
 }
 
+.stEngRewardCard {
+  margin-top: 14px;
+  min-height: 0;
+}
+
+.stEngRewardFilters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 160px 160px;
+  gap: 10px;
+  padding: 12px 16px 0;
+}
+
+.stEngRewardFilters input,
+.stEngRewardFilters select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.stEngRewardTableWrap {
+  overflow-x: auto;
+}
+
+.stEngRewardTbl {
+  min-width: 840px;
+}
+
+.stEngModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.stEngModalCard {
+  width: min(720px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  position: relative;
+}
+
+.stEngModalClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #111827;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.stEngRewardDetails {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.stEngRewardDetails div {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.stEngRewardDetails span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  margin-bottom: 5px;
+}
+
+.stEngRewardDetails strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stEngModalActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 @media (max-width: 1100px) {
   .stEngGrid {
     grid-template-columns: 1fr;
@@ -166,5 +272,13 @@
 
   .stEngHead {
     min-height: 0;
+  }
+
+  .stEngRewardFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .stEngRewardDetails {
+    grid-template-columns: 1fr;
   }
 }

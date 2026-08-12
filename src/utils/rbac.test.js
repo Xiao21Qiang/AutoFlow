@@ -10,6 +10,7 @@ const generalManager = { userType: "Staff", role: "General Manager" };
 const salesManager = { userType: "Staff", role: "Sales Manager" };
 const seniorDetailer = { userType: "Staff", role: "Senior Detailer" };
 const juniorDetailer = { userType: "Staff", role: "Junior Detailer" };
+const marketing = { userType: "Staff", role: "Marketing" };
 const customer = { userType: "Customer", role: "New" };
 
 describe("Phase 1 permission matrix", () => {
@@ -19,11 +20,20 @@ describe("Phase 1 permission matrix", () => {
     expect(canPerformAction(admin, ACTION_KEYS.usersManageStaff)).toBe(true);
     expect(canPerformAction(admin, ACTION_KEYS.usersDelete)).toBe(true);
 
-    for (const user of [generalManager, salesManager, seniorDetailer, juniorDetailer, customer]) {
+    for (const user of [generalManager, salesManager, seniorDetailer, juniorDetailer, marketing, customer]) {
       expect(canPerformAction(user, ACTION_KEYS.servicesManage)).toBe(false);
       expect(canPerformAction(user, ACTION_KEYS.engagementManage)).toBe(false);
       expect(canPerformAction(user, ACTION_KEYS.usersManageStaff)).toBe(false);
       expect(canPerformAction(user, ACTION_KEYS.usersDelete)).toBe(false);
+    }
+  });
+
+  test("keeps Engagement management Admin-only while Staff roles may view assigned Engagement modules", () => {
+    expect(canPerformAction(admin, ACTION_KEYS.engagementManage)).toBe(true);
+    for (const user of [generalManager, salesManager, marketing]) {
+      expect(canAccessModule(user, MODULE_KEYS.engagement)).toBe(true);
+      expect(canPerformAction(user, ACTION_KEYS.engagementView)).toBe(true);
+      expect(canPerformAction(user, ACTION_KEYS.engagementManage)).toBe(false);
     }
   });
 

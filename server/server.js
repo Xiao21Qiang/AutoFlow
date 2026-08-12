@@ -6186,7 +6186,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
       commissions: scopedCommissions,
-      customerRewards: canSeeEngagement ? data.customerRewards : [],
+      customerRewards: [],
       rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
       alerts: canSeeStock ? data.alerts : [],
     };
@@ -6221,7 +6221,7 @@ const EXPORT_REPORT_PERMISSIONS = {
   reviews: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
   promotions: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
   rewards: { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
-  "reward-history": { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin", "staff"] },
+  "reward-history": { module: MODULE_KEYS.engagement, action: ACTION_KEYS.engagementView, roles: ["admin"] },
   "my-work": { module: MODULE_KEYS.myWork, action: ACTION_KEYS.bookingView, roles: ["staff"] },
   "detailer-management": { module: MODULE_KEYS.detailerManagement, roles: ["admin", "staff"] },
 };
