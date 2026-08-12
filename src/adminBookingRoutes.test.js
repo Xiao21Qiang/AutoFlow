@@ -767,6 +767,11 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
 
     expect(response.status).toBe(200);
     expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled" });
+    expect(payments).toHaveLength(1);
+    expect(payments[0]).toMatchObject({ bookingId: "B-CANCELLED-RESCHEDULE", downPaymentStatus: "Paid" });
+    const trackingResponse = await request("/api/tracking/B-CANCELLED-RESCHEDULE", { token: auth(adminUser) });
+    expect(trackingResponse.status).toBe(200);
+    expect(trackingResponse.body).toMatchObject({ id: "B-CANCELLED-RESCHEDULE", status: "Scheduled", date: "2099-12-31", time: "13:00" });
     expect(auditLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
         userId: "admin@example.com",

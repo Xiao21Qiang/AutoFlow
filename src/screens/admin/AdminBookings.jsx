@@ -252,13 +252,16 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   );
   const downPaymentSatisfied = isBookingDownPaymentSatisfied(draftBookingForScheduling, linkedPayment);
   const currentUserRole = getEffectiveRole(currentUser);
-  const canUseCancelledRescheduleWorkflow = Boolean(
-    selectedBooking &&
-    isCancelledStatus(selectedBooking.status) &&
-    downPaymentSatisfied &&
-    canPerformAction(currentUser, ACTION_KEYS.bookingUpdateStatus) &&
-    (currentUserRole === "admin" || currentUserRole === "general manager")
-  );
+  const canRescheduleCancelledBooking = useCallback((booking) => {
+    if (!booking || !isCancelledStatus(booking.status)) return false;
+    const bookingPayment = getLinkedPaymentForBooking(booking, payments);
+    return Boolean(
+      isBookingDownPaymentSatisfied(booking, bookingPayment) &&
+      canPerformAction(currentUser, ACTION_KEYS.bookingUpdateStatus) &&
+      (currentUserRole === "admin" || currentUserRole === "general manager")
+    );
+  }, [currentUser, currentUserRole, payments]);
+  const canUseCancelledRescheduleWorkflow = Boolean(selectedBooking && canRescheduleCancelledBooking(selectedBooking));
   const scheduleRequirementsMet = canScheduleBooking(draftBookingForScheduling, linkedPayment);
   const schedulingValidationMessage = getSchedulingValidationMessage(draftBookingForScheduling, linkedPayment);
   const completionDraft = useMemo(
@@ -472,17 +475,25 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     setModal("edit");
   };
 
-  const openRescheduleModal = () => {
-    if (!selectedBooking || !canUseCancelledRescheduleWorkflow) return;
+  const openRescheduleModal = (booking = selectedBooking) => {
+    if (!booking || !canRescheduleCancelledBooking(booking)) return;
+    setSelectedBookingId(booking.id);
     setTouchedFields({});
     setFormError("");
     setForm((prev) => ({
       ...prev,
-      date: selectedBooking.date || "",
-      time: normalizeTimeInputValue(selectedBooking.time),
-      placeSlot: selectedBooking.placeSlot || "",
+      date: booking.date || "",
+      time: normalizeTimeInputValue(booking.time),
+      placeSlot: booking.placeSlot || "",
     }));
     setModal("reschedule");
+  };
+
+  const openDeleteConfirm = (booking) => {
+    if (!booking) return;
+    setSelectedBookingId(booking.id);
+    setFormError("");
+    setIsDeleteConfirmOpen(true);
   };
 
   const exportPdf = () =>
@@ -493,7 +504,13 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     <div className="bookingsWrap">
       <div className="bookingsRow"><div className="searchGroup"><div className="searchBox"><img src={icoSearch} alt="" className="searchIcon" /><input className="searchInput" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search Bookings..." /></div><button className="filterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img src={icoFilter} alt="" className="filterIcon" /></button></div><div className="actionBtns"><button className="btn btnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="btn btnGold" type="button" onClick={openAddModal}>Add New Booking</button></div></div>
 
-      <div className="tableCard"><table className="tbl"><thead className="tableHead"><tr><th>Booking ID</th><th>Booking Date</th><th>Customer</th><th>Vehicle Model</th><th>Plate Number</th><th>Service</th><th>Assigned To</th><th className="colActions">Actions</th></tr></thead><tbody>{pageRows.length === 0 ? <tr><td colSpan={8} style={{ padding: 16, color: "var(--muted)", fontWeight: 900 }}>No bookings found.</td></tr> : pageRows.map((b) => <tr key={b.id}><td>{b.id}</td><td>{formatDate(b.date)}</td><td>{b.customer}</td><td>{b.vehicle}</td><td>{b.plate || "-"}</td><td>{b.service}</td><td>{b.assigned}</td><td className="colActions"><button className="editBtn" type="button" onClick={() => openEditModal(b)}>Edit</button></td></tr>)}</tbody></table></div>
+      <div className="tableCard"><table className="tbl"><thead className="tableHead"><tr><th>Booking ID</th><th>Booking Date</th><th>Customer</th><th>Vehicle Model</th><th>Plate Number</th><th>Service</th><th>Assigned To</th><th className="colActions">Actions</th></tr></thead><tbody>{pageRows.length === 0 ? <tr><td colSpan={8} style={{ padding: 16, color: "var(--muted)", fontWeight: 900 }}>No bookings found.</td></tr> : pageRows.map((b) => {
+        const canRescheduleRow = canRescheduleCancelledBooking(b);
+        const canDeleteRow = allowDelete && isCancelledStatus(b.status);
+        return (
+          <tr key={b.id}><td>{b.id}</td><td>{formatDate(b.date)}</td><td>{b.customer}</td><td>{b.vehicle}</td><td>{b.plate || "-"}</td><td>{b.service}</td><td>{b.assigned}</td><td className="colActions"><div className="bookRowActions"><button className="editBtn" type="button" onClick={() => openEditModal(b)}>Edit</button>{canRescheduleRow ? <button className="editBtn bookActionReschedule" type="button" onClick={() => openRescheduleModal(b)}>Reschedule</button> : null}{canDeleteRow ? <button className="editBtn bookActionDelete" type="button" aria-label={`Delete ${b.id}`} onClick={() => openDeleteConfirm(b)}>Delete</button> : null}</div></td></tr>
+        );
+      })}</tbody></table></div>
 
       <div className="pagerRow"><button className="pagerBtn" type="button" onClick={() => setPage((p) => Math.max(1, p - 1))}>{"<"}</button>{Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => <span key={p} className={`pagerNum${p === safePage ? " active" : ""}`} onClick={() => setPage(p)}>{p}</span>)}<button className="pagerBtn" type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>{">"}</button></div>
 

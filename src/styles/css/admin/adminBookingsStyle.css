@@ -157,8 +157,16 @@
 }
 
 .colActions {
-  width: 100px;
+  width: 210px;
   text-align: center;
+}
+
+.bookRowActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .editBtn {
@@ -174,6 +182,17 @@
 
 .editBtn:hover {
   background: #f8fafc;
+}
+
+.bookActionReschedule {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.bookActionDelete {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff7f7;
 }
 
 .pagerRow {

@@ -101,6 +101,10 @@ async function fillValidForm({ skip = [] } = {}) {
   if (!skipped.has("placeSlot")) selectModalOption("Place Slot", "Place Slot 2");
 }
 
+function getBookingRow(bookingId) {
+  return screen.getByText(bookingId).closest("tr");
+}
+
 beforeEach(() => {
   mockData = {};
   mockCreateBooking.mockReset();
@@ -134,6 +138,8 @@ describe("Admin Add New Booking validation", () => {
     };
 
     openModalWithProps();
+    expect(within(getBookingRow("B-CANCELLED")).queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument();
+    expect(within(getBookingRow("B-CANCELLED")).getByText("Delete")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     expect(screen.getByText("Cancelled bookings are locked and cannot be edited.")).toBeInTheDocument();
@@ -172,6 +178,8 @@ describe("Admin Add New Booking validation", () => {
     };
 
     openModalWithProps({ allowDelete: false });
+    expect(within(getBookingRow("B-CANCELLED")).queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument();
+    expect(within(getBookingRow("B-CANCELLED")).queryByText("Delete")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     expect(screen.getByText("Cancelled bookings are locked and cannot be edited.")).toBeInTheDocument();
@@ -237,6 +245,10 @@ describe("Admin Add New Booking validation", () => {
     };
 
     openModalWithProps();
+    const rowActions = within(getBookingRow("B-CANCELLED"));
+    expect(rowActions.getByRole("button", { name: "Edit" })).toBeEnabled();
+    expect(rowActions.getByRole("button", { name: "Reschedule" })).toBeEnabled();
+    expect(rowActions.getByText("Delete")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     expect(screen.getByLabelText("Date")).toBeDisabled();
@@ -269,6 +281,10 @@ describe("Admin Add New Booking validation", () => {
     };
 
     openModalWithProps({ allowDelete: false });
+    const rowActions = within(getBookingRow("B-CANCELLED"));
+    expect(rowActions.getByRole("button", { name: "Edit" })).toBeEnabled();
+    expect(rowActions.getByRole("button", { name: "Reschedule" })).toBeEnabled();
+    expect(rowActions.queryByText("Delete")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     expect(screen.getByLabelText("Date")).toBeDisabled();
@@ -299,6 +315,7 @@ describe("Admin Add New Booking validation", () => {
     };
 
     openModalWithProps();
+    expect(within(getBookingRow("B-NO-DP-SERVICE")).getByRole("button", { name: "Reschedule" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeEnabled();
@@ -336,8 +353,7 @@ describe("Admin Add New Booking validation", () => {
     mockRescheduleBooking.mockResolvedValue({ id: "B-CANCELLED", status: "Scheduled" });
 
     openModalWithProps({ allowDelete: false });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reschedule Booking" }));
+    fireEvent.click(within(getBookingRow("B-CANCELLED")).getByRole("button", { name: "Reschedule" }));
 
     expect(screen.getByText("Reschedule Booking")).toBeInTheDocument();
     expect(screen.getByLabelText("Customer Name")).toHaveAttribute("readonly");
@@ -366,6 +382,61 @@ describe("Admin Add New Booking validation", () => {
       time: "13:00",
       placeSlot: 2,
       specialPin: "654321",
+    }));
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
+  });
+
+  test("Admin row Reschedule opens the dedicated workflow and uses the PATCH helper, not ordinary update", async () => {
+    mockData = {
+      bookings: [
+        {
+          id: "B-CANCELLED",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-30",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+      payments: [{ id: "PAY-CANCELLED", bookingId: "B-CANCELLED", downPaymentRequired: true, downPaymentStatus: "Paid" }],
+    };
+    mockRescheduleBooking.mockResolvedValue({ id: "B-CANCELLED", status: "Scheduled" });
+
+    openModalWithProps();
+    const rowActions = within(getBookingRow("B-CANCELLED"));
+    expect(rowActions.getByRole("button", { name: "Edit" })).toBeEnabled();
+    fireEvent.click(rowActions.getByRole("button", { name: "Reschedule" }));
+
+    expect(screen.getByText("Reschedule Booking")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Booking" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "13:00" } });
+    selectModalOption("Place Slot", "Place Slot 2");
+    fireEvent.submit(screen.getByRole("button", { name: "Confirm Reschedule" }).closest("form"));
+
+    fireEvent.change(await screen.findByLabelText("Special PIN"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "123456",
+      "admin",
+      expect.objectContaining({ userType: "Admin", role: "Admin" }),
+      ACTION_KEYS.bookingUpdateStatus
+    ));
+    await waitFor(() => expect(mockRescheduleBooking).toHaveBeenCalledWith("B-CANCELLED", {
+      date: "2099-12-31",
+      time: "13:00",
+      placeSlot: 2,
+      specialPin: "123456",
     }));
     expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
