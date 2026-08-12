@@ -5,6 +5,7 @@ import { validateSpecialCredential } from "./utils/reauth";
 
 const mockCreateBooking = jest.fn();
 const mockUpdateBooking = jest.fn();
+const mockRescheduleBooking = jest.fn();
 const mockDeleteBooking = jest.fn();
 
 const baseUsers = [
@@ -50,6 +51,7 @@ jest.mock("./context/AdminDataContext", () => ({
     currentUser: { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" },
     createBooking: mockCreateBooking,
     updateBooking: mockUpdateBooking,
+    rescheduleBooking: mockRescheduleBooking,
     deleteBooking: mockDeleteBooking,
     ...mockData,
   }),
@@ -103,13 +105,14 @@ beforeEach(() => {
   mockData = {};
   mockCreateBooking.mockReset();
   mockUpdateBooking.mockReset();
+  mockRescheduleBooking.mockReset();
   mockDeleteBooking.mockReset();
   validateSpecialCredential.mockReset();
   validateSpecialCredential.mockResolvedValue(true);
 });
 
 describe("Admin Add New Booking validation", () => {
-  test("Admin Cancelled booking shows locked controls, disabled Save, and keeps Admin delete available", () => {
+  test("Admin Cancelled booking without eligible payment is locked, cannot reschedule, and keeps Admin delete available", () => {
     mockData = {
       promos: [{ id: "PROMO-1", title: "Summer Promo", status: "active", discountType: "Fixed", discountValue: 100 }],
       bookings: [
@@ -142,10 +145,12 @@ describe("Admin Add New Booking validation", () => {
     expect(screen.getByLabelText("Place Slot")).toBeDisabled();
     expect(screen.getByDisplayValue("Cancelled")).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Reschedule Booking" })).not.toBeInTheDocument();
+    expect(screen.getByText("Down payment must be verified as paid before this booking can be rescheduled.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
   });
 
-  test("General Manager Cancelled booking is locked and cannot save, reschedule, or delete", () => {
+  test("General Manager Cancelled booking without eligible payment is locked and cannot save, reschedule, or delete", () => {
     mockData = {
       currentUser: { id: "GM-1", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" },
       bookings: [
@@ -175,6 +180,8 @@ describe("Admin Add New Booking validation", () => {
     expect(screen.getByLabelText("Place Slot")).toBeDisabled();
     expect(screen.getByDisplayValue("Cancelled")).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Reschedule Booking" })).not.toBeInTheDocument();
+    expect(screen.getByText("Down payment must be verified as paid before this booking can be rescheduled.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save Booking" }));
     expect(validateSpecialCredential).not.toHaveBeenCalled();
@@ -206,6 +213,161 @@ describe("Admin Add New Booking validation", () => {
 
     expect(screen.getByText("Edit Booking")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("Admin Cancelled booking with verified downpayment exposes Reschedule separately from Delete while Edit stays locked", () => {
+    mockData = {
+      bookings: [
+        {
+          id: "B-CANCELLED",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-31",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+      payments: [{ id: "PAY-CANCELLED", bookingId: "B-CANCELLED", downPaymentRequired: true, downPaymentStatus: "Paid" }],
+    };
+
+    openModalWithProps();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByLabelText("Date")).toBeDisabled();
+    expect(screen.getByLabelText("Time")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+  });
+
+  test("General Manager Cancelled booking with verified downpayment exposes Reschedule but never Delete", () => {
+    mockData = {
+      currentUser: { id: "GM-1", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" },
+      bookings: [
+        {
+          id: "B-CANCELLED",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-31",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+      payments: [{ id: "PAY-CANCELLED", bookingId: "B-CANCELLED", downPaymentRequired: true, downPaymentStatus: "Paid" }],
+    };
+
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByLabelText("Date")).toBeDisabled();
+    expect(screen.getByLabelText("Time")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("Cancelled no-downpayment service exposes Reschedule without verified payment warning", () => {
+    mockData = {
+      bookings: [
+        {
+          id: "B-NO-DP-SERVICE",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Car Wash",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-31",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+    };
+
+    openModalWithProps();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeEnabled();
+    expect(screen.queryByText("Down payment must be verified as paid before this booking can be rescheduled.")).not.toBeInTheDocument();
+  });
+
+  test("Reschedule modal only edits Date, Time, and Place Slot and submits through Staff PIN for GM", async () => {
+    const generalManager = {
+      id: "GM-1",
+      name: "General Manager",
+      email: "gm@example.com",
+      userType: "Staff",
+      role: "General Manager",
+    };
+    mockData = {
+      currentUser: generalManager,
+      bookings: [
+        {
+          id: "B-CANCELLED",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-30",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+      payments: [{ id: "PAY-CANCELLED", bookingId: "B-CANCELLED", downPaymentRequired: true, downPaymentStatus: "Paid" }],
+    };
+    mockRescheduleBooking.mockResolvedValue({ id: "B-CANCELLED", status: "Scheduled" });
+
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reschedule Booking" }));
+
+    expect(screen.getByText("Reschedule Booking")).toBeInTheDocument();
+    expect(screen.getByLabelText("Customer Name")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Vehicle")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Service")).toHaveAttribute("readonly");
+    expect(screen.queryByLabelText("Assigned Detailer")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Booking" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "13:00" } });
+    selectModalOption("Place Slot", "Place Slot 2");
+    fireEvent.submit(screen.getByRole("button", { name: "Confirm Reschedule" }).closest("form"));
+
+    fireEvent.change(await screen.findByLabelText("Special PIN"), { target: { value: "654321" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "654321",
+      "staff",
+      expect.objectContaining({ userType: "Staff", role: "General Manager" }),
+      ACTION_KEYS.bookingUpdateStatus
+    ));
+    await waitFor(() => expect(mockRescheduleBooking).toHaveBeenCalledWith("B-CANCELLED", {
+      date: "2099-12-31",
+      time: "13:00",
+      placeSlot: 2,
+      specialPin: "654321",
+    }));
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
   test("General Manager reschedule through shared Admin Bookings validates with Staff PIN scope and booking action", async () => {

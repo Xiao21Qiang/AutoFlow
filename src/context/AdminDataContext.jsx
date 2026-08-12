@@ -624,6 +624,7 @@ export function AdminDataProvider({ children, session }) {
       }),
     }),
     updateBooking: (id, payload) => mutate("/api/admin/bookings/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
+    rescheduleBooking: (id, payload) => mutate("/api/admin/bookings/" + id + "/reschedule", { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     reassignDetailer: (id, payload) => mutate("/api/admin/bookings/" + id + "/reassign-detailer", { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     deleteBooking: (id, payload = {}) =>
       mutate("/api/admin/bookings/" + id, {

@@ -4462,6 +4462,30 @@ function hasPaidDownPaymentForBooking(booking = {}, payment = null) {
   );
 }
 
+const RESCHEDULE_ALLOWED_BODY_FIELDS = new Set([
+  "date",
+  "time",
+  "placeSlot",
+  "specialPin",
+  "specialCredential",
+  "auditUser",
+  "scope",
+  "userType",
+  "role",
+  "actorUserType",
+  "actorRole",
+  "canReschedule",
+  "downPaymentVerified",
+  "downPaymentVerifiedAt",
+  "downPaymentRequired",
+  "paymentStatus",
+  "downPaymentStatus",
+]);
+
+function getUnexpectedRescheduleFields(body = {}) {
+  return Object.keys(body || {}).filter((field) => !RESCHEDULE_ALLOWED_BODY_FIELDS.has(field));
+}
+
 function hasAssignedStaff(booking = {}) {
   return Boolean(String(booking.assigned || "").trim());
 }
@@ -7803,6 +7827,123 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       syncCustomerSubtypeByEmail(existingBooking.customerEmail),
       syncCustomerSubtypeByEmail(booking.customerEmail),
     ]);
+    res.json(booking);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/admin/bookings/:id/reschedule", requireRoles("admin", "staff"), async (req, res, next) => {
+  try {
+    const auditUser = getAuthenticatedAuditUser(req);
+    const existingBooking = await Booking.findOne({ id: req.params.id });
+
+    if (!existingBooking) {
+      res.status(404).json({ message: "Booking not found" });
+      return;
+    }
+
+    const existingBookingObject = typeof existingBooking.toObject === "function"
+      ? existingBooking.toObject()
+      : { ...existingBooking };
+    const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const actorRole = getEffectiveRole(req.authUser);
+    const allUsersForScope = await User.find({}).lean();
+
+    if (actorType !== "admin" && actorRole !== "general manager") {
+      denyForbidden(res);
+      return;
+    }
+    if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope) || !canPerformAction(req.authUser, ACTION_KEYS.bookingUpdateStatus)) {
+      denyForbidden(res);
+      return;
+    }
+
+    if (!isCancelledStatus(existingBooking.status)) {
+      res.status(400).json({ message: "Only cancelled bookings can be rescheduled through this workflow." });
+      return;
+    }
+
+    const unexpectedFields = getUnexpectedRescheduleFields(req.body);
+    if (unexpectedFields.length) {
+      res.status(400).json({ message: `Reschedule can only update date, time, and place slot. Remove: ${unexpectedFields.join(", ")}.` });
+      return;
+    }
+
+    const linkedPaymentForBooking = await getLinkedPaymentForBooking(existingBookingObject);
+    if (!hasPaidDownPaymentForBooking(existingBookingObject, linkedPaymentForBooking)) {
+      if (!linkedPaymentForBooking) {
+        res.status(400).json({ message: "A linked payment record is required before rescheduling this booking." });
+        return;
+      }
+      res.status(400).json({ message: "Down payment must be verified as paid before rescheduling this booking." });
+      return;
+    }
+
+    if (!hasAssignedStaff(existingBookingObject)) {
+      res.status(400).json({ message: "Assigned staff is required before rescheduling this booking." });
+      return;
+    }
+
+    const nextDate = String(req.body.date || "").trim();
+    const nextTime = String(req.body.time || "").trim();
+    const nextPlaceSlot = Number(req.body.placeSlot || 0);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) {
+      res.status(400).json({ message: "Booking date is required before rescheduling." });
+      return;
+    }
+    if (isPastDateKey(nextDate)) {
+      res.status(400).json({ message: "Booking date cannot be in the past." });
+      return;
+    }
+    if (!isValidScheduleTime(nextTime)) {
+      res.status(400).json({ message: "Please choose a booking time before rescheduling." });
+      return;
+    }
+    if (!PLACE_SLOT_OPTIONS.includes(nextPlaceSlot)) {
+      res.status(400).json({ message: "A place slot is required before rescheduling." });
+      return;
+    }
+
+    await validateShopHours({ time: nextTime, service: existingBooking.service });
+    await validateBookingSlotAvailability({
+      bookingId: existingBooking.id,
+      date: nextDate,
+      time: nextTime,
+      service: existingBooking.service,
+      placeSlot: nextPlaceSlot,
+    });
+
+    await requireSpecialCredentialForRequest(req, {
+      mode: "pin",
+      scope: actorType === "staff" ? "staff" : "admin",
+      actionKey: ACTION_KEYS.bookingUpdateStatus,
+    });
+
+    const booking = await Booking.findOneAndUpdate(
+      { id: existingBooking.id },
+      {
+        date: nextDate,
+        time: nextTime,
+        placeSlot: nextPlaceSlot,
+        status: "Scheduled",
+      },
+      { new: true }
+    );
+
+    await recordAudit(auditUser, "Rescheduled booking", booking.id, {
+      customer: booking.customer,
+      customerEmail: booking.customerEmail || "",
+      previousDate: existingBookingObject.date || "",
+      previousTime: existingBookingObject.time || "",
+      previousPlaceSlot: existingBookingObject.placeSlot || 0,
+      date: booking.date,
+      time: booking.time,
+      placeSlot: booking.placeSlot,
+      status: "Scheduled",
+    });
+    await syncCustomerSubtypeByEmail(booking.customerEmail);
     res.json(booking);
   } catch (error) {
     next(error);

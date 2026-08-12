@@ -11,7 +11,7 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 import { getDetailerStaffOptions } from "../../utils/staffRoles";
-import { ACTION_KEYS } from "../../utils/rbac";
+import { ACTION_KEYS, canPerformAction, getEffectiveRole } from "../../utils/rbac";
 import {
   PLACE_SLOT_OPTIONS,
   canScheduleBooking,
@@ -182,7 +182,7 @@ function ModalSelect({
 }
 
 export default function AdminBookings({ initialAction = null, onActionHandled, allowDelete = true }) {
-  const { bookings, services, promos, users, payments, currentUser, createBooking, updateBooking, deleteBooking } = useAdminData();
+  const { bookings, services, promos, users, payments, currentUser, createBooking, updateBooking, rescheduleBooking, deleteBooking } = useAdminData();
   const serviceOptions = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
     [services]
@@ -251,6 +251,14 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     [form, selectedBooking]
   );
   const downPaymentSatisfied = isBookingDownPaymentSatisfied(draftBookingForScheduling, linkedPayment);
+  const currentUserRole = getEffectiveRole(currentUser);
+  const canUseCancelledRescheduleWorkflow = Boolean(
+    selectedBooking &&
+    isCancelledStatus(selectedBooking.status) &&
+    downPaymentSatisfied &&
+    canPerformAction(currentUser, ACTION_KEYS.bookingUpdateStatus) &&
+    (currentUserRole === "admin" || currentUserRole === "general manager")
+  );
   const scheduleRequirementsMet = canScheduleBooking(draftBookingForScheduling, linkedPayment);
   const schedulingValidationMessage = getSchedulingValidationMessage(draftBookingForScheduling, linkedPayment);
   const completionDraft = useMemo(
@@ -421,10 +429,11 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   }, [customerFieldError, form.customer, form.customerEmail, matchedCustomer]);
   useEffect(() => {
     if (!form.placeSlot) return;
+    if (!(modal === "add" || modal === "reschedule" || canEditPlaceSlot)) return;
     if (availablePlaceSlots.includes(Number(form.placeSlot))) return;
 
     setForm((prev) => (prev.placeSlot ? { ...prev, placeSlot: "" } : prev));
-  }, [availablePlaceSlots, form.placeSlot]);
+  }, [availablePlaceSlots, canEditPlaceSlot, form.placeSlot, modal]);
 
   useEffect(() => {
     if (!selectedCustomerCars.length) {
@@ -463,6 +472,19 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     setModal("edit");
   };
 
+  const openRescheduleModal = () => {
+    if (!selectedBooking || !canUseCancelledRescheduleWorkflow) return;
+    setTouchedFields({});
+    setFormError("");
+    setForm((prev) => ({
+      ...prev,
+      date: selectedBooking.date || "",
+      time: normalizeTimeInputValue(selectedBooking.time),
+      placeSlot: selectedBooking.placeSlot || "",
+    }));
+    setModal("reschedule");
+  };
+
   const exportPdf = () =>
     downloadAuthenticatedFile(buildReportDownloadPath("bookings", "pdf"), "autoflow-bookings-report.pdf")
       .catch((error) => window.alert(error.message || "Could not download report."));
@@ -479,6 +501,130 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
         <div className="bookModalOverlay">
           <div className="bookModalCard" role="dialog" aria-modal="true">
             <button className="bookModalClose" type="button" onClick={closeModal}>x</button>
+            {modal === "reschedule" && selectedBooking ? (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!canUseCancelledRescheduleWorkflow) {
+                  setFormError("Down payment must be verified as paid before this booking can be rescheduled.");
+                  return;
+                }
+                if (form.date && form.date < todayKey) {
+                  setFormError("Please select today or a future date for the booking.");
+                  return;
+                }
+                if (!form.date) {
+                  setFormError("Booking date is required before rescheduling.");
+                  return;
+                }
+                if (!form.time) {
+                  setFormError("Please choose a booking time before rescheduling.");
+                  return;
+                }
+                const shopTimeError = getShopTimeValidationMessage(form.time, selectedServiceDuration);
+                if (shopTimeError) {
+                  setFormError(shopTimeError);
+                  return;
+                }
+                if (!form.placeSlot) {
+                  setFormError(hasNoAvailableSlots ? "No place slots are available for the selected schedule." : "A place slot is required before rescheduling.");
+                  return;
+                }
+                if (!availablePlaceSlots.includes(Number(form.placeSlot))) {
+                  setFormError("That place slot is no longer available. Please choose another one.");
+                  return;
+                }
+
+                setFormError("");
+                setSecurityConfirm({
+                  mode: "pin",
+                  actionKey: ACTION_KEYS.bookingUpdateStatus,
+                  title: "Reschedule Booking",
+                  message: "Enter the special PIN before saving this reschedule.",
+                  onConfirm: async ({ secret }) => {
+                    try {
+                      await rescheduleBooking(selectedBooking.id, {
+                        date: form.date,
+                        time: form.time,
+                        placeSlot: Number(form.placeSlot || 0),
+                        specialPin: secret,
+                      });
+                      setToast({ type: "success", message: "Booking rescheduled.", id: Date.now() });
+                      setSecurityConfirm(null);
+                      setPage(1);
+                      closeModal();
+                    } catch (error) {
+                      setToast({ type: "error", message: error.message || "Failed to reschedule booking.", id: Date.now() });
+                      setFormError(error.message || "Failed to reschedule booking.");
+                      throw error;
+                    }
+                  },
+                });
+              }}
+            >
+              <div className="bookModalTitle">Reschedule Booking</div>
+              <div className="bookFieldGrid">
+                <label className="bookField"><span>Booking ID</span><input value={selectedBooking.id || ""} readOnly /></label>
+                <label className="bookField"><span>Customer Name</span><input value={selectedBooking.customer || ""} readOnly /></label>
+                <label className="bookField"><span>Vehicle</span><input value={selectedBooking.vehicle || ""} readOnly /></label>
+                <label className="bookField"><span>Service</span><input value={selectedBooking.service || ""} readOnly /></label>
+                <label className="bookField">
+                  <span>Date</span>
+                  <input
+                    type="date"
+                    aria-label="Date"
+                    min={todayKey}
+                    value={form.date}
+                    onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value, placeSlot: "" }))}
+                    required
+                  />
+                </label>
+                <label className="bookField">
+                  <span>Time</span>
+                  <select
+                    value={form.time}
+                    aria-label="Time"
+                    onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value, placeSlot: "" }))}
+                    required
+                  >
+                    <option value="">Select time</option>
+                    {timeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="bookField">
+                  <span>Place Slot</span>
+                  <ModalSelect
+                    value={form.placeSlot ? `Place Slot ${form.placeSlot}` : ""}
+                    options={placeSlotOptions}
+                    placeholder="Select place slot"
+                    disabled={!form.date || !form.time || hasNoAvailableSlots}
+                    disabledOptions={disabledPlaceSlotOptions}
+                    ariaLabel="Place Slot"
+                    onSelect={(option) => {
+                      const slot = Number(String(option).replace(/[^0-9]/g, ""));
+                      setForm((prev) => ({ ...prev, placeSlot: String(slot || "") }));
+                    }}
+                  />
+                  <div className={hasNoAvailableSlots ? "bookFieldError" : "bookSlotHint"}>
+                    {!form.date || !form.time
+                      ? "Select a date and time before choosing a place slot."
+                      : hasNoAvailableSlots
+                        ? "No place slots are available for the selected schedule."
+                        : `Choose an available place slot. Selected service duration: ${selectedServiceDuration} mins.`}
+                  </div>
+                </label>
+              </div>
+              {formError ? <div className="bookFieldError bookFormError">{formError}</div> : null}
+              <div className="bookModalActions">
+                <button className="bookTextBtn" type="button" onClick={closeModal}>Cancel</button>
+                <button className="bookPrimaryBtn" type="submit">Confirm Reschedule</button>
+              </div>
+            </form>
+            ) : (
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -876,8 +1022,14 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                 </label>
               </div>
               {formError ? <div className="bookFieldError bookFormError">{formError}</div> : null}
+              {modal === "edit" && selectedBooking && isCancelledStatus(selectedBooking.status) && !downPaymentSatisfied ? (
+                <div className="bookFieldError bookFormError">Down payment must be verified as paid before this booking can be rescheduled.</div>
+              ) : null}
 
               <div className="bookModalActions">
+                {modal === "edit" && selectedBooking && canUseCancelledRescheduleWorkflow ? (
+                  <button className="bookPrimaryBtn" type="button" onClick={openRescheduleModal}>Reschedule Booking</button>
+                ) : null}
                 {allowDelete && modal === "edit" && selectedBooking && (
                   <button
                     className="bookDangerBtn"
@@ -892,6 +1044,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                 <button className="bookPrimaryBtn" type="submit" disabled={saveBookingDisabled}>Save Booking</button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
