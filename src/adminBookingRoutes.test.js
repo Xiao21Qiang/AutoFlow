@@ -4,6 +4,7 @@
 
 const { TextDecoder, TextEncoder } = require("util");
 const http = require("http");
+const bcrypt = require("bcryptjs");
 
 global.TextDecoder = global.TextDecoder || TextDecoder;
 global.TextEncoder = global.TextEncoder || TextEncoder;
@@ -16,6 +17,7 @@ const { __testModels, app, signJwt } = require("../server/server");
 jest.setTimeout(15000);
 
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
+const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
 const customerUser = {
   id: "CUS-1",
@@ -37,7 +39,7 @@ const service = {
   mins: 60,
   allowedArrivalTimes: ["10:00", "13:00"],
 };
-const testUsers = [adminUser, marketingUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
+const testUsers = [adminUser, generalManagerUser, marketingUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -156,6 +158,26 @@ function resetData(seedBookings = []) {
   auditLogs = [];
 }
 
+function seedDeletedBooking(status = "Cancelled") {
+  resetData([
+    {
+      id: "B-DELETE",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+      status,
+    },
+  ]);
+  payments.push({ id: "PAY-DELETE", bookingId: "B-DELETE", totalAmount: 1000, finalAmount: 1000 });
+}
+
 beforeAll(async () => {
   stub(__testModels.User, "findOne", (query) => doc(findUser(query)));
   stub(__testModels.User, "find", () => chain(testUsers));
@@ -182,6 +204,12 @@ beforeAll(async () => {
     bookings[index] = { ...bookings[index], ...clone(update) };
     return doc(bookings[index]);
   });
+  stub(__testModels.Booking, "findOneAndDelete", async (query = {}) => {
+    const index = bookings.findIndex((booking) => booking.id === query.id);
+    if (index === -1) return null;
+    const [deleted] = bookings.splice(index, 1);
+    return doc(deleted);
+  });
   stub(__testModels.Payment, "create", async (payload) => {
     payments.push(clone(payload));
     return clone(payload);
@@ -192,6 +220,12 @@ beforeAll(async () => {
     if (index === -1) return null;
     payments[index] = { ...payments[index], ...clone(update) };
     return clone(payments[index]);
+  });
+  stub(__testModels.Payment, "findOneAndDelete", async (query = {}) => {
+    const index = payments.findIndex((payment) => payment.bookingId === query.bookingId);
+    if (index === -1) return null;
+    const [deleted] = payments.splice(index, 1);
+    return clone(deleted);
   });
   stub(__testModels.Payment, "countDocuments", async () => 0);
   stub(__testModels.Promo, "findOne", () => doc(null));
@@ -208,10 +242,10 @@ beforeAll(async () => {
   const securitySetting = {
     id: "autoflow-security",
     requiredDownPaymentAmount: 0,
-    adminSpecialPinHash: "hash",
-    adminSpecialPasswordHash: "hash",
-    staffSpecialPinHash: "hash",
-    staffSpecialPasswordHash: "hash",
+    adminSpecialPinHash: bcrypt.hashSync("123456", 4),
+    adminSpecialPasswordHash: bcrypt.hashSync("AdminPass1!", 4),
+    staffSpecialPinHash: bcrypt.hashSync("654321", 4),
+    staffSpecialPasswordHash: bcrypt.hashSync("StaffPass1!", 4),
     save: async () => securitySetting,
   };
   stub(__testModels.SecuritySetting, "findOne", async () => securitySetting);
@@ -281,6 +315,102 @@ describe("Admin booking creation route validation", () => {
       time: "10:00",
       placeSlot: 1,
     });
+  });
+});
+
+describe("Admin-only booking deletion route", () => {
+  test("Admin may delete a Cancelled booking with the correct Admin special PIN and authenticated audit actor", async () => {
+    seedDeletedBooking("Cancelled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: auth(adminUser),
+      body: { specialPin: "123456", auditUser: "forged@example.com" },
+    });
+
+    expect(response.status).toBe(204);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "admin@example.com",
+        action: "Deleted booking",
+        targetId: "B-DELETE",
+      }),
+    ]));
+  });
+
+  test("Admin cannot delete a non-Cancelled booking", async () => {
+    seedDeletedBooking("Scheduled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: auth(adminUser),
+      body: { specialPin: "123456" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Only cancelled bookings can be deleted.");
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+  });
+
+  test("incorrect Admin special PIN blocks deletion", async () => {
+    seedDeletedBooking("Cancelled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: auth(adminUser),
+      body: { specialPin: "000000" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+  });
+
+  test("General Manager cannot delete even a Cancelled booking with Staff credential or forged Admin body data", async () => {
+    seedDeletedBooking("Cancelled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: auth(generalManagerUser),
+      body: {
+        specialPin: "654321",
+        userType: "Admin",
+        role: "Admin",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+  });
+
+  test.each([
+    ["other Staff", marketingUser],
+    ["Customer", customerUser],
+  ])("%s cannot delete through the administrative booking route", async (_label, actor) => {
+    seedDeletedBooking("Cancelled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: auth(actor),
+      body: { specialPin: "123456" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+  });
+
+  test("unauthenticated delete is rejected", async () => {
+    seedDeletedBooking("Cancelled");
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "DELETE",
+      token: "",
+      body: { specialPin: "123456" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(bookings).toHaveLength(1);
   });
 });
 

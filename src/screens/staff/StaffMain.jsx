@@ -22,7 +22,8 @@ import AdminFinancialTracker from "../admin/AdminFinancialTracker";
 import AdminUsers from "../admin/AdminUsers";
 import AdminDetailerManagement from "../admin/AdminDetailerManagement";
 import AdminEngagement from "../admin/AdminEngagement";
-import { ACTION_KEYS, MODULE_KEYS, canAccessModule, canPerformAction, getDefaultModule } from "../../utils/rbac";
+import AdminBookings from "../admin/AdminBookings";
+import { ACTION_KEYS, MODULE_KEYS, canAccessModule, canPerformAction, getDefaultModule, getEffectiveRole } from "../../utils/rbac";
 
 import icoDashboard from "../../styles/icons/dashboard.png";
 import icoBookings from "../../styles/icons/bookings.png";
@@ -169,6 +170,7 @@ function StaffMainContent({ session, onLogout }) {
   }, [session]);
 
   const userEmail = session?.email || "staff@allprotec.com";
+  const isGeneralManager = getEffectiveRole(session) === "general manager";
 
   const avatarLetter = useMemo(() => {
     const base = String(session?.first || session?.firstName || session?.email || "S").trim();
@@ -270,7 +272,7 @@ function StaffMainContent({ session, onLogout }) {
             {screen === "dashboard" && <StaffDashboard session={session} goTo={goTo} />}
             {screen === "analytics" && <AdminAnalytics />}
             {screen === "audit" && <AdminAuditLogs />}
-            {screen === "bookings" && <StaffBookings />}
+            {screen === "bookings" && (isGeneralManager ? <AdminBookings allowDelete={false} /> : <StaffBookings />)}
             {screen === "tracking" && <StaffTracking session={session} />}
             {screen === "payments" && <StaffPayments session={session} />}
             {screen === "financial-tracker" && <AdminFinancialTracker />}

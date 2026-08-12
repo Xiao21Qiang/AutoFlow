@@ -31,6 +31,7 @@ describe("Phase 1 permission matrix", () => {
     expect(canAccessModule(generalManager, MODULE_KEYS.financialTracker)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.paymentView)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.paymentVerify)).toBe(false);
+    expect(canPerformAction(generalManager, ACTION_KEYS.bookingDelete)).toBe(false);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionViewAll)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionMarkPaid)).toBe(false);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionVoid)).toBe(false);

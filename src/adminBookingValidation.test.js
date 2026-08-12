@@ -62,6 +62,10 @@ function openQuickModal() {
   render(<AdminBookings initialAction="open-add-booking" onActionHandled={jest.fn()} />);
 }
 
+function openModalWithProps(props = {}) {
+  render(<AdminBookings {...props} />);
+}
+
 function selectModalOption(label, option) {
   fireEvent.click(screen.getByRole("button", { name: label }));
   fireEvent.click(screen.getByRole("button", { name: option }));
@@ -95,6 +99,33 @@ beforeEach(() => {
 });
 
 describe("Admin Add New Booking validation", () => {
+  test("allowDelete=false suppresses the Admin-only Delete action even for Cancelled bookings", () => {
+    mockData = {
+      bookings: [
+        {
+          id: "B-CANCELLED",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-31",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Cancelled",
+        },
+      ],
+    };
+
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByText("Edit Booking")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
   test("dashboard quick action opens the shared New Booking modal", () => {
     openQuickModal();
     expect(screen.getByText("New Booking")).toBeInTheDocument();

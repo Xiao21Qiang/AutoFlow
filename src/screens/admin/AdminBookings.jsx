@@ -180,7 +180,7 @@ function ModalSelect({
   );
 }
 
-export default function AdminBookings({ initialAction = null, onActionHandled }) {
+export default function AdminBookings({ initialAction = null, onActionHandled, allowDelete = true }) {
   const { bookings, services, promos, users, payments, currentUser, createBooking, updateBooking, deleteBooking } = useAdminData();
   const serviceOptions = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
@@ -859,7 +859,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled })
               {formError ? <div className="bookFieldError bookFormError">{formError}</div> : null}
 
               <div className="bookModalActions">
-                {modal === "edit" && selectedBooking && (
+                {allowDelete && modal === "edit" && selectedBooking && (
                   <button
                     className="bookDangerBtn"
                     type="button"

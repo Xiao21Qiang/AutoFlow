@@ -3391,6 +3391,10 @@ async function recordSafeAudit(req, action, targetId, meta = {}) {
   });
 }
 
+function getAuthenticatedAuditUser(req) {
+  return req?.authUser?.email || req?.authUser?.id || "system";
+}
+
 function formatAuditDateTime(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "Submission time not recorded";
@@ -7086,6 +7090,7 @@ app.post("/api/auth/password-change/reset", async (req, res, next) => {
 
 app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
+    const auditUser = getAuthenticatedAuditUser(req);
     const bookingDate = String(req.body.date || "").trim();
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
     if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.bookingCreate)) {
@@ -7282,7 +7287,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
         rewardId: booking.rewardId,
         booking,
         payment,
-        auditUser: req.authUser?.email || req.body.auditUser || "system",
+        auditUser,
       });
     }
 
@@ -7290,17 +7295,17 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       const consumableResult = await applyServiceConsumablesToStockMonitoring(booking.service, booking.carSize);
 
       if (consumableResult.applied) {
-        await recordAudit(req.body.auditUser, "Applied booking consumables", booking.id, {
+        await recordAudit(auditUser, "Applied booking consumables", booking.id, {
           service: booking.service,
           consumables: consumableResult.updatedItems,
         });
       }
 
-      await ensureBookingCommission(booking, req.body.auditUser);
-      await generateEligibleRewardsForBooking(booking, req.body.auditUser || "system");
+      await ensureBookingCommission(booking, auditUser);
+      await generateEligibleRewardsForBooking(booking, auditUser);
     }
 
-    await recordAudit(req.body.auditUser, "Created booking", booking.id, {
+    await recordAudit(auditUser, "Created booking", booking.id, {
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
       status: booking.status || "",
@@ -7317,6 +7322,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
 
 app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
+    const auditUser = getAuthenticatedAuditUser(req);
     const existingBooking = await Booking.findOne({ id: req.params.id });
 
     if (!existingBooking) {
@@ -7707,7 +7713,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         rewardId: existingBooking.rewardId,
         bookingId: booking.id,
         reason: "Booking reward changed before payment confirmation.",
-        auditUser: req.authUser?.email || req.body.auditUser || "system",
+        auditUser,
       });
     }
     if (booking.rewardId && String(existingBooking.rewardId || "").trim() !== String(booking.rewardId || "").trim()) {
@@ -7715,7 +7721,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         rewardId: booking.rewardId,
         booking,
         payment: syncedPayment || {},
-        auditUser: req.authUser?.email || req.body.auditUser || "system",
+        auditUser,
       });
     }
     if (nextStatus === "Cancelled") {
@@ -7724,7 +7730,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
           rewardId: booking.rewardId,
           bookingId: booking.id,
           reason: "Booking cancelled before reward usage.",
-          auditUser: req.authUser?.email || req.body.auditUser || "system",
+          auditUser,
         });
       }
       if (booking.promoId) {
@@ -7736,7 +7742,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       const consumableResult = await applyServiceConsumablesToStockMonitoring(booking.service, booking.carSize);
 
       if (consumableResult.applied) {
-        await recordAudit(req.body.auditUser, "Applied booking consumables", booking.id, {
+        await recordAudit(auditUser, "Applied booking consumables", booking.id, {
           service: booking.service,
           consumables: consumableResult.updatedItems,
         });
@@ -7744,8 +7750,8 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     }
 
     if (shouldCreateCommission) {
-      await ensureBookingCommission(booking, req.body.auditUser);
-      await generateEligibleRewardsForBooking(booking, req.body.auditUser || "system");
+      await ensureBookingCommission(booking, auditUser);
+      await generateEligibleRewardsForBooking(booking, auditUser);
       await recordAudit("system", "Payment details requested", booking.id, {
         customer: booking.customer,
         customerEmail: booking.customerEmail || "",
@@ -7753,7 +7759,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       });
     }
 
-    await recordAudit(req.body.auditUser, getBookingAuditAction(existingBooking, booking), booking.id, {
+    await recordAudit(auditUser, getBookingAuditAction(existingBooking, booking), booking.id, {
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
       status: booking.status || "",
@@ -7874,7 +7880,7 @@ app.delete("/api/admin/bookings/:id", requireAdminUser, async (req, res, next) =
     }
     await Booking.findOneAndDelete({ id: req.params.id });
     await Payment.findOneAndDelete({ bookingId: req.params.id });
-    await recordAudit(req.body.auditUser || req.query.auditUser, "Deleted booking", req.params.id);
+    await recordAudit(getAuthenticatedAuditUser(req), "Deleted booking", req.params.id);
     res.status(204).end();
   } catch (error) {
     next(error);
