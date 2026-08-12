@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import FilterModal from "../common/FilterModal";
 import SecurityConfirmModal from "../common/SecurityConfirmModal";
 import ToastMessage from "../common/ToastMessage";
@@ -218,6 +218,8 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const [securityConfirm, setSecurityConfirm] = useState(null);
   const [toast, setToast] = useState(null);
   const [proofDetails, setProofDetails] = useState({ paymentId: "", loading: false, error: "", downPayment: null, finalPayment: null });
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const savingPaymentRef = useRef(false);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -247,6 +249,8 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const openPayment = (payment) => {
     setSelectedPayment(payment);
     setForm(getPaymentFormDefaults(payment));
+    savingPaymentRef.current = false;
+    setIsSavingPayment(false);
     setProofDetails({ paymentId: payment.id || payment.bookingId || "", loading: false, error: "", downPayment: null, finalPayment: null });
   };
 
@@ -416,30 +420,39 @@ export default function PaymentTrackingView({ role = "admin" }) {
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
+                if (savingPaymentRef.current) return;
                 const showToast = (type, message) => setToast({ type, message, id: Date.now() });
                 const isMarkingDownPaymentPaid = form.downPaymentStatus === "Paid" && selectedPayment.downPaymentStatus !== "Paid";
                 const isMarkingFinalPaymentPaid = form.finalPaymentStatus === "Paid" && !isPaidStatus(selectedPayment.finalPaymentStatus) && !isPaidStatus(selectedPayment.status);
                 const savePayment = async (securityPayload = {}) => {
-                  const finalPaymentPayload = finalPaymentReviewable
-                    ? {
-                        finalPaymentStatus: form.finalPaymentStatus,
-                        finalPaymentNotes: form.finalPaymentNotes,
-                      }
-                    : {};
-                  const nextStatus = form.finalPaymentStatus === "Paid" || form.finalPaymentStatus === "For Verification" || form.finalPaymentStatus === "Rejected"
-                    ? form.finalPaymentStatus
-                    : selectedPayment.status || "Pending";
-                  await updatePayment(selectedPayment.id, {
-                    ...selectedPayment,
-                    status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
-                    downPaymentStatus: form.downPaymentStatus,
-                    downPaymentNotes: form.downPaymentNotes,
-                    ...finalPaymentPayload,
-                    ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
-                    ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
-                  });
-                  showToast("success", "Payment updated.");
-                  setSelectedPayment(null);
+                  if (savingPaymentRef.current) return;
+                  savingPaymentRef.current = true;
+                  setIsSavingPayment(true);
+                  try {
+                    const finalPaymentPayload = finalPaymentReviewable
+                      ? {
+                          finalPaymentStatus: form.finalPaymentStatus,
+                          finalPaymentNotes: form.finalPaymentNotes,
+                        }
+                      : {};
+                    const nextStatus = form.finalPaymentStatus === "Paid" || form.finalPaymentStatus === "For Verification" || form.finalPaymentStatus === "Rejected"
+                      ? form.finalPaymentStatus
+                      : selectedPayment.status || "Pending";
+                    await updatePayment(selectedPayment.id, {
+                      ...selectedPayment,
+                      status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
+                      downPaymentStatus: form.downPaymentStatus,
+                      downPaymentNotes: form.downPaymentNotes,
+                      ...finalPaymentPayload,
+                      ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
+                      ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
+                    });
+                    showToast("success", "Payment updated.");
+                    setSelectedPayment(null);
+                  } finally {
+                    savingPaymentRef.current = false;
+                    setIsSavingPayment(false);
+                  }
                 };
                 if ((isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) && !canVerifyPayments) {
                   showToast("error", "You can view payment status, but you cannot verify payments.");
@@ -584,9 +597,9 @@ export default function PaymentTrackingView({ role = "admin" }) {
               </div>
 
               <div className={classes.modalActions}>
-                <button className={classes.textBtn} type="button" onClick={() => downloadInvoicePdf(selectedPayment)}>Download Invoice PDF</button>
-                <button className={classes.textBtn} type="button" onClick={() => setSelectedPayment(null)}>Cancel</button>
-                <button className={classes.primaryBtn} type="submit">Save</button>
+                <button className={classes.textBtn} type="button" onClick={() => downloadInvoicePdf(selectedPayment)} disabled={isSavingPayment}>Download Invoice PDF</button>
+                <button className={classes.textBtn} type="button" onClick={() => setSelectedPayment(null)} disabled={isSavingPayment}>Cancel</button>
+                <button className={classes.primaryBtn} type="submit" disabled={isSavingPayment}>{isSavingPayment ? "Saving..." : "Save"}</button>
               </div>
               {finalPaymentLocked && <div className={classes.empty}>Paid payments are locked and their status can no longer be changed.</div>}
             </form>

@@ -27,10 +27,10 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
-  test("does not treat General Manager as Admin for finance and commission actions", () => {
+  test("gives General Manager payment review without Admin-only finance and commission actions", () => {
     expect(canAccessModule(generalManager, MODULE_KEYS.financialTracker)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.paymentView)).toBe(true);
-    expect(canPerformAction(generalManager, ACTION_KEYS.paymentVerify)).toBe(false);
+    expect(canPerformAction(generalManager, ACTION_KEYS.paymentVerify)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.bookingDelete)).toBe(false);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionViewAll)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionMarkPaid)).toBe(false);

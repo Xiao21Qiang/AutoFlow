@@ -75,6 +75,7 @@ const SMTP_APP_PASSWORD = String(process.env.EMAIL_PASS || process.env.GOOGLE_SM
 const EMAIL_FROM = String(process.env.EMAIL_FROM || process.env.GOOGLE_SMTP_FROM || SMTP_EMAIL || "").trim();
 const AI_PROVIDER_UNCONFIGURED_MESSAGE = "AI provider is not configured yet.";
 const AI_PROVIDER_ERROR_MESSAGE = "Unable to generate analysis right now.";
+const AI_PROVIDER_CONFIG_MESSAGE = "AI provider configuration needs attention.";
 const GROQ_API_BASE_URL = "https://api.groq.com/openai/v1";
 const GROQ_API_KEY = String(process.env.GROQ_API_KEY || "").trim();
 const GROQ_MODEL = String(process.env.GROQ_MODEL || "llama-3.1-8b-instant").trim();
@@ -795,6 +796,7 @@ function createAiUnavailablePayload(feature, overrides = {}) {
     available: false,
     feature,
     message: AI_PROVIDER_UNCONFIGURED_MESSAGE,
+    errorCategory: "provider-unconfigured",
     summary: "",
     keyObservations: [],
     possibleCauses: [],
@@ -994,6 +996,7 @@ function buildAnalyticsAiInput(body = {}) {
 }
 
 function buildTrackingIssueNoteAiInput(body = {}) {
+  const bookingId = normalizeAiText(body.bookingId || body.id, 80);
   const problemLocation = normalizeAiText(body.problemLocation, 120);
   const serviceType = normalizeAiText(body.serviceType || body.service, 120);
   const vehicleDetails = normalizeAiText(body.vehicleDetails || body.vehicle, 160);
@@ -1024,6 +1027,7 @@ function buildTrackingIssueNoteAiInput(body = {}) {
   );
 
   const payload = {
+    bookingId,
     problemLocation,
     serviceType,
     vehicleDetails,
@@ -1036,6 +1040,7 @@ function buildTrackingIssueNoteAiInput(body = {}) {
   };
 
   const hasContent =
+    bookingId ||
     problemLocation ||
     serviceType ||
     vehicleDetails ||
@@ -1047,6 +1052,47 @@ function buildTrackingIssueNoteAiInput(body = {}) {
     issueOverview;
 
   return hasContent ? payload : null;
+}
+
+async function buildAuthorizedTrackingIssueNoteAiInput(req) {
+  const clientInput = buildTrackingIssueNoteAiInput(req.body);
+  if (!clientInput) return null;
+
+  const bookingId = normalizeAiText(clientInput.bookingId, 80);
+  if (!bookingId) return clientInput;
+
+  const booking = await Booking.findOne({ id: bookingId }).lean();
+  if (!booking) {
+    const error = new Error("Tracking record not found.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const users = await User.find({}).lean();
+  if (!canViewBooking(req.authUser, booking, users)) {
+    const error = new Error("You do not have permission to view this tracking record.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const serverInput = buildTrackingIssueNoteAiInput({
+    bookingId: booking.id,
+    serviceType: booking.service,
+    vehicleDetails: booking.vehicle,
+    currentTrackingStatus: booking.status,
+    currentIssueNote: booking.issueNote,
+    issueTypes: booking.issueTypes,
+    issueMarkers: booking.issueMarkers,
+  }) || {};
+
+  return {
+    ...serverInput,
+    ...clientInput,
+    bookingId: booking.id,
+    serviceType: clientInput.serviceType || serverInput.serviceType || "",
+    vehicleDetails: clientInput.vehicleDetails || serverInput.vehicleDetails || "",
+    currentTrackingStatus: clientInput.currentTrackingStatus || serverInput.currentTrackingStatus || "",
+  };
 }
 
 function buildFinancialAiInput(body = {}) {
@@ -1250,8 +1296,24 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
     });
 
     if (!response.ok) {
-      console.error("[ai] Groq request failed", { feature, status: response.status });
-      return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (_error) {
+        errorPayload = {};
+      }
+      const providerCode = String(errorPayload?.error?.code || "").trim();
+      const errorCategory = response.status === 401 || response.status === 403
+        ? "provider-auth"
+        : response.status === 400 && providerCode.toLowerCase().includes("model")
+          ? "provider-model"
+          : "provider-http";
+      console.error("[ai] Groq request failed", { feature, status: response.status, errorCategory });
+      return createAiUnavailablePayload(feature, {
+        message: errorCategory === "provider-auth" ? AI_PROVIDER_CONFIG_MESSAGE : AI_PROVIDER_ERROR_MESSAGE,
+        errorCategory,
+        providerStatus: response.status,
+      });
     }
 
     const payload = await response.json();
@@ -1269,7 +1331,7 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
           rawText: content,
         };
       }
-      return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+      return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE, errorCategory: "provider-response" });
     }
 
     return {
@@ -1281,7 +1343,7 @@ async function requestGroqStructuredJson({ feature, systemPrompt, userPayload, m
     };
   } catch (error) {
     console.error("[ai] Groq request error", { feature, message: error.message || "Unknown error" });
-    return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE });
+    return createAiUnavailablePayload(feature, { message: AI_PROVIDER_ERROR_MESSAGE, errorCategory: "provider-network" });
   }
 }
 
@@ -1594,7 +1656,8 @@ function normalizeTrackingIssueNoteAiOutput(payload) {
   };
 
   const cleanedUpIssueNote = normalizeAiText(payload?.cleanedUpIssueNote, 320);
-  const technicianFriendlyNote = stripRepeatedLead(payload?.technicianFriendlyNote, [cleanedUpIssueNote]) || cleanedUpIssueNote;
+  const rawTextNote = normalizeAiText(payload?.rawText, 320);
+  const technicianFriendlyNote = stripRepeatedLead(payload?.technicianFriendlyNote, [cleanedUpIssueNote]) || cleanedUpIssueNote || rawTextNote;
   const suggestedNextAction = stripRepeatedLead(payload?.suggestedNextAction, [technicianFriendlyNote, cleanedUpIssueNote]);
   const customerSafeSummary = stripRepeatedLead(payload?.customerSafeSummary, [technicianFriendlyNote, cleanedUpIssueNote, suggestedNextAction]);
 
@@ -1792,7 +1855,7 @@ async function handleAnalyticsAiInterpret(req, res, next) {
 async function handleTrackingIssueNoteAi(req, res, next) {
   const startedAt = Date.now();
   try {
-    const sanitizedInput = buildTrackingIssueNoteAiInput(req.body);
+    const sanitizedInput = await buildAuthorizedTrackingIssueNoteAiInput(req);
     if (!sanitizedInput) {
       await recordAiRequestAudit(req, "tracking-issue-note", {
         success: false,
@@ -1818,13 +1881,14 @@ async function handleTrackingIssueNoteAi(req, res, next) {
       ].join(" "),
       userPayload: sanitizedInput,
       maxTokens: 360,
+      allowTextFallback: true,
     });
 
     if (!aiPayload.available) {
       await recordAiRequestAudit(req, "tracking-issue-note", {
         success: false,
         model: aiPayload.model || "",
-        errorCategory: "provider-unavailable",
+        errorCategory: aiPayload.errorCategory || "provider-unavailable",
         bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
         durationMs: Date.now() - startedAt,
       });
@@ -1849,7 +1913,13 @@ async function handleTrackingIssueNoteAi(req, res, next) {
     try {
       await recordAiRequestAudit(req, "tracking-issue-note", {
         success: false,
-        errorCategory: error.statusCode === 400 ? "invalid-request" : "server-error",
+        errorCategory: error.statusCode === 400
+          ? "invalid-request"
+          : error.statusCode === 403
+            ? "unauthorized-tracking-record"
+            : error.statusCode === 404
+              ? "tracking-record-not-found"
+              : "server-error",
         bookingId: normalizeAiText(req.body?.bookingId || req.body?.id, 80),
         durationMs: Date.now() - startedAt,
       });
@@ -2215,6 +2285,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.trackingUpdateWarranty,
     ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
+    ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.engagementView,
@@ -10463,6 +10534,7 @@ module.exports = {
   buildWarrantyDto,
   buildBackendAnalyticsAiInput,
   buildBackendFinancialAiInput,
+  buildTrackingIssueNoteAiInput,
   buildAnalyticsFallbackResponse,
   buildFinancialFallbackResponse,
   canPerformAction,

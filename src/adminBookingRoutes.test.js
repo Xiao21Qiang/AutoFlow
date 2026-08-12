@@ -19,6 +19,7 @@ jest.setTimeout(15000);
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
+const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
 const customerUser = {
   id: "CUS-1",
   email: "customer@example.com",
@@ -48,7 +49,7 @@ const carWashService = {
   allowedArrivalTimes: ["10:00", "13:00"],
 };
 const serviceFixtures = [service, carWashService];
-const testUsers = [adminUser, generalManagerUser, marketingUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
+const testUsers = [adminUser, generalManagerUser, marketingUser, salesAssociateUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -248,6 +249,45 @@ function seedPendingBooking() {
       originalAmount: 1000,
     },
   ]);
+}
+
+function seedPaymentReviewBooking() {
+  resetData([
+    {
+      id: "B-PAY-REVIEW",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+      status: "Scheduled",
+      amount: 1000,
+      originalAmount: 1000,
+    },
+  ]);
+  payments.push({
+    id: "PAY-GM-REVIEW",
+    bookingId: "B-PAY-REVIEW",
+    customer: "Customer One",
+    customerEmail: "customer@example.com",
+    service: "Ceramic Coating",
+    totalAmount: 1000,
+    finalAmount: 1000,
+    amount: 1000,
+    downPaymentRequired: true,
+    downPaymentAmount: 300,
+    downPaymentStatus: "For Verification",
+    downPaymentMethod: "GCash",
+    downPaymentReference: "DP-REF-1",
+    downPaymentProofUrl: "uploads/downpayment-proof.png",
+    finalPaymentStatus: "Pending",
+    status: "For Verification",
+  });
 }
 
 function seedCancelledRescheduleBooking({ paymentPatch = {}, serviceName = "Ceramic Coating", bookingPatch = {} } = {}) {
@@ -971,6 +1011,67 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
 });
 
 describe("Payment verification state remains separate from booking status", () => {
+  test("General Manager verifies submitted downpayment proof with Staff special PIN and leaves booking status unchanged", async () => {
+    seedPaymentReviewBooking();
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Paid",
+        downPaymentNotes: "Verified by GM",
+        specialPin: "654321",
+        accountName: "General Manager",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentStatus: "Paid",
+      downPaymentReviewStatus: "Verified",
+      downPaymentVerifiedBy: "gm@example.com",
+    });
+    expect(bookings[0].status).toBe("Scheduled");
+  });
+
+  test("General Manager payment verification rejects Admin special PIN as a Staff-scope credential failure", async () => {
+    seedPaymentReviewBooking();
+    const originalPayment = clone(payments[0]);
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Paid",
+        specialPin: "123456",
+        accountName: "General Manager",
+      },
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect staff special PIN.");
+    expect(payments[0]).toEqual(originalPayment);
+    expect(bookings[0].status).toBe("Scheduled");
+  });
+
+  test("payment-view Staff without verify authority cannot approve payment proof", async () => {
+    seedPaymentReviewBooking();
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Paid",
+        specialPin: "654321",
+        accountName: "Sales Associate",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You can view payment status, but you cannot verify or update payments.");
+    expect(payments[0].downPaymentStatus).toBe("For Verification");
+  });
+
   test("customer downpayment proof submission keeps a Scheduled booking Scheduled while payment awaits verification", async () => {
     resetData([
       {

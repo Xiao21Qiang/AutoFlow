@@ -24,6 +24,7 @@ import AdminDetailerManagement from "../admin/AdminDetailerManagement";
 import AdminEngagement from "../admin/AdminEngagement";
 import AdminBookings from "../admin/AdminBookings";
 import AdminTracking from "../admin/AdminTracking";
+import AdminPayments from "../admin/AdminPayments";
 import { ACTION_KEYS, MODULE_KEYS, canAccessModule, canPerformAction, getDefaultModule, getEffectiveRole } from "../../utils/rbac";
 
 import icoDashboard from "../../styles/icons/dashboard.png";
@@ -275,7 +276,7 @@ function StaffMainContent({ session, onLogout }) {
             {screen === "audit" && <AdminAuditLogs />}
             {screen === "bookings" && (isGeneralManager ? <AdminBookings allowDelete={false} /> : <StaffBookings />)}
             {screen === "tracking" && (isGeneralManager ? <AdminTracking /> : <StaffTracking session={session} />)}
-            {screen === "payments" && <StaffPayments session={session} />}
+            {screen === "payments" && (isGeneralManager ? <AdminPayments /> : <StaffPayments session={session} />)}
             {screen === "financial-tracker" && <AdminFinancialTracker />}
             {screen === "services" && <StaffServices />}
             {screen === "stock-monitoring" && <StaffStockMonitoring />}

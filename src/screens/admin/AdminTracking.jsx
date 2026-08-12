@@ -142,6 +142,7 @@ export default function AdminTracking() {
   });
   const mapRef = useRef(null);
   const savingTrackingRef = useRef(false);
+  const issueNoteAiRequestRef = useRef(false);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
   const staffOptions = useMemo(() => getDetailerStaffOptions(users), [users]);
   const staffOptionSet = useMemo(() => new Set(staffOptions.map((option) => option.toLowerCase())), [staffOptions]);
@@ -225,6 +226,19 @@ export default function AdminTracking() {
   };
 
   const handleGenerateIssueNote = async () => {
+    if (issueNoteAiRequestRef.current) return;
+    if (!selectedRow || !issueNotesEditable) {
+      setIssueNoteAi({
+        status: "error",
+        message: issueNotesLockedMessage || "Issue notes cannot be edited for this booking.",
+        suggestion: "",
+        nextAction: "",
+        customerSummary: "",
+        model: "",
+      });
+      return;
+    }
+    issueNoteAiRequestRef.current = true;
     setIssueNoteAi({
       status: "loading",
       message: "",
@@ -236,6 +250,7 @@ export default function AdminTracking() {
 
     try {
       const response = await generateTrackingIssueNote({
+        bookingId: selectedRow.id,
         problemLocation: editForm.issueMarkers
           .map((marker) => `Marker ${marker.id}${marker.issueType ? ` - ${marker.issueType}` : ""}`)
           .join(", "),
@@ -259,7 +274,7 @@ export default function AdminTracking() {
         return;
       }
 
-      const suggestion = response.technicianFriendlyNote || response.cleanedUpIssueNote || "";
+      const suggestion = response.technicianFriendlyNote || response.cleanedUpIssueNote || response.suggestion || "";
       setIssueNoteAi({
         status: suggestion ? "success" : "unavailable",
         message: suggestion ? "" : "AI unavailable right now.",
@@ -277,6 +292,8 @@ export default function AdminTracking() {
         customerSummary: "",
         model: "",
       });
+    } finally {
+      issueNoteAiRequestRef.current = false;
     }
   };
 

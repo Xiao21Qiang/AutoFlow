@@ -125,10 +125,10 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(validateStockPayload({ currentStock: 8, maxStock: 10, reorderLevel: 5, qtyToAdd: 3 })).toMatch(/exceed/);
   });
 
-  test("keeps General Manager finance read-only for mutation actions", () => {
+  test("keeps General Manager finance authority limited to payment review", () => {
     const gm = { userType: "Staff", role: "General Manager" };
     expect(canPerformAction(gm, ACTION_KEYS.paymentView)).toBe(true);
-    expect(canPerformAction(gm, ACTION_KEYS.paymentVerify)).toBe(false);
+    expect(canPerformAction(gm, ACTION_KEYS.paymentVerify)).toBe(true);
     expect(canPerformAction(gm, ACTION_KEYS.commissionMarkPaid)).toBe(false);
   });
 

@@ -212,4 +212,60 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(openSecurityProps.actionKey).toBe(ACTION_KEYS.bookingUpdateStatus);
     expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
+
+  test("generates an Admin issue note suggestion once and displays the canonical result", async () => {
+    openEditModal();
+    mockGenerateTrackingIssueNote.mockResolvedValueOnce({
+      available: true,
+      technicianFriendlyNote: "Inspect the marked paint blemish before starting the coating.",
+      suggestedNextAction: "Confirm surface prep requirements.",
+      customerSafeSummary: "A small paint concern needs review before service starts.",
+      model: "test-model",
+    });
+
+    const generateButton = screen.getByRole("button", { name: "Generate Suggestion" });
+    fireEvent.click(generateButton);
+    fireEvent.click(generateButton);
+
+    expect(mockGenerateTrackingIssueNote).toHaveBeenCalledTimes(1);
+    expect(mockGenerateTrackingIssueNote).toHaveBeenCalledWith(expect.objectContaining({
+      bookingId: "B-1",
+      serviceType: "Ceramic Coating",
+      vehicleDetails: "Civic",
+      currentTrackingStatus: "Scheduled",
+    }));
+    expect(screen.getByRole("button", { name: "Generating..." })).toBeDisabled();
+
+    await waitFor(() => expect(screen.getByText("Inspect the marked paint blemish before starting the coating.")).toBeInTheDocument());
+    expect(screen.getByText("Next action:")).toBeInTheDocument();
+    expect(screen.getByText("Confirm surface prep requirements.")).toBeInTheDocument();
+    expect(screen.getByText("Customer summary:")).toBeInTheDocument();
+    expect(screen.queryByText("Unable to generate analysis right now.")).not.toBeInTheDocument();
+  });
+
+  test("shows provider configuration failures without mutating tracking data", async () => {
+    openEditModal();
+    mockGenerateTrackingIssueNote.mockResolvedValueOnce({
+      available: false,
+      message: "AI provider configuration needs attention.",
+      errorCategory: "provider-auth",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate Suggestion" }));
+
+    await waitFor(() => expect(screen.getByText("AI provider configuration needs attention.")).toBeInTheDocument());
+    expect(mockGenerateTrackingIssueNote).toHaveBeenCalledTimes(1);
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
+    expect(screen.queryByText("Inspect the marked paint blemish before starting the coating.")).not.toBeInTheDocument();
+  });
+
+  test("treats malformed successful AI payloads as unavailable instead of applying empty text", async () => {
+    openEditModal();
+    mockGenerateTrackingIssueNote.mockResolvedValueOnce({ available: true, model: "test-model" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate Suggestion" }));
+
+    await waitFor(() => expect(screen.getByText("AI unavailable right now.")).toBeInTheDocument());
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
+  });
 });

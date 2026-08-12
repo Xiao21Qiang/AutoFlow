@@ -143,6 +143,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.trackingUpdateWarranty,
     ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
+    ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.engagementView,
