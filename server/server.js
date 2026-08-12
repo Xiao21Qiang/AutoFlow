@@ -2681,9 +2681,36 @@ async function validateSpecialCredential(mode, value, scope = "admin") {
   return verifySpecialCredential(value, storedValue);
 }
 
+function resolveSpecialCredentialScopeForRequest(req, requestedScope = "") {
+  const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+  const credentialScope = String(requestedScope || "").trim().toLowerCase() === "staff"
+    ? "staff"
+    : String(requestedScope || "").trim().toLowerCase() === "admin"
+      ? "admin"
+      : actorType;
+
+  if (credentialScope === "admin" && actorType !== "admin") {
+    const error = new Error("Admin special credentials are required for this action.");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (credentialScope === "staff" && actorType !== "staff") {
+    const error = new Error("Staff special credentials cannot authorize this action.");
+    error.statusCode = 403;
+    throw error;
+  }
+  if (credentialScope !== "admin" && credentialScope !== "staff") {
+    const error = new Error("You are not authorized to perform this action.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return credentialScope;
+}
+
 async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "", actionKey = "" } = {}) {
   const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
-  const credentialScope = scope || (actorType === "staff" ? "staff" : "admin");
+  const credentialScope = resolveSpecialCredentialScopeForRequest(req, scope);
   const credentialMode = String(mode || "pin").trim().toLowerCase() === "password" ? "password" : "pin";
   const value = credentialMode === "password"
     ? String(req.body?.specialPassword || req.body?.specialCredential || "")
@@ -2696,11 +2723,6 @@ async function requireSpecialCredentialForRequest(req, { mode = "pin", scope = "
   }
 
   // All staff roles share one Staff Special PIN and one Staff Special Password created by Admin. Staff special credentials are used only for staff-level protected actions that the logged-in staff role is already allowed to perform. Staff special credentials must never grant access to unauthorized modules or admin-only actions. Admin-only actions must continue to require Admin special credentials.
-  if (credentialScope === "admin" && actorType !== "admin") {
-    const error = new Error("Admin special credentials are required for this action.");
-    error.statusCode = 403;
-    throw error;
-  }
   if (credentialScope === "staff" && (!actionKey || !canUseStaffSpecialCredentialForAction(req.authUser, actionKey))) {
     const error = new Error("Staff special credentials cannot authorize this action.");
     error.statusCode = 403;
@@ -6493,14 +6515,10 @@ app.patch("/api/admin/settings/down-payment", requireAdminUser, async (req, res,
 
 app.post("/api/admin/security/validate", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    const mode = String(req.body.mode || "pin").trim().toLowerCase();
-    const scope = String(req.body.scope || "admin").trim().toLowerCase() === "staff" ? "staff" : "admin";
+    const mode = String(req.body.mode || "pin").trim().toLowerCase() === "password" ? "password" : "pin";
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    const scope = resolveSpecialCredentialScopeForRequest(req);
     const actionKey = String(req.body.actionKey || "").trim();
-    if (actorType === "staff" && scope === "admin") {
-      res.status(403).json({ message: "Staff actions must use staff security credentials." });
-      return;
-    }
     // All staff roles share one Staff Special PIN and one Staff Special Password created by Admin. Staff special credentials are used only for staff-level protected actions that the logged-in staff role is already allowed to perform. Staff special credentials must never grant access to unauthorized modules or admin-only actions. Admin-only actions must continue to require Admin special credentials.
     if (actorType === "staff" && (!actionKey || !canUseStaffSpecialCredentialForAction(req.authUser, actionKey))) {
       res.status(403).json({ message: "Staff special credentials cannot authorize this action." });
@@ -7469,16 +7487,6 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       ? "Scheduled"
       : normalizeWorkflowStatus(req.body.status || existingBooking.status, existingBooking.status || "Scheduled");
     const previousStatus = normalizeWorkflowStatus(existingBooking.status || "Scheduled", "Scheduled");
-    const isSensitiveStatusChange =
-      (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
-      requestedStatusRaw === "rescheduled";
-    if (isSensitiveStatusChange) {
-      await requireSpecialCredentialForRequest(req, {
-        mode: "pin",
-        scope: actorType === "staff" ? "staff" : "admin",
-        actionKey: ACTION_KEYS.bookingUpdateStatus,
-      });
-    }
     const dateChanged = Object.prototype.hasOwnProperty.call(req.body, "date") && String(req.body.date || "") !== String(existingBooking.date || "");
     const timeChanged = Object.prototype.hasOwnProperty.call(req.body, "time") && String(req.body.time || "") !== String(existingBooking.time || "");
     const slotChanged = Object.prototype.hasOwnProperty.call(req.body, "placeSlot") && Number(req.body.placeSlot || 0) !== Number(existingBooking.placeSlot || 0);
@@ -7487,6 +7495,17 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       return;
     }
     const scheduleChanged = dateChanged || timeChanged || slotChanged;
+    const isSensitiveStatusChange =
+      (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
+      requestedStatusRaw === "rescheduled" ||
+      scheduleChanged;
+    if (isSensitiveStatusChange) {
+      await requireSpecialCredentialForRequest(req, {
+        mode: "pin",
+        scope: actorType === "staff" ? "staff" : "admin",
+        actionKey: ACTION_KEYS.bookingUpdateStatus,
+      });
+    }
     const requiresScheduleValidation = requestedStatusRaw === "rescheduled" || shouldAutoSchedulePending;
 
     if ((dateChanged || requiresScheduleValidation) && isPastDateKey(bookingDate)) {

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { getCurrentUserDisplayName, validateSpecialCredential, verifyCurrentPassword } from "../../utils/reauth";
+import { normalizeUserType } from "../../utils/rbac";
 import "../../styles/css/shared/securityConfirmModal.css";
 
 const MODE_COPY = {
@@ -56,7 +57,9 @@ export default function SecurityConfirmModal({
   const secretErrorId = useId();
   const accountNameErrorId = useId();
   const copy = MODE_COPY[mode] || MODE_COPY.pin;
-  const resolvedScope = scope || (String(currentUser?.userType || currentUser?.role || "").trim().toLowerCase() === "staff" ? "staff" : "admin");
+  const actorType = normalizeUserType(currentUser);
+  const fallbackScope = String(scope || "").trim().toLowerCase() === "staff" ? "staff" : "admin";
+  const resolvedScope = actorType === "staff" || actorType === "admin" ? actorType : fallbackScope;
 
   useEffect(() => {
     setSecret("");

@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AdminBookings from "./screens/admin/AdminBookings";
+import { ACTION_KEYS } from "./utils/rbac";
+import { validateSpecialCredential } from "./utils/reauth";
 
 const mockCreateBooking = jest.fn();
 const mockUpdateBooking = jest.fn();
@@ -53,6 +55,12 @@ jest.mock("./context/AdminDataContext", () => ({
   }),
 }));
 
+jest.mock("./utils/reauth", () => ({
+  getCurrentUserDisplayName: (user) => String(user?.name || user?.email || "").trim(),
+  validateSpecialCredential: jest.fn(),
+  verifyCurrentPassword: jest.fn(),
+}));
+
 function openModal() {
   render(<AdminBookings />);
   fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
@@ -96,6 +104,8 @@ beforeEach(() => {
   mockCreateBooking.mockReset();
   mockUpdateBooking.mockReset();
   mockDeleteBooking.mockReset();
+  validateSpecialCredential.mockReset();
+  validateSpecialCredential.mockResolvedValue(true);
 });
 
 describe("Admin Add New Booking validation", () => {
@@ -124,6 +134,57 @@ describe("Admin Add New Booking validation", () => {
 
     expect(screen.getByText("Edit Booking")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("General Manager reschedule through shared Admin Bookings validates with Staff PIN scope and booking action", async () => {
+    const generalManager = {
+      id: "GM-1",
+      name: "General Manager",
+      email: "gm@example.com",
+      userType: "Staff",
+      role: "General Manager",
+    };
+    mockData = {
+      currentUser: generalManager,
+      bookings: [
+        {
+          id: "B-RESCHEDULE",
+          customer: "Customer One",
+          customerEmail: "customer@example.com",
+          vehicle: "Civic",
+          plate: "ABC123",
+          service: "Ceramic Coating",
+          carSize: "Sedan / Small Car",
+          assigned: "Detailer One",
+          date: "2099-12-30",
+          time: "10:00",
+          placeSlot: 1,
+          status: "Scheduled",
+          amount: 1000,
+        },
+      ],
+    };
+    mockUpdateBooking.mockResolvedValue({});
+
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2099-12-31" } });
+    selectModalOption("Place Slot", "Place Slot 1");
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+
+    fireEvent.change(await screen.findByLabelText("Special PIN"), { target: { value: "654321" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
+    expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "654321",
+      "staff",
+      expect.objectContaining({ userType: "Staff", role: "General Manager" }),
+      ACTION_KEYS.bookingUpdateStatus
+    );
+    await waitFor(() => expect(mockUpdateBooking).toHaveBeenCalledTimes(1));
+    expect(mockUpdateBooking.mock.calls[0][1]).toEqual(expect.objectContaining({ specialPin: "654321" }));
   });
 
   test("dashboard quick action opens the shared New Booking modal", () => {

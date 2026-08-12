@@ -178,6 +178,39 @@ function seedDeletedBooking(status = "Cancelled") {
   payments.push({ id: "PAY-DELETE", bookingId: "B-DELETE", totalAmount: 1000, finalAmount: 1000 });
 }
 
+function seedScheduledBooking() {
+  resetData([
+    {
+      id: "B-RESCHEDULE",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-30",
+      time: "10:00",
+      placeSlot: 1,
+      status: "Scheduled",
+      amount: 1000,
+      originalAmount: 1000,
+    },
+  ]);
+  payments.push({ id: "PAY-RESCHEDULE", bookingId: "B-RESCHEDULE", totalAmount: 1000, finalAmount: 1000 });
+}
+
+function reschedulePayload(specialPin, extra = {}) {
+  return {
+    ...bookings[0],
+    date: "2099-12-31",
+    time: "13:00",
+    placeSlot: 2,
+    specialPin,
+    ...extra,
+  };
+}
+
 beforeAll(async () => {
   stub(__testModels.User, "findOne", (query) => doc(findUser(query)));
   stub(__testModels.User, "find", () => chain(testUsers));
@@ -414,6 +447,229 @@ describe("Admin-only booking deletion route", () => {
   });
 });
 
+describe("Role-aware special credential validation", () => {
+  async function validateCredential(actor, body, token = auth(actor)) {
+    return request("/api/admin/security/validate", {
+      method: "POST",
+      token,
+      body,
+    });
+  }
+
+  test("General Manager PIN validation derives Staff scope from the authenticated actor and ignores forged Admin scope", async () => {
+    const response = await validateCredential(generalManagerUser, {
+      mode: "pin",
+      value: "654321",
+      scope: "admin",
+      actorUserType: "Admin",
+      actorRole: "Admin",
+      actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test.each([
+    ["incorrect Staff PIN", "000000"],
+    ["Admin PIN supplied by Staff", "123456"],
+  ])("General Manager %s is rejected as a Staff-scope credential failure", async (_label, value) => {
+    const response = await validateCredential(generalManagerUser, {
+      mode: "pin",
+      value,
+      scope: "admin",
+      actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect staff special PIN.");
+  });
+
+  test("Admin PIN validation derives Admin scope from the authenticated actor and ignores forged Staff scope", async () => {
+    const response = await validateCredential(adminUser, {
+      mode: "pin",
+      value: "123456",
+      scope: "staff",
+      actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test.each([
+    ["incorrect Admin PIN", "000000"],
+    ["Staff PIN supplied by Admin", "654321"],
+  ])("Admin %s is rejected as an Admin-scope credential failure", async (_label, value) => {
+    const response = await validateCredential(adminUser, {
+      mode: "pin",
+      value,
+      scope: "staff",
+      actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect admin special PIN.");
+  });
+
+  test("Staff special password is accepted only for an authorized Staff action and Admin password is rejected for Staff", async () => {
+    const allowed = await validateCredential(generalManagerUser, {
+      mode: "password",
+      value: "StaffPass1!",
+      scope: "admin",
+      actionKey: "booking.updateStatus",
+    });
+    expect(allowed.status).toBe(200);
+
+    const wrongScopeSecret = await validateCredential(generalManagerUser, {
+      mode: "password",
+      value: "AdminPass1!",
+      scope: "admin",
+      actionKey: "booking.updateStatus",
+    });
+    expect(wrongScopeSecret.status).toBe(401);
+    expect(wrongScopeSecret.body.message).toBe("Incorrect staff special password.");
+  });
+
+  test("Admin special password is accepted only for Admin scope and Staff password is rejected for Admin", async () => {
+    const allowed = await validateCredential(adminUser, {
+      mode: "password",
+      value: "AdminPass1!",
+      scope: "staff",
+      actionKey: "settings.manageDownPayment",
+    });
+    expect(allowed.status).toBe(200);
+
+    const wrongScopeSecret = await validateCredential(adminUser, {
+      mode: "password",
+      value: "StaffPass1!",
+      scope: "staff",
+      actionKey: "settings.manageDownPayment",
+    });
+    expect(wrongScopeSecret.status).toBe(401);
+    expect(wrongScopeSecret.body.message).toBe("Incorrect admin special password.");
+  });
+
+  test("unauthorized Staff cannot use correct Staff special password to gain another role's action", async () => {
+    const response = await validateCredential(marketingUser, {
+      mode: "password",
+      value: "StaffPass1!",
+      actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Staff special credentials cannot authorize this action.");
+  });
+
+  test.each([
+    ["Customer", customerUser, auth(customerUser), 403],
+    ["Unauthenticated", null, "", 401],
+  ])("%s cannot validate management special credentials", async (_label, actor, token, expectedStatus) => {
+    const response = await validateCredential(actor || adminUser, {
+      mode: "pin",
+      value: "123456",
+      actionKey: "booking.updateStatus",
+    }, token);
+
+    expect(response.status).toBe(expectedStatus);
+  });
+});
+
+describe("Booking reschedule special credential matrix", () => {
+  test("General Manager may reschedule with the correct Staff PIN and audit as the authenticated GM", async () => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: reschedulePayload("654321", { auditUser: "admin@example.com", userType: "Admin", role: "Admin" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2 });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "gm@example.com",
+        targetId: "B-RESCHEDULE",
+      }),
+    ]));
+  });
+
+  test.each([
+    ["incorrect Staff PIN", "000000"],
+    ["Admin PIN supplied by Staff", "123456"],
+  ])("General Manager reschedule rejects %s", async (_label, specialPin) => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: reschedulePayload(specialPin),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect staff special PIN.");
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test("Admin may reschedule with the correct Admin PIN and audit as the authenticated Admin", async () => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(adminUser),
+      body: reschedulePayload("123456", { auditUser: "gm@example.com" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2 });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "admin@example.com",
+        targetId: "B-RESCHEDULE",
+      }),
+    ]));
+  });
+
+  test.each([
+    ["incorrect Admin PIN", "000000"],
+    ["Staff PIN supplied by Admin", "654321"],
+  ])("Admin reschedule rejects %s", async (_label, specialPin) => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(adminUser),
+      body: reschedulePayload(specialPin),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect admin special PIN.");
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test("unauthorized Staff cannot reschedule even with the correct Staff PIN", async () => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(marketingUser),
+      body: reschedulePayload("654321"),
+    });
+
+    expect(response.status).toBe(403);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test.each([
+    ["Customer", auth(customerUser), 403],
+    ["Unauthenticated", "", 401],
+  ])("%s cannot reschedule regardless of supplied credential", async (_label, token, expectedStatus) => {
+    seedScheduledBooking();
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token,
+      body: reschedulePayload("654321"),
+    });
+
+    expect(response.status).toBe(expectedStatus);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+});
+
 describe("Admin booking schedule conflict route protection", () => {
   test("same date, same time, and same place slot is rejected", async () => {
     resetData([{ id: "B-1", date: "2099-12-31", time: "10:00", placeSlot: 1, status: "Scheduled", service: "Ceramic Coating" }]);
@@ -459,7 +715,7 @@ describe("Admin booking schedule conflict route protection", () => {
     payments.push({ id: "PAY-2", bookingId: "B-2", totalAmount: 1000, finalAmount: 1000 });
     const response = await request("/api/admin/bookings/B-2", {
       method: "PUT",
-      body: { ...bookings[1], date: "2099-12-31", time: "10:00", placeSlot: 1, auditUser: "admin@example.com" },
+      body: { ...bookings[1], date: "2099-12-31", time: "10:00", placeSlot: 1, specialPin: "123456", auditUser: "admin@example.com" },
     });
     expect(response.status).toBe(409);
     expect(bookings.find((booking) => booking.id === "B-2").placeSlot).toBe(2);

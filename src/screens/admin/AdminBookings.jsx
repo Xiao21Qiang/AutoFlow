@@ -11,6 +11,7 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 import { getDetailerStaffOptions } from "../../utils/staffRoles";
+import { ACTION_KEYS } from "../../utils/rbac";
 import {
   PLACE_SLOT_OPTIONS,
   canScheduleBooking,
@@ -587,6 +588,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                     if (needsCancelPin || needsReschedulePin) {
                       setSecurityConfirm({
                         mode: "pin",
+                        actionKey: ACTION_KEYS.bookingUpdateStatus,
                         title: needsCancelPin ? "Cancel Booking" : "Reschedule Booking",
                         message: needsCancelPin ? "Enter the special PIN before cancelling this booking." : "Enter the special PIN before saving this reschedule.",
                         onConfirm: async ({ secret }) => {
@@ -892,6 +894,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
 	          }
 	          setSecurityConfirm({
               mode: "pin",
+              actionKey: ACTION_KEYS.bookingDelete,
               title: "Delete Booking",
               message: "Enter the special PIN before deleting this cancelled booking.",
               onConfirm: async ({ secret }) => {
