@@ -235,6 +235,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   
   const selectedBooking = useMemo(() => bookings.find((booking) => booking.id === selectedBookingId) || null, [bookings, selectedBookingId]);
   const isCompletedBookingLocked = modal === "edit" && isCompletedStatus(selectedBooking?.status);
+  const isCancelledBookingLocked = modal === "edit" && isCancelledStatus(selectedBooking?.status);
   const isPendingBookingEdit = modal === "edit" && isPendingSchedulingStatus(selectedBooking?.status);
   const isScheduledBookingEdit = modal === "edit" && isScheduledStatus(selectedBooking?.status);
   const linkedPayment = useMemo(
@@ -263,17 +264,18 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   );
   const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
   const completionReadinessMessage = formatCompletionReadinessMessage(completionReadiness);
-  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied);
-  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || isScheduledStatus(form.status) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
+  const canEditExistingSchedule = modal === "edit" && !isCancelledBookingLocked && !isPendingBookingEdit && downPaymentSatisfied;
+  const canEditScheduleFields = modal === "add" || isRescheduledStatus(form.status) || (isScheduledStatus(form.status) && (modal !== "edit" || canEditExistingSchedule)) || (isPendingBookingEdit && downPaymentSatisfied);
+  const canEditPlaceSlot = modal === "add" || isRescheduledStatus(form.status) || (isScheduledStatus(form.status) && (modal !== "edit" || canEditExistingSchedule)) || (isPendingBookingEdit && downPaymentSatisfied && Boolean(String(form.assigned || "").trim()));
   const assignedStaffLocked = modal === "edit" && !isPendingBookingEdit;
   const disabledStatusOptions = useMemo(() => {
-    if (isCompletedBookingLocked) return [];
+    if (isCompletedBookingLocked || isCancelledBookingLocked) return [];
     const disabledOptions = [];
     if (isPendingBookingEdit && !scheduleRequirementsMet) disabledOptions.push("Scheduled");
     if (isScheduledBookingEdit) disabledOptions.push("Pending");
     if (modal === "add" || !completionReadiness.canComplete) disabledOptions.push("Completed");
     return disabledOptions;
-  }, [completionReadiness.canComplete, isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, modal, scheduleRequirementsMet]);
+  }, [completionReadiness.canComplete, isCancelledBookingLocked, isCompletedBookingLocked, isPendingBookingEdit, isScheduledBookingEdit, modal, scheduleRequirementsMet]);
   const matchedCustomer = useMemo(
     () =>
       customerOptions.find(
@@ -365,6 +367,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     [availablePlaceSlots, form, hasNoAvailableSlots, matchedCustomer, modal]
   );
   const isAddBookingFormValid = modal !== "add" || (Object.keys(addBookingErrors).length === 0 && !customerFieldError);
+  const saveBookingDisabled = (modal === "add" && !isAddBookingFormValid) || isCancelledBookingLocked;
   const markFieldTouched = useCallback((field) => {
     setTouchedFields((prev) => ({ ...prev, [field]: true }));
   }, []);
@@ -479,6 +482,10 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (isCancelledBookingLocked) {
+                  setFormError("Cancelled bookings are locked and cannot be edited.");
+                  return;
+                }
                 if (modal === "add" && !isAddBookingFormValid) {
                   setTouchedFields(Object.fromEntries(ADD_BOOKING_REQUIRED_FIELDS.map((field) => [field, true])));
                   if (addBookingErrors.customer) {
@@ -585,6 +592,10 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                     };
                     const needsCancelPin = form.status === "Cancelled" && selectedBooking.status !== "Cancelled";
                     const needsReschedulePin = isReschedule || hasScheduleChanged;
+                    if (needsReschedulePin && !downPaymentSatisfied) {
+                      setFormError("Down payment must be verified as paid before this booking can be rescheduled.");
+                      return;
+                    }
                     if (needsCancelPin || needsReschedulePin) {
                       setSecurityConfirm({
                         mode: "pin",
@@ -804,14 +815,17 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                     ))}
                   </select>
                   {getTouchedFieldError("time") ? <div id="admin-booking-time-error" className="bookFieldError">{getTouchedFieldError("time")}</div> : null}
-                  {modal === "edit" && isPendingBookingEdit && !downPaymentSatisfied ? (
+                  {modal === "edit" && !isCancelledBookingLocked && isPendingBookingEdit && !downPaymentSatisfied ? (
                     <div className="bookSlotHint">Down payment must be verified as paid before this booking can be scheduled.</div>
+                  ) : null}
+                  {modal === "edit" && !isCancelledBookingLocked && isScheduledBookingEdit && !downPaymentSatisfied ? (
+                    <div className="bookSlotHint">Down payment must be verified as paid before this booking can be rescheduled.</div>
                   ) : null}
                   {!form.time && modal === "edit" && !isRescheduledStatus(form.status) && !isPendingBookingEdit ? <div className="bookSlotHint">No time selected</div> : null}
                 </label>
                 <label className="bookField">
                   <span>Status</span>
-                  {isCompletedBookingLocked ? (
+                  {isCompletedBookingLocked || isCancelledBookingLocked ? (
                     <input value={form.status} readOnly />
                   ) : (
                     <ModalSelect
@@ -824,6 +838,9 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                   )}
                   {isPendingBookingEdit && schedulingValidationMessage ? (
                     <div className="bookSlotHint">{schedulingValidationMessage}</div>
+                  ) : null}
+                  {isCancelledBookingLocked ? (
+                    <div className="bookSlotHint">Cancelled bookings are locked and cannot be edited.</div>
                   ) : null}
                   {modal === "edit" && !completionReadiness.canComplete ? (
                     <div className="bookSlotHint">{completionReadinessMessage}</div>
@@ -872,7 +889,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                   </button>
                 )}
                 <button className="bookTextBtn" type="button" onClick={closeModal}>Cancel</button>
-                <button className="bookPrimaryBtn" type="submit" disabled={modal === "add" && !isAddBookingFormValid}>Save Booking</button>
+                <button className="bookPrimaryBtn" type="submit" disabled={saveBookingDisabled}>Save Booking</button>
               </div>
             </form>
           </div>

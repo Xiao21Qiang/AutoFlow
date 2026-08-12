@@ -4450,10 +4450,15 @@ async function getLinkedPaymentForBooking(booking = {}) {
 
 function hasPaidDownPaymentForBooking(booking = {}, payment = null) {
   if (isDownPaymentExemptService(booking.service)) return true;
+  if (!payment) return false;
+  const downPaymentStatus = normalizePaymentStageStatus(
+    payment.downPaymentStatus,
+    payment.downPaymentRequired === false ? "Not Required" : "Pending"
+  );
   return Boolean(
-    payment &&
-    payment.downPaymentRequired === true &&
-    normalizePaymentStageStatus(payment.downPaymentStatus, "") === "Paid"
+    payment.downPaymentRequired === false ||
+    downPaymentStatus === "Not Required" ||
+    downPaymentStatus === "Paid"
   );
 }
 
@@ -7406,6 +7411,11 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       });
     }
 
+    if (isCancelledStatus(existingBooking.status)) {
+      res.status(400).json({ message: "Cancelled bookings are locked and cannot be edited." });
+      return;
+    }
+
     const isCustomerOriginBooking = existingBooking.customerRequested === true || String(existingBooking.bookingSource || "").trim().toLowerCase() === "customer";
     if (isCustomerOriginBooking) {
       const lockedCustomerFields = [
@@ -7450,11 +7460,6 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       selectedServiceForUpdate = await Service.findOne({ name: String(req.body.service || existingBooking.service || "").trim() }).lean();
     }
 
-    if (isCancelledStatus(existingBooking.status)) {
-      res.status(400).json({ message: "Cancelled bookings are locked and cannot be edited." });
-      return;
-    }
-
     if (
       Object.prototype.hasOwnProperty.call(req.body, "assigned") &&
       String(req.body.assigned || "").trim() !== String(existingBooking.assigned || "").trim()
@@ -7495,6 +7500,17 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       return;
     }
     const scheduleChanged = dateChanged || timeChanged || slotChanged;
+    const linkedPaymentForReward = await getLinkedPaymentForBooking(existingBookingObject);
+    const isInitialPendingScheduling = previousStatus === "Pending" && shouldAutoSchedulePending;
+    const isRescheduleWorkflow = scheduleChanged && !isInitialPendingScheduling;
+    if (isRescheduleWorkflow && !hasPaidDownPaymentForBooking(existingBookingObject, linkedPaymentForReward)) {
+      if (!linkedPaymentForReward) {
+        res.status(400).json({ message: "A linked payment record is required before rescheduling this booking." });
+        return;
+      }
+      res.status(400).json({ message: "Down payment must be verified as paid before rescheduling this booking." });
+      return;
+    }
     const isSensitiveStatusChange =
       (nextStatus === "Cancelled" && previousStatus !== "Cancelled") ||
       requestedStatusRaw === "rescheduled" ||
@@ -7573,7 +7589,6 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       baseAmount,
       promoResolution?.hydratedPromo || null
     );
-    const linkedPaymentForReward = await getLinkedPaymentForBooking(existingBookingObject);
     const requestedRewardId = String(req.body.rewardId ?? existingBooking.rewardId ?? "").trim();
     const rewardChanged = Object.prototype.hasOwnProperty.call(req.body, "rewardId") && requestedRewardId !== String(existingBooking.rewardId || "").trim();
     const rewardPricing = requestedRewardId && !rewardChanged

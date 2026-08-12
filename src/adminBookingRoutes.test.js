@@ -178,7 +178,25 @@ function seedDeletedBooking(status = "Cancelled") {
   payments.push({ id: "PAY-DELETE", bookingId: "B-DELETE", totalAmount: 1000, finalAmount: 1000 });
 }
 
-function seedScheduledBooking() {
+function buildVerifiedDownPayment(patch = {}) {
+  return {
+    id: "PAY-RESCHEDULE",
+    bookingId: "B-RESCHEDULE",
+    totalAmount: 1000,
+    finalAmount: 1000,
+    downPaymentRequired: true,
+    downPaymentAmount: 300,
+    downPaymentStatus: "Paid",
+    downPaymentMethod: "GCash",
+    downPaymentReference: "DP-REF-1",
+    downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+    downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
+    downPaymentVerifiedBy: "admin@example.com",
+    ...patch,
+  };
+}
+
+function seedScheduledBooking(paymentPatch = {}) {
   resetData([
     {
       id: "B-RESCHEDULE",
@@ -197,7 +215,30 @@ function seedScheduledBooking() {
       originalAmount: 1000,
     },
   ]);
-  payments.push({ id: "PAY-RESCHEDULE", bookingId: "B-RESCHEDULE", totalAmount: 1000, finalAmount: 1000 });
+  if (paymentPatch !== null) {
+    payments.push(buildVerifiedDownPayment(paymentPatch));
+  }
+}
+
+function seedPendingBooking() {
+  resetData([
+    {
+      id: "B-PENDING",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "",
+      time: "",
+      placeSlot: 0,
+      status: "Pending",
+      amount: 1000,
+      originalAmount: 1000,
+    },
+  ]);
 }
 
 function reschedulePayload(specialPin, extra = {}) {
@@ -247,7 +288,20 @@ beforeAll(async () => {
     payments.push(clone(payload));
     return clone(payload);
   });
-  stub(__testModels.Payment, "findOne", (query = {}) => doc(payments.find((payment) => payment.bookingId === query.bookingId)));
+  stub(__testModels.Payment, "findOne", (query = {}) => {
+    if (query.$or) {
+      return doc(payments.find((payment) =>
+        query.$or.some((condition) => {
+          if (condition.bookingId?.$in) return condition.bookingId.$in.includes(payment.bookingId);
+          if (condition.reference?.$in) return condition.reference.$in.includes(payment.reference);
+          if (condition.bookingId) return payment.bookingId === condition.bookingId;
+          if (condition.reference) return payment.reference === condition.reference;
+          return false;
+        })
+      ));
+    }
+    return doc(payments.find((payment) => payment.bookingId === query.bookingId));
+  });
   stub(__testModels.Payment, "findOneAndUpdate", async (query, update) => {
     const index = payments.findIndex((payment) => payment.bookingId === query.bookingId);
     if (index === -1) return null;
@@ -447,6 +501,27 @@ describe("Admin-only booking deletion route", () => {
   });
 });
 
+describe("Cancelled booking immutability", () => {
+  test.each([
+    ["Admin ordinary update", adminUser, { issueNote: "Changed note" }],
+    ["General Manager ordinary update", generalManagerUser, { issueNote: "Changed note" }],
+    ["General Manager status rollback", generalManagerUser, { status: "Scheduled" }],
+    ["crafted schedule and assignment change", adminUser, { date: "2099-12-30", time: "13:00", placeSlot: 2, assigned: "STF-2", service: "Ceramic Coating", promoId: "FORGED-PROMO" }],
+  ])("%s against a Cancelled booking is rejected without mutation", async (_label, actor, patch) => {
+    seedDeletedBooking("Cancelled");
+    const original = clone(bookings[0]);
+    const response = await request("/api/admin/bookings/B-DELETE", {
+      method: "PUT",
+      token: auth(actor),
+      body: { ...bookings[0], ...patch, specialPin: actor.userType === "Staff" ? "654321" : "123456", auditUser: "forged@example.com" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Cancelled bookings are locked and cannot be edited.");
+    expect(bookings[0]).toEqual(original);
+  });
+});
+
 describe("Role-aware special credential validation", () => {
   async function validateCredential(actor, body, token = auth(actor)) {
     return request("/api/admin/security/validate", {
@@ -627,6 +702,43 @@ describe("Booking reschedule special credential matrix", () => {
   });
 
   test.each([
+    ["no downpayment submitted", null, "A linked payment record is required before rescheduling this booking."],
+    ["proof submitted but not verified", { downPaymentStatus: "For Verification", downPaymentVerifiedAt: null }, "Down payment must be verified as paid before rescheduling this booking."],
+    ["rejected downpayment", { downPaymentStatus: "Rejected", downPaymentRejectedAt: "2099-12-01T00:10:00.000Z", downPaymentVerifiedAt: null }, "Down payment must be verified as paid before rescheduling this booking."],
+  ])("Scheduled booking with %s rejects reschedule before credential verification", async (_label, paymentPatch, message) => {
+    seedScheduledBooking(paymentPatch);
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(adminUser),
+      body: reschedulePayload("123456"),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe(message);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test("forged client payment state cannot satisfy the backend reschedule downpayment gate", async () => {
+    seedScheduledBooking({ downPaymentStatus: "Pending", downPaymentProofSubmittedAt: null, downPaymentVerifiedAt: null });
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: reschedulePayload("654321", {
+        downPaymentStatus: "Paid",
+        downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
+        payment: { downPaymentStatus: "Paid" },
+        scope: "admin",
+        actorUserType: "Admin",
+        actorRole: "Admin",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Down payment must be verified as paid before rescheduling this booking.");
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test.each([
     ["incorrect Admin PIN", "000000"],
     ["Staff PIN supplied by Admin", "654321"],
   ])("Admin reschedule rejects %s", async (_label, specialPin) => {
@@ -667,6 +779,39 @@ describe("Booking reschedule special credential matrix", () => {
 
     expect(response.status).toBe(expectedStatus);
     expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1 });
+  });
+
+  test("Cancelled booking with verified downpayment still cannot be rescheduled", async () => {
+    seedScheduledBooking();
+    bookings[0].status = "Cancelled";
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(adminUser),
+      body: reschedulePayload("123456"),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Cancelled bookings are locked and cannot be edited.");
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1, status: "Cancelled" });
+  });
+
+  test("Pending customer booking initial scheduling remains allowed without verified downpayment", async () => {
+    seedPendingBooking();
+    const response = await request("/api/admin/bookings/B-PENDING", {
+      method: "PUT",
+      token: auth(generalManagerUser),
+      body: {
+        ...bookings[0],
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "Scheduled",
+        specialPin: "654321",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "10:00", placeSlot: 1, status: "Scheduled" });
   });
 });
 
