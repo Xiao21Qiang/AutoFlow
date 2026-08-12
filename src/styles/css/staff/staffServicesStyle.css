@@ -437,9 +437,9 @@
 }
 
 .stSvcSmallBtnView {
-  cursor: default;
+  cursor: pointer;
   background: #f8fafc;
-  color: #64748b;
+  color: #475569;
 }
 
 .stSvcSmallBtnOutline:hover {
@@ -515,6 +515,12 @@
   overflow: auto;
 }
 
+.stSvcDetailsModalCard {
+  width: min(100%, 760px);
+  max-height: min(88vh, 900px);
+  overflow-y: auto;
+}
+
 .stSvcModalClose {
   position: absolute;
   right: 12px;
@@ -532,6 +538,106 @@
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
+}
+
+.stSvcDetailsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.stSvcDetailsName {
+  font-size: 18px;
+  font-weight: 950;
+  color: #0f172a;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stSvcDetailsDesc {
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.stSvcDetailsBadges {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.stSvcDetailsSummary,
+.stSvcDetailsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stSvcDetailsSummary {
+  margin-top: 14px;
+}
+
+.stSvcDetailsItem {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px 11px;
+}
+
+.stSvcDetailsItem span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 9px;
+  font-weight: 950;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.stSvcDetailsItem strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.stSvcDetailsSection {
+  margin-top: 16px;
+}
+
+.stSvcDetailsSectionTitle {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 950;
+  color: var(--gold-dark);
+  text-transform: uppercase;
+}
+
+.stSvcDetailsConsumables {
+  border: 1px solid #e5eaf1;
+  border-radius: 10px;
+  background: #fbfdff;
+  padding: 10px 12px;
+}
+
+.stSvcDetailsList {
+  margin: 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .stSvcField {

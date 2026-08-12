@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminServices from "./screens/admin/AdminServices";
 import StaffServices from "./screens/staff/StaffServices";
-import { ACTION_KEYS } from "./utils/rbac";
 import { validateSpecialCredential } from "./utils/reauth";
 
 const mockCreateService = jest.fn();
@@ -74,7 +73,6 @@ function openAdminStatusModal() {
 
 function openStaffStatusModal() {
   render(<StaffServices />);
-  fireEvent.click(screen.getByRole("button", { name: "Disable" }));
 }
 
 function pinInput() {
@@ -147,25 +145,20 @@ describe("Change Service Status Special PIN validation", () => {
     expect(mockToggleService).not.toHaveBeenCalled();
   });
 
-  test("Staff empty PIN uses the same modal protection when status changes are available", () => {
+  test("Staff Services does not expose status mutation controls or PIN prompts", () => {
     mockData = {
       currentUser: { id: "STF-1", name: "Staff", email: "staff@example.com", userType: "Staff", role: "General Manager" },
     };
 
     openStaffStatusModal();
 
-    const input = pinInput();
-    expect(input).toBeRequired();
-
-    fireEvent.click(confirmPin());
-
-    expect(screen.getByText("Please fill out this field.")).toBeInTheDocument();
-    expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("dialog", { name: /change service status/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /change service status/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Only" })).toBeEnabled();
     expectStatusEnabled();
     expect(validateSpecialCredential).not.toHaveBeenCalled();
     expect(mockToggleService).not.toHaveBeenCalled();
-    expect(mockCanPerformAction).toHaveBeenCalledWith(expect.objectContaining({ userType: "Staff" }), ACTION_KEYS.servicesManage);
   });
 
   test("empty PIN inline error clears when a non-whitespace PIN is entered", () => {
@@ -220,27 +213,16 @@ describe("Change Service Status Special PIN validation", () => {
     expect(emptyFieldError()).not.toBeInTheDocument();
   });
 
-  test("Staff valid non-empty PIN verifies with Staff scope and updates the service status", async () => {
+  test("Staff Special PIN cannot be used for service status mutation because Staff has no mutation action", () => {
     mockData = {
       currentUser: { id: "STF-1", name: "Staff", email: "staff@example.com", userType: "Staff", role: "General Manager" },
     };
     openStaffStatusModal();
 
-    fireEvent.change(pinInput(), { target: { value: "2468" } });
-    fireEvent.click(confirmPin());
-
-    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
-    expect(validateSpecialCredential).toHaveBeenCalledWith(
-      "pin",
-      "2468",
-      "staff",
-      expect.objectContaining({ userType: "Staff" }),
-      ACTION_KEYS.servicesManage
-    );
-    await waitFor(() => expect(mockToggleService).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("dialog", { name: /change service status/i })).not.toBeInTheDocument();
-    expect(screen.getByText("Disabled")).toBeInTheDocument();
-    expect(emptyFieldError()).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm PIN" })).not.toBeInTheDocument();
+    expect(mockToggleService).not.toHaveBeenCalled();
+    expect(validateSpecialCredential).not.toHaveBeenCalled();
   });
 
   test("incorrect non-empty PIN displays the error and keeps status unchanged", async () => {

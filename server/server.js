@@ -8139,7 +8139,7 @@ app.patch("/api/admin/bookings/:id/public-access/:purpose", requireAdminUser, as
   }
 });
 
-app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
+app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
   try {
     const serviceName = normalizeServiceDisplayName(req.body.name);
     await ensureUniqueServiceName(serviceName);
@@ -8163,7 +8163,7 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
       consumables: buildLegacyConsumables(consumablesBySize),
     };
     const service = await Service.create({ id: createId("SVC"), ...payload });
-    await recordAudit(req.body.auditUser, "Created service", service.id, { name: service.name });
+    await recordAudit(getAuthenticatedAuditUser(req), "Created service", service.id, { name: service.name });
     res.status(201).json(hydrateService(service));
   } catch (error) {
     if (error?.code === 11000) {
@@ -8174,7 +8174,7 @@ app.post("/api/admin/services", requireRoles("admin", "staff"), requireAction(AC
   }
 });
 
-app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.servicesManage), async (req, res, next) => {
+app.put("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
   try {
     const service = await Service.findOne({ id: req.params.id });
     const existingService = service?.toObject ? service.toObject() : null;
@@ -8241,7 +8241,7 @@ app.put("/api/admin/services/:id", requireRoles("admin", "staff"), requireAction
     service.markModified("consumables");
     await service.save();
 
-    await recordAudit(req.body.auditUser, getServiceAuditAction(existingService, req.body), req.params.id, {
+    await recordAudit(getAuthenticatedAuditUser(req), getServiceAuditAction(existingService, req.body), req.params.id, {
       name: service?.name || existingService?.name || "",
       enabled: service?.enabled,
     });

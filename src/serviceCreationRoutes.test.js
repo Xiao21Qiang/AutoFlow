@@ -16,6 +16,8 @@ const { __testModels, app, signJwt } = require("../server/server");
 jest.setTimeout(15000);
 
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
+const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
 const customerUser = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
 
 const stockItems = [
@@ -139,10 +141,12 @@ function basePayload(overrides = {}) {
 beforeAll(async () => {
   stub(__testModels.User, "findOne", (query = {}) => {
     if (query.id === adminUser.id || query.email === adminUser.email) return doc(adminUser);
+    if (query.id === generalManagerUser.id || query.email === generalManagerUser.email) return doc(generalManagerUser);
+    if (query.id === detailerUser.id || query.email === detailerUser.email) return doc(detailerUser);
     if (query.id === customerUser.id || query.email === customerUser.email) return doc(customerUser);
     return doc(null);
   });
-  stub(__testModels.User, "find", () => chain([adminUser, customerUser]));
+  stub(__testModels.User, "find", () => chain([adminUser, generalManagerUser, detailerUser, customerUser]));
   stub(__testModels.Service, "find", () => chain(services));
   stub(__testModels.Service, "findOne", (query = {}) => doc(services.find((service) => service.id === query.id || service.name === query.name)));
   stub(__testModels.Service, "create", async (payload) => {
@@ -172,7 +176,7 @@ beforeEach(() => {
 
 describe("Admin service creation route validation", () => {
   test("a valid unique service with at least one valid consumable creates exactly one record", async () => {
-    const response = await request("/api/admin/services", { method: "POST", body: basePayload({ name: " New  Wash " }) });
+    const response = await request("/api/admin/services", { method: "POST", body: basePayload({ name: " New  Wash ", auditUser: "forged@example.com" }) });
     expect(response.status).toBe(201);
     expect(services).toHaveLength(1);
     expect(services[0]).toMatchObject({
@@ -184,6 +188,7 @@ describe("Admin service creation route validation", () => {
       },
     });
     expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({ userId: "admin@example.com", action: "Created service" });
   });
 
   test.each(["Car Wash", "car wash", " Car  Wash "])("duplicate service name %s is rejected with a clear conflict response", async (name) => {
@@ -239,6 +244,25 @@ describe("Admin service creation route validation", () => {
     const response = await request("/api/admin/services", { method: "POST", token: auth(customerUser), body: basePayload() });
     expect(response.status).toBe(403);
     expect(services).toHaveLength(0);
+  });
+
+  test.each([
+    ["General Manager", generalManagerUser],
+    ["other Staff", detailerUser],
+  ])("%s creation is rejected even with forged Admin role fields", async (_label, user) => {
+    const response = await request("/api/admin/services", {
+      method: "POST",
+      token: auth(user),
+      body: basePayload({ role: "Admin", userType: "Admin", actorRole: "Admin", actorUserType: "Admin" }),
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
+    expect(services).toHaveLength(0);
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({
+      userId: user.email,
+      action: "Unauthorized admin route attempt",
+    });
   });
 
   test("existing valid service creation remains functional after invalid attempts", async () => {
@@ -318,13 +342,14 @@ describe("Admin service update route validation", () => {
     seedServices();
     const response = await request("/api/admin/services/SVC-1", {
       method: "PUT",
-      body: basePayload({ name: "Premium Wash", desc: "Updated wash", consumablesBySize: { Soap: { sedanSmallCar: 2, midsizePickupMpv: 2, suv: 2, xlVanSemiTruck: 2 } } }),
+      body: basePayload({ name: "Premium Wash", desc: "Updated wash", auditUser: "forged@example.com", consumablesBySize: { Soap: { sedanSmallCar: 2, midsizePickupMpv: 2, suv: 2, xlVanSemiTruck: 2 } } }),
     });
     expect(response.status).toBe(200);
     expect(services).toHaveLength(2);
     expect(services[0]).toMatchObject({ id: "SVC-1", name: "Premium Wash", desc: "Updated wash" });
     expect(services[1].name).toBe("Motor Coating");
     expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({ userId: "admin@example.com", action: "Updated service" });
   });
 
   test.each(["Car Wash", "car wash", " Car  Wash "])("keeping the same service name %s is allowed and excludes itself", async (name) => {
@@ -394,6 +419,26 @@ describe("Admin service update route validation", () => {
     const response = await request("/api/admin/services/SVC-1", { method: "PUT", token: auth(customerUser), body: basePayload() });
     expect(response.status).toBe(403);
     expect(services[0].name).toBe("Car Wash");
+  });
+
+  test.each([
+    ["General Manager", generalManagerUser],
+    ["other Staff", detailerUser],
+  ])("%s update is rejected even with forged Admin role fields", async (_label, user) => {
+    seedServices();
+    const response = await request("/api/admin/services/SVC-1", {
+      method: "PUT",
+      token: auth(user),
+      body: basePayload({ name: "Forged Update", role: "Admin", userType: "Admin", actorRole: "Admin", actorUserType: "Admin" }),
+    });
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
+    expect(services[0].name).toBe("Car Wash");
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0]).toMatchObject({
+      userId: user.email,
+      action: "Unauthorized admin route attempt",
+    });
   });
 
   test("existing enable and disable action remains functional without service detail edits", async () => {

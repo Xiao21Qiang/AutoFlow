@@ -2,39 +2,20 @@ import "../../styles/css/staff/staffServicesStyle.css";
 
 import { useMemo, useState } from "react";
 import FilterModal from "../../components/common/FilterModal";
-import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
-import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
+import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
 import {
-  buildConsumablesBySizePayload,
-  alignConsumablesToStockItems,
-  createEmptyConsumableSizes,
-  createSelectedConsumableKeys,
-  filterConsumablesBySelectedKeys,
-  findConsumableEntryKey,
   formatConsumableSizeLabel,
-  getStockConsumableKey,
   normalizeConsumablesBySize,
-  normalizeConsumableDisplayName,
 } from "../../utils/serviceConsumables";
 import {
-  SERVICE_ARRIVAL_TIME_OPTIONS,
   formatTimeLabel,
-  getDefaultArrivalTimesForDuration,
   normalizeAllowedArrivalTimes,
 } from "../../utils/bookingWorkflow";
-import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 
 const CATEGORY_OPTIONS = ["Coating", "Tinting", "Protection", "Cleaning", "Wash"];
-const SERVICE_TYPE_OPTIONS = ["Basic Service", "Package"];
-const DUPLICATE_SERVICE_MESSAGE = "A service with this name already exists.";
-const MISSING_CONSUMABLE_MESSAGE = "Please select at least one consumable.";
-
-function normalizeServiceNameKey(value = "") {
-  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
-}
 
 function getServiceType(service) {
   const raw = String(service?.serviceType || "").trim().toLowerCase();
@@ -49,43 +30,45 @@ function getServiceType(service) {
   return "Basic Service";
 }
 
-function toPriceInputState(service) {
-  const priceBySize = getServicePriceBySize(service);
-  return {
-    sedanSmallCar: String(priceBySize.sedanSmallCar || ""),
-    midsizePickupMpv: String(priceBySize.midsizePickupMpv || ""),
-    suv: String(priceBySize.suv || ""),
-    xlVanSemiTruck: String(priceBySize.xlVanSemiTruck || ""),
-  };
+function getPriceSizeKey(label) {
+  if (label === "Sedan / Small Car") return "sedanSmallCar";
+  if (label === "Midsize / Pickup / MPV") return "midsizePickupMpv";
+  if (label === "SUV") return "suv";
+  return "xlVanSemiTruck";
 }
 
-function buildPriceBySizePayload(priceBySize) {
-  return {
-    sedanSmallCar: Number(priceBySize?.sedanSmallCar) || 0,
-    midsizePickupMpv: Number(priceBySize?.midsizePickupMpv) || 0,
-    suv: Number(priceBySize?.suv) || 0,
-    xlVanSemiTruck: Number(priceBySize?.xlVanSemiTruck) || 0,
-  };
+function formatPeso(value) {
+  return `P ${Number(value || 0).toLocaleString("en-PH")}`;
+}
+
+function getArrivalTimesLabel(service) {
+  return normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins)
+    .map((time) => formatTimeLabel(time))
+    .join(", ");
+}
+
+function getPackageComponents(service) {
+  const candidates = [
+    service?.includedServices,
+    service?.packageServices,
+    service?.servicesIncluded,
+    service?.components,
+  ];
+  return candidates.find((value) => Array.isArray(value) && value.length > 0) || [];
+}
+
+function getComponentLabel(component) {
+  if (typeof component === "string") return component;
+  return component?.name || component?.serviceName || component?.title || component?.id || "";
 }
 
 export default function StaffServices() {
-  const { services, stockMonitoring, currentUser, createService, updateService, toggleService } = useAdminData();
+  const { services } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ category: "", enabled: "" });
   const [selectedServiceId, setSelectedServiceId] = useState(null);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [securityConfirm, setSecurityConfirm] = useState(null);
-  const [addTouchedFields, setAddTouchedFields] = useState({});
-  const [editTouchedFields, setEditTouchedFields] = useState({});
-  const [addSelectedConsumableKeys, setAddSelectedConsumableKeys] = useState([]);
-  const [editSelectedConsumableKeys, setEditSelectedConsumableKeys] = useState([]);
-  const [form, setForm] = useState({ name: "", desc: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), mins: "", allowedArrivalTimes: getDefaultArrivalTimesForDuration(0), consumablesBySize: {} });
-  const [addForm, setAddForm] = useState({ name: "", serviceType: "Basic Service", category: "Coating", priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }), durationHours: "1", status: "Active", allowedArrivalTimes: getDefaultArrivalTimesForDuration(60), consumablesBySize: {} });
-  const [serviceFormError, setServiceFormError] = useState("");
-  const canManageServices = canPerformAction(currentUser, ACTION_KEYS.servicesManage);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -97,313 +80,15 @@ export default function StaffServices() {
     });
   }, [services, query, filters]);
 
-  const stockMonitoringOptions = useMemo(
-    () =>
-      stockMonitoring
-        .filter((item) => item.name)
-        .map((item) => ({
-          id: item.id,
-          _id: item._id,
-          name: normalizeConsumableDisplayName(item.name),
-          stock: Number(item.currentStock || 0),
-        }))
-        .filter((item) => item.name),
-    [stockMonitoring]
-  );
-  const addConsumableCount = addSelectedConsumableKeys.length;
-  const hasAddSelectedConsumable = addConsumableCount > 0;
-  const addConsumablesError = hasAddSelectedConsumable ? "" : MISSING_CONSUMABLE_MESSAGE;
-  const addDuplicateNameError = useMemo(() => {
-    const requestedKey = normalizeServiceNameKey(addForm.name);
-    if (!requestedKey) return "";
-    return services.some((service) => normalizeServiceNameKey(service.name) === requestedKey)
-      ? DUPLICATE_SERVICE_MESSAGE
-      : "";
-  }, [addForm.name, services]);
-  const isAddServiceReady = hasAddSelectedConsumable && !addDuplicateNameError;
-
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const selectedService = services.find((service) => service.id === selectedServiceId) || null;
-  const editConsumableCount = editSelectedConsumableKeys.length;
-  const hasEditSelectedConsumable = editConsumableCount > 0;
-  const editConsumablesError = hasEditSelectedConsumable ? "" : MISSING_CONSUMABLE_MESSAGE;
-  const editDuplicateNameError = useMemo(() => {
-    const requestedKey = normalizeServiceNameKey(form.name);
-    if (!requestedKey || !selectedService) return "";
-    return services.some((service) => {
-      if (String(service.id || "") === String(selectedService.id || "")) return false;
-      return normalizeServiceNameKey(service.name) === requestedKey;
-    })
-      ? DUPLICATE_SERVICE_MESSAGE
-      : "";
-  }, [form.name, selectedService, services]);
-  const isEditServiceReady = hasEditSelectedConsumable && !editDuplicateNameError;
-
-  const openEditModal = (service) => {
-    setSelectedServiceId(service.id);
-    const consumablesBySize = alignConsumablesToStockItems(
-      normalizeConsumablesBySize(service.consumablesBySize, service.consumables),
-      stockMonitoringOptions
-    );
-    setForm({
-      name: service.name,
-      desc: service.desc,
-      serviceType: getServiceType(service),
-      category: service.category,
-      priceBySize: toPriceInputState(service),
-      mins: String(service.mins || ""),
-      allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
-      consumablesBySize,
-    });
-    setServiceFormError("");
-    setEditTouchedFields({});
-    setEditSelectedConsumableKeys(createSelectedConsumableKeys(consumablesBySize, stockMonitoringOptions));
-    setIsEditOpen(true);
-  };
-
-  const toggleConsumable = (key, item) => {
-    const name = normalizeConsumableDisplayName(item?.name);
-    const selectionKey = getStockConsumableKey(item);
-    if (!name || !selectionKey) return;
-
-    const setter = key === "add" ? setAddForm : setForm;
-    const selectionSetter = key === "add" ? setAddSelectedConsumableKeys : setEditSelectedConsumableKeys;
-    if (key === "add") {
-      setAddTouchedFields((prev) => ({ ...prev, consumables: true }));
-      setServiceFormError("");
-    } else {
-      setEditTouchedFields((prev) => ({ ...prev, consumables: true }));
-      setServiceFormError("");
-    }
-
-    selectionSetter((prev) => {
-      const current = [...new Set((prev || []).filter(Boolean))];
-      return current.includes(selectionKey)
-        ? current.filter((keyValue) => keyValue !== selectionKey)
-        : [...current, selectionKey];
-    });
-
-    setter((prev) => {
-      const current = prev.consumablesBySize || {};
-      const nextConsumables = { ...current };
-      const existingKey = findConsumableEntryKey(nextConsumables, name);
-
-      if (!existingKey) {
-        nextConsumables[name] = createEmptyConsumableSizes();
-      }
-
-      return { ...prev, consumablesBySize: nextConsumables };
-    });
-  };
-
-  const updateConsumableQty = (key, itemName, sizeKey, value) => {
-    const name = String(itemName || "").trim();
-    if (!name) return;
-
-    const nextValue = value.replace(/[^\d.]/g, "");
-    const setter = key === "add" ? setAddForm : setForm;
-
-    setter((prev) => ({
-      ...prev,
-      consumablesBySize: {
-        ...(prev.consumablesBySize || {}),
-        [findConsumableEntryKey(prev.consumablesBySize, name) || name]: {
-          ...(prev.consumablesBySize?.[findConsumableEntryKey(prev.consumablesBySize, name) || name] || createEmptyConsumableSizes()),
-          [sizeKey]: nextValue,
-        },
-      },
-    }));
-  };
-
-  const renderConsumablesPicker = (mode, selectedConsumables, selectedConsumableKeys = []) => {
-    const selectedKeySet = new Set(selectedConsumableKeys);
-    const selectedCount = selectedConsumableKeys.length;
-    const consumablesError =
-      mode === "add" && addTouchedFields.consumables
-        ? addConsumablesError
-        : mode === "edit" && editTouchedFields.consumables
-          ? editConsumablesError
-          : "";
-    const errorId = mode === "edit" ? "staff-edit-service-consumables-error" : "staff-add-service-consumables-error";
-    return (
-    <div className="stSvcConsumablesPanel" aria-invalid={consumablesError ? "true" : undefined} aria-describedby={consumablesError ? errorId : undefined}>
-      <div className="stSvcConsumablesHeader">
-        <div>
-          <div className="stSvcConsumablesTitle">Consumables To Be Used</div>
-          <div className="stSvcConsumablesHint">Select stock monitoring items and set how many each service uses.</div>
-        </div>
-        <div className="stSvcConsumablesCount">{selectedCount} selected</div>
-      </div>
-
-      {stockMonitoringOptions.length ? (
-        <div className="stSvcConsumablesGrid">
-          {stockMonitoringOptions.map((item) => {
-            const selectedKey = findConsumableEntryKey(selectedConsumables, item.name);
-            const checked = selectedKeySet.has(getStockConsumableKey(item));
-            const selectedQuantities = selectedKey ? selectedConsumables[selectedKey] : {};
-
-            return (
-              <label className={`stSvcConsumableCard ${checked ? "selected" : ""}`} key={item.id || item._id || item.name}>
-                <div className="stSvcConsumableMain">
-                  <input
-                    className="stSvcConsumableCheckbox"
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleConsumable(mode, item)}
-                  />
-                  <div className="stSvcConsumableInfo">
-                    <div className="stSvcConsumableName">{item.name}</div>
-                    <div className="stSvcConsumableMeta">{item.stock} in stock</div>
-                  </div>
-                </div>
-                <div className="stSvcConsumableQty">
-                  <div className="stSvcConsumableQtyLabel">Qty By Size</div>
-                  <div className="stSvcConsumableQtyGrid">
-                    {CAR_SIZE_OPTIONS.map((label) => {
-                      const sizeKey =
-                        label === "Sedan / Small Car"
-                          ? "sedanSmallCar"
-                          : label === "Midsize / Pickup / MPV"
-                            ? "midsizePickupMpv"
-                            : label === "SUV"
-                              ? "suv"
-                              : "xlVanSemiTruck";
-
-                      return (
-                        <label key={label} className="stSvcConsumableQtyItem">
-                          <span>{label}</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={checked ? selectedQuantities?.[sizeKey] || "" : ""}
-                            onChange={(e) => updateConsumableQty(mode, item.name, sizeKey, e.target.value)}
-                            placeholder="0"
-                            disabled={!checked}
-                            required={checked}
-                          />
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </label>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="stSvcConsumablesEmpty">No stock monitoring items available yet.</div>
-      )}
-      {consumablesError ? <div className="stSvcFormError" id={errorId}>{consumablesError}</div> : null}
-    </div>
-    );
-  };
-
-  const renderPriceFields = (mode, priceBySize) => {
-    const setter = mode === "add" ? setAddForm : setForm;
-    return (
-      <div className="stSvcFieldGrid">
-        {CAR_SIZE_OPTIONS.map((label) => {
-          const key =
-            label === "Sedan / Small Car"
-              ? "sedanSmallCar"
-              : label === "Midsize / Pickup / MPV"
-                ? "midsizePickupMpv"
-                : label === "SUV"
-                  ? "suv"
-                  : "xlVanSemiTruck";
-
-          return (
-            <label className="stSvcField" key={label}>
-              <span>{label} Price (P)</span>
-              <input
-                type="number"
-                min="0"
-                value={priceBySize?.[key] || ""}
-                onChange={(e) =>
-                  setter((prev) => ({
-                    ...prev,
-                    priceBySize: {
-                      ...(prev.priceBySize || {}),
-                      [key]: e.target.value,
-                    },
-                  }))
-                }
-                required
-              />
-            </label>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const updateServiceDuration = (mode, value) => {
-    if (mode === "add") {
-      const mins = (Number(value) || 0) * 60;
-      setAddForm((prev) => ({
-        ...prev,
-        durationHours: value,
-        allowedArrivalTimes: getDefaultArrivalTimesForDuration(mins),
-      }));
-      return;
-    }
-
-    setForm((prev) => ({
-      ...prev,
-      mins: value,
-      allowedArrivalTimes: getDefaultArrivalTimesForDuration(Number(value) || 0),
-    }));
-  };
-
-  const toggleArrivalTime = (mode, time) => {
-    const setter = mode === "add" ? setAddForm : setForm;
-    setter((prev) => {
-      const current = new Set(prev.allowedArrivalTimes || []);
-      if (current.has(time)) {
-        current.delete(time);
-      } else {
-        current.add(time);
-      }
-      return { ...prev, allowedArrivalTimes: [...current].filter((item) => SERVICE_ARRIVAL_TIME_OPTIONS.includes(item)) };
-    });
-  };
-
-  const renderArrivalTimePicker = (mode, durationMinutes, selectedTimes) => {
-    const suggestedTimes = getDefaultArrivalTimesForDuration(durationMinutes);
-    const selectedSet = new Set(selectedTimes || []);
-    return (
-      <div className="stSvcArrivalPanel">
-        <div className="stSvcConsumablesHeader">
-          <div>
-            <div className="stSvcConsumablesTitle">Required Time of Arrival</div>
-            <div className="stSvcConsumablesHint">Select any hourly arrival slots from 8:00 AM to 5:00 PM. Duration changes auto-select the suggested defaults, but you can customize them.</div>
-          </div>
-          <div className="stSvcConsumablesCount">{(selectedTimes || []).length} selected</div>
-        </div>
-        <div className="stSvcArrivalGrid">
-          {SERVICE_ARRIVAL_TIME_OPTIONS.map((time) => (
-            <label className={`stSvcArrivalOption${selectedSet.has(time) ? " selected" : ""}`} key={time}>
-              <input
-                type="checkbox"
-                checked={selectedSet.has(time)}
-                onChange={() => toggleArrivalTime(mode, time)}
-              />
-              <span>{formatTimeLabel(time)}</span>
-              {suggestedTimes.includes(time) ? <em>Suggested</em> : null}
-            </label>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
+  const selectedService = services.find((service) => String(service.id || "") === String(selectedServiceId || "")) || null;
   const pagedBasicServices = paged.filter((service) => getServiceType(service) === "Basic Service");
   const pagedPackages = paged.filter((service) => getServiceType(service) === "Package");
   const hasNoFilteredServices = filtered.length === 0;
+
   const getSectionDetails = (title) => {
     const isPackage = title.toLowerCase().includes("package");
     return {
@@ -412,14 +97,11 @@ export default function StaffServices() {
       subtitle: isPackage ? "Bundled premium protection and detailing packages." : "Quick and standard detailing services.",
     };
   };
-  const getArrivalTimesLabel = (service) =>
-    normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins)
-      .map((time) => formatTimeLabel(time))
-      .join(", ");
-  const renderConsumablesList = (service) => {
+
+  const renderConsumablesList = (service, className = "stSvcList") => {
     const entries = Object.entries(normalizeConsumablesBySize(service.consumablesBySize, service.consumables));
     return entries.length ? (
-      <ul className="stSvcList">
+      <ul className={className}>
         {entries.map(([name, quantities]) => (
           <li key={name}>{formatConsumableSizeLabel(name, quantities)}</li>
         ))}
@@ -428,10 +110,52 @@ export default function StaffServices() {
       <div className="stSvcEmptyText">No consumables linked.</div>
     );
   };
+
+  const renderPriceBySize = (service) => {
+    const priceBySize = getServicePriceBySize(service);
+    return (
+      <div className="stSvcDetailsGrid">
+        {CAR_SIZE_OPTIONS.map((label) => {
+          const key = getPriceSizeKey(label);
+          return (
+            <div className="stSvcDetailsItem" key={label}>
+              <span>{label}</span>
+              <strong>{formatPeso(priceBySize[key])}</strong>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderPackageComponents = (service) => {
+    const components = getPackageComponents(service)
+      .map(getComponentLabel)
+      .map((label) => String(label || "").trim())
+      .filter(Boolean);
+    if (!components.length) return null;
+    return (
+      <div className="stSvcDetailsSection">
+        <div className="stSvcDetailsSectionTitle">Package Contents</div>
+        <ul className="stSvcDetailsList">
+          {components.map((label) => <li key={label}>{label}</li>)}
+        </ul>
+      </div>
+    );
+  };
+
+  const openDetailsModal = (service) => {
+    if (!service?.id) return;
+    setSelectedServiceId(service.id);
+  };
+
+  const closeDetailsModal = () => {
+    setSelectedServiceId(null);
+  };
+
   const renderServiceSection = (title, items) => {
     const section = getSectionDetails(title);
-    return (
-    items.length ? (
+    return items.length ? (
       <section className={`stSvcSectionBlock ${section.tone}`} key={title}>
         <div className="stSvcSectionHead">
           <div>
@@ -442,65 +166,42 @@ export default function StaffServices() {
         </div>
         <div className="stSvcSectionScroll">
           <div className="stSvcCardsGrid">
-          {items.map((service) => (
-            <div className={`stSvcCard ${section.tone}`} key={service.id}>
-              <div className="stSvcCardTop">
-                <span className={`stSvcTypeBadge ${section.tone}`}>{section.label}</span>
-                {service.category ? <span className="stSvcCategoryBadge">{service.category}</span> : null}
-                <span className={`stSvcStatusBadge ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</span>
-              </div>
-              <h3 className="stSvcTitle">{service.name}</h3>
-              <div className="stSvcSub">{service.desc || "No description provided."}</div>
-              <div className="stSvcInfoGrid">
-                <div className="stSvcInfoItem">
-                  <span>Price Range</span>
-                  <strong>{formatPriceRangeLabel(service)}</strong>
+            {items.map((service) => (
+              <div className={`stSvcCard ${section.tone}`} key={service.id}>
+                <div className="stSvcCardTop">
+                  <span className={`stSvcTypeBadge ${section.tone}`}>{section.label}</span>
+                  {service.category ? <span className="stSvcCategoryBadge">{service.category}</span> : null}
+                  <span className={`stSvcStatusBadge ${service.enabled ? "enabled" : "disabled"}`}>{service.enabled ? "Enabled" : "Disabled"}</span>
                 </div>
-                <div className="stSvcInfoItem">
-                  <span>Duration</span>
-                  <strong>{service.mins || 0} mins</strong>
+                <h3 className="stSvcTitle">{service.name}</h3>
+                <div className="stSvcSub">{service.desc || "No description provided."}</div>
+                <div className="stSvcInfoGrid">
+                  <div className="stSvcInfoItem">
+                    <span>Price Range</span>
+                    <strong>{formatPriceRangeLabel(service)}</strong>
+                  </div>
+                  <div className="stSvcInfoItem">
+                    <span>Duration</span>
+                    <strong>{service.mins || 0} mins</strong>
+                  </div>
+                  <div className="stSvcInfoItem wide">
+                    <span>Required Time of Arrival</span>
+                    <strong>{getArrivalTimesLabel(service) || "Not configured"}</strong>
+                  </div>
                 </div>
-                <div className="stSvcInfoItem wide">
-                  <span>Required Time of Arrival</span>
-                  <strong>{getArrivalTimesLabel(service) || "Not configured"}</strong>
+                <div className="stSvcSection">Consumables</div>
+                <div className="stSvcConsumablesPreview">{renderConsumablesList(service)}</div>
+                <div className="stSvcCardActions">
+                  <button className="stSvcSmallBtn stSvcSmallBtnView" type="button" onClick={() => openDetailsModal(service)}>
+                    View Only
+                  </button>
                 </div>
               </div>
-              <div className="stSvcSection">Consumables</div>
-              <div className="stSvcConsumablesPreview">{renderConsumablesList(service)}</div>
-              <div className="stSvcCardActions">
-                {canManageServices ? (
-                  <>
-                    <button className="stSvcSmallBtn stSvcSmallBtnEdit" type="button" onClick={() => openEditModal(service)}>Edit</button>
-                    <button
-                      className="stSvcSmallBtn stSvcSmallBtnOutline"
-                      type="button"
-                      onClick={() =>
-                        setSecurityConfirm({
-                          mode: "pin",
-                          title: "Change Service Status",
-                          message: "Enter the special PIN before changing this service status.",
-                          actionKey: ACTION_KEYS.servicesManage,
-                          onConfirm: async () => {
-                            await toggleService(service);
-                            setSecurityConfirm(null);
-                          },
-                        })
-                      }
-                    >
-                      {service.enabled ? "Disable" : "Enable"}
-                    </button>
-                  </>
-                ) : (
-                  <span className="stSvcSmallBtn stSvcSmallBtnView">View Only</span>
-                )}
-              </div>
-            </div>
-          ))}
+            ))}
           </div>
         </div>
       </section>
-    ) : null
-    );
+    ) : null;
   };
 
   return (
@@ -519,14 +220,6 @@ export default function StaffServices() {
         <button className="stSvcFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}>
           <img src={icoFilter} alt="" className="stSvcFilterIcon" />
         </button>
-
-        <div className="stSvcActionBtns">
-          {canManageServices ? (
-            <button className="stSvcBtn stSvcBtnGold" type="button" onClick={() => { setServiceFormError(""); setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setIsAddOpen(true); }}>
-              Add New Service
-            </button>
-          ) : null}
-        </div>
       </div>
 
       <div className="stSvcBoard">
@@ -550,130 +243,54 @@ export default function StaffServices() {
         </button>
       </div>
 
-      {isEditOpen && selectedService && (
+      {selectedService && (
         <div className="stSvcModalOverlay">
-          <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>
-              x
-            </button>
+          <div className="stSvcModalCard stSvcDetailsModalCard" role="dialog" aria-modal="true" aria-label={getServiceType(selectedService) === "Package" ? "Package Details" : "Service Details"}>
+            <button className="stSvcModalClose" type="button" onClick={closeDetailsModal}>x</button>
+            <div className="stSvcModalTitle">{getServiceType(selectedService) === "Package" ? "Package Details" : "Service Details"}</div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setEditTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
-                if (editDuplicateNameError) {
-                  setServiceFormError(editDuplicateNameError);
-                  return;
-                }
-                if (editConsumablesError) {
-                  setServiceFormError(editConsumablesError);
-                  return;
-                }
-                const priceBySize = buildPriceBySizePayload(form.priceBySize);
-                if (!form.allowedArrivalTimes?.length) {
-                  setServiceFormError("Select at least one required time of arrival.");
-                  return;
-                }
-                updateService(selectedService.id, {
-                  ...selectedService,
-                  name: form.name.trim().replace(/\s+/g, " "),
-                  desc: form.desc.trim(),
-                  serviceType: form.serviceType,
-                  category: form.category,
-                  price: Number(priceBySize.sedanSmallCar) || 0,
-                  priceBySize,
-                  mins: Number(form.mins) || 0,
-                  allowedArrivalTimes: form.allowedArrivalTimes,
-                  consumablesBySize: buildConsumablesBySizePayload(
-                    filterConsumablesBySelectedKeys(form.consumablesBySize, editSelectedConsumableKeys, stockMonitoringOptions)
-                  ),
-                });
-                setEditTouchedFields({});
-                setEditSelectedConsumableKeys([]);
-                setIsEditOpen(false);
-              }}
-            >
-              <div className="stSvcModalTitle">Edit Service</div>
-              <div className="stSvcFormSection">
-                <label className="stSvcField"><span>Service Name</span><input value={form.name} onBlur={() => setEditTouchedFields((prev) => ({ ...prev, name: true }))} onChange={(e) => { setServiceFormError(""); setForm((prev) => ({ ...prev, name: e.target.value })); }} className={editTouchedFields.name && editDuplicateNameError ? "stSvcFieldInvalidInput" : ""} required aria-invalid={editTouchedFields.name && editDuplicateNameError ? "true" : undefined} aria-describedby={editTouchedFields.name && editDuplicateNameError ? "staff-edit-service-name-error" : undefined} />{editTouchedFields.name && editDuplicateNameError ? <div className="stSvcFieldError" id="staff-edit-service-name-error">{editDuplicateNameError}</div> : null}</label>
-                <label className="stSvcField"><span>Short Description</span><input value={form.desc} onChange={(e) => setForm((prev) => ({ ...prev, desc: e.target.value }))} required /></label>
-                <div className="stSvcFieldGrid"><label className="stSvcField"><span>Service Type</span><select value={form.serviceType} onChange={(e) => setForm((prev) => ({ ...prev, serviceType: e.target.value }))}>{SERVICE_TYPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label><label className="stSvcField"><span>Category</span><select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label></div>
-                {renderPriceFields("edit", form.priceBySize)}
-                <div className="stSvcFieldGrid">
-                  <label className="stSvcField"><span>Est. Duration (Mins)</span><input type="number" min="0" value={form.mins} onChange={(e) => updateServiceDuration("edit", e.target.value)} required /></label>
-                </div>
+            <div className="stSvcDetailsHeader">
+              <div>
+                <div className="stSvcDetailsName">{selectedService.name}</div>
+                <div className="stSvcDetailsDesc">{selectedService.desc || "No description provided."}</div>
               </div>
-              {renderArrivalTimePicker("edit", Number(form.mins) || 0, form.allowedArrivalTimes)}
-              {renderConsumablesPicker("edit", form.consumablesBySize, editSelectedConsumableKeys)}
-              {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setEditTouchedFields({}); setEditSelectedConsumableKeys([]); setServiceFormError(""); setIsEditOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isEditServiceReady}>Save Service</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isAddOpen && (
-        <div className="stSvcModalOverlay">
-          <div className="stSvcModalCard stSvcModalCardWide" role="dialog" aria-modal="true">
-            <button className="stSvcModalClose" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>
-              x
-            </button>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setAddTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
-                if (addDuplicateNameError) {
-                  setServiceFormError(addDuplicateNameError);
-                  return;
-                }
-                if (addConsumablesError) {
-                  setServiceFormError(addConsumablesError);
-                  return;
-                }
-                const priceBySize = buildPriceBySizePayload(addForm.priceBySize);
-                if (!addForm.allowedArrivalTimes?.length) {
-                  setServiceFormError("Select at least one required time of arrival.");
-                  return;
-                }
-                createService({
-                  name: addForm.name.trim().replace(/\s+/g, " "),
-                  desc: "",
-                  serviceType: addForm.serviceType,
-                  category: addForm.category,
-                  price: Number(priceBySize.sedanSmallCar) || 0,
-                  priceBySize,
-                  mins: (Number(addForm.durationHours) || 0) * 60,
-                  allowedArrivalTimes: addForm.allowedArrivalTimes,
-                  enabled: addForm.status === "Active",
-                  consumablesBySize: buildConsumablesBySizePayload(
-                    filterConsumablesBySelectedKeys(addForm.consumablesBySize, addSelectedConsumableKeys, stockMonitoringOptions)
-                  ),
-                });
-                setPage(1);
-                setAddTouchedFields({});
-                setAddSelectedConsumableKeys([]);
-                setIsAddOpen(false);
-              }}
-            >
-              <div className="stSvcModalTitle">Add Service</div>
-              <div className="stSvcFormSection">
-                <label className="stSvcField"><span>Service Name</span><input value={addForm.name} onBlur={() => setAddTouchedFields((prev) => ({ ...prev, name: true }))} onChange={(e) => { setServiceFormError(""); setAddForm((prev) => ({ ...prev, name: e.target.value })); }} className={addTouchedFields.name && addDuplicateNameError ? "stSvcFieldInvalidInput" : ""} required aria-invalid={addTouchedFields.name && addDuplicateNameError ? "true" : undefined} aria-describedby={addTouchedFields.name && addDuplicateNameError ? "staff-add-service-name-error" : undefined} />{addTouchedFields.name && addDuplicateNameError ? <div className="stSvcFieldError" id="staff-add-service-name-error">{addDuplicateNameError}</div> : null}</label>
-                <div className="stSvcFieldGrid">
-                  <label className="stSvcField"><span>Service Type</span><select value={addForm.serviceType} onChange={(e) => setAddForm((prev) => ({ ...prev, serviceType: e.target.value }))}>{SERVICE_TYPE_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
-                  <label className="stSvcField"><span>Category</span><select value={addForm.category} onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}>{CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}</select></label>
-                </div>
-                {renderPriceFields("add", addForm.priceBySize)}
-                <div className="stSvcFieldGrid">
-                  <label className="stSvcField"><span>Duration (Hrs)</span><input type="number" min="1" value={addForm.durationHours} onChange={(e) => updateServiceDuration("add", e.target.value)} required /></label>
-                  <label className="stSvcField"><span>Status</span><select value={addForm.status} onChange={(e) => setAddForm((prev) => ({ ...prev, status: e.target.value }))}><option value="Active">Active</option><option value="Inactive">Inactive</option></select></label>
-                </div>
+              <div className="stSvcDetailsBadges">
+                <span className={`stSvcTypeBadge ${getServiceType(selectedService) === "Package" ? "package" : "basic"}`}>{getServiceType(selectedService)}</span>
+                {selectedService.category ? <span className="stSvcCategoryBadge">{selectedService.category}</span> : null}
+                <span className={`stSvcStatusBadge ${selectedService.enabled ? "enabled" : "disabled"}`}>{selectedService.enabled ? "Enabled" : "Disabled"}</span>
               </div>
-              {renderArrivalTimePicker("add", (Number(addForm.durationHours) || 0) * 60, addForm.allowedArrivalTimes)}
-              {renderConsumablesPicker("add", addForm.consumablesBySize, addSelectedConsumableKeys)}
-              {serviceFormError ? <div className="stSvcFormError">{serviceFormError}</div> : null}
-              <div className="stSvcModalActions"><button className="stSvcTextBtn" type="button" onClick={() => { setAddTouchedFields({}); setAddSelectedConsumableKeys([]); setServiceFormError(""); setIsAddOpen(false); }}>Cancel</button><button className="stSvcPrimaryBtn" type="submit" disabled={!isAddServiceReady}>Add Service</button></div>
-            </form>
+            </div>
+
+            <div className="stSvcDetailsSummary">
+              <div className="stSvcDetailsItem">
+                <span>Price Range</span>
+                <strong>{formatPriceRangeLabel(selectedService)}</strong>
+              </div>
+              <div className="stSvcDetailsItem">
+                <span>Duration</span>
+                <strong>{selectedService.mins || 0} mins</strong>
+              </div>
+              <div className="stSvcDetailsItem">
+                <span>Required Time of Arrival</span>
+                <strong>{getArrivalTimesLabel(selectedService) || "Not configured"}</strong>
+              </div>
+            </div>
+
+            <div className="stSvcDetailsSection">
+              <div className="stSvcDetailsSectionTitle">Price By Car Size</div>
+              {renderPriceBySize(selectedService)}
+            </div>
+
+            <div className="stSvcDetailsSection">
+              <div className="stSvcDetailsSectionTitle">Required Consumables</div>
+              <div className="stSvcDetailsConsumables">{renderConsumablesList(selectedService, "stSvcDetailsList")}</div>
+            </div>
+
+            {renderPackageComponents(selectedService)}
+
+            <div className="stSvcModalActions">
+              <button className="stSvcTextBtn" type="button" onClick={closeDetailsModal}>Close</button>
+            </div>
           </div>
         </div>
       )}
@@ -696,17 +313,6 @@ export default function StaffServices() {
           setFilters({ category: "", enabled: "" });
           setPage(1);
         }}
-      />
-      <SecurityConfirmModal
-        open={Boolean(securityConfirm)}
-        mode={securityConfirm?.mode || "pin"}
-        title={securityConfirm?.title}
-        message={securityConfirm?.message}
-        currentUser={currentUser}
-        scope="staff"
-        onClose={() => setSecurityConfirm(null)}
-        actionKey={securityConfirm?.actionKey}
-        onConfirm={securityConfirm?.onConfirm}
       />
     </div>
   );

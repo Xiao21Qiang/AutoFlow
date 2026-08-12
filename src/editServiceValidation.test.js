@@ -1,6 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import AdminServices from "./screens/admin/AdminServices";
-import StaffServices from "./screens/staff/StaffServices";
 
 const mockCreateService = jest.fn();
 const mockUpdateService = jest.fn();
@@ -90,17 +89,8 @@ function renderServices() {
   render(<AdminServices />);
 }
 
-function renderStaffServices() {
-  render(<StaffServices />);
-}
-
 function openEditService(index = 0) {
   renderServices();
-  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[index]);
-}
-
-function openStaffEditService(index = 0) {
-  renderStaffServices();
   fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[index]);
 }
 
@@ -327,23 +317,6 @@ describe("Edit Service validation", () => {
     expect(consumableCheckbox("Car Shampoo")).toBeChecked();
     expect(consumableCheckbox("Clay Bar")).toBeChecked();
     expect(saveButton()).toBeEnabled();
-  });
-
-  test("Staff Edit Service preselects saved consumables and invalidates after the final removal", () => {
-    openStaffEditService();
-    expect(consumableCheckbox("Car Shampoo", "stSvcConsumableCard")).toBeChecked();
-    expect(consumableCheckbox("Clay Bar", "stSvcConsumableCard")).toBeChecked();
-    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("2 selected");
-    fireEvent.click(consumableCheckbox("Car Shampoo", "stSvcConsumableCard"));
-    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("1 selected");
-    expect(screen.getByRole("button", { name: "Save Service" })).toBeEnabled();
-    fireEvent.click(consumableCheckbox("Clay Bar", "stSvcConsumableCard"));
-    expect(selectedBadge("stSvcConsumablesPanel")).toHaveTextContent("0 selected");
-    expect(consumableCheckboxes("stSvcConsumablesPanel").filter((checkbox) => checkbox.checked)).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Save Service" })).toBeDisabled();
-    expect(screen.getByText("Please select at least one consumable.")).toBeInTheDocument();
-    fireEvent.submit(screen.getByRole("button", { name: "Save Service" }).closest("form"));
-    expect(mockUpdateService).not.toHaveBeenCalled();
   });
 
   test("existing required-field validation still passes", () => {
