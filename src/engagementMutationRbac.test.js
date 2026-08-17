@@ -133,6 +133,8 @@ describe("Engagement mutation RBAC", () => {
     ["promo create", "POST", "/api/admin/promos"],
     ["promo edit", "PUT", "/api/admin/promos/PRO-1"],
     ["promo archive", "PATCH", "/api/admin/promos/PRO-1/archive"],
+    ["promo restore", "PATCH", "/api/admin/promos/PRO-1/restore"],
+    ["promo use", "POST", "/api/admin/promos/PRO-1/use"],
     ["review moderation", "PUT", "/api/admin/reviews/REV-1"],
     ["reward create", "POST", "/api/admin/rewards"],
     ["reward edit", "PUT", "/api/admin/rewards/RWD-1"],

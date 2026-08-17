@@ -217,12 +217,18 @@ describe("admin bootstrap performance structure", () => {
       return doc(users.find((user) => user.id === query.id || user.email === query.email));
     });
     stub(__testModels.Booking, "findOne", (query = {}) => doc(bookings.find((booking) => booking.id === query.id)));
-    stubFind(__testModels.Review, "reviews", []);
-    stubFind(__testModels.Promo, "promos", []);
+    stubFind(__testModels.Review, "reviews", [
+      { id: "REV-1", customer: "Customer One", rating: 5, comment: "Excellent finish.", status: "Published" },
+    ]);
+    stubFind(__testModels.Promo, "promos", [
+      { id: "PRO-1", title: "Summer Shine", status: "Active", message: "Save on detailing.", expiryMode: "usage", usageCount: 2, usageLimit: 10 },
+    ]);
     stubFind(__testModels.QuoteRequest, "quoteRequests", []);
     stubFind(__testModels.Expense, "expenses", []);
     stubFind(__testModels.Commission, "commissions", []);
-    stubFind(__testModels.Reward, "rewards", []);
+    stubFind(__testModels.Reward, "rewards", [
+      { id: "RWD-1", name: "Loyalty Spark", code: "LOYALTY-SPARK", type: "Percentage Discount", rarity: "Common", weight: 10, active: true, enabled: true },
+    ]);
     stubFind(__testModels.CustomerReward, "customerRewards", [
       { id: "CR-1", customerEmail: "customer@example.com", rewardName: "Loyalty Wash", status: "Available", dateEarned: "2026-07-01" },
     ]);
@@ -366,6 +372,24 @@ describe("admin bootstrap performance structure", () => {
     expect(customerScoped.stockMonitoring).toEqual([]);
     expect(customerScoped.expenses).toEqual([]);
     expect(customerScoped.customerRewards.map((reward) => reward.id)).toEqual(["CR-1"]);
+  });
+
+  test("Sales Associate bootstrap includes Engagement read-only data without Reward History", async () => {
+    const data = await loadBootstrapData();
+    const salesAssociateScoped = filterBootstrapDataForRole(data, {
+      id: "STF-1",
+      userType: "Staff",
+      role: "Sales Associate",
+      email: "staff@example.com",
+      name: "Staff",
+    });
+
+    expect(salesAssociateScoped.reviews.map((review) => review.id)).toEqual(["REV-1"]);
+    expect(salesAssociateScoped.promos.map((promo) => promo.id)).toEqual(["PRO-1"]);
+    expect(salesAssociateScoped.rewards.map((reward) => reward.id)).toEqual(["RWD-1"]);
+    expect(salesAssociateScoped.customerRewards).toEqual([]);
+    expect(salesAssociateScoped.auditLogs).toEqual([]);
+    expect(salesAssociateScoped.archivedAuditLogs).toEqual([]);
   });
 
   test("on-demand proof route enforces auth and payment ownership", async () => {

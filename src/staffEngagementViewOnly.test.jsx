@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import AdminEngagement from "./screens/admin/AdminEngagement";
+import StaffMain from "./screens/staff/StaffMain";
 import StaffEngagement from "./screens/staff/StaffEngagement";
 
 const mockUseAdminData = jest.fn();
@@ -14,8 +15,13 @@ const mutationFns = {
 };
 
 jest.mock("./context/AdminDataContext", () => ({
+  AdminDataProvider: ({ children }) => <>{children}</>,
   useAdminData: () => mockUseAdminData(),
 }));
+
+jest.mock("react-router-dom", () => ({
+  useNavigate: () => jest.fn(),
+}), { virtual: true });
 
 jest.mock("./utils/downloadExport", () => ({
   buildReportDownloadPath: (type, format) => `/reports/${type}.${format}`,
@@ -32,6 +38,18 @@ const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales As
 const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin" };
 
 const baseData = {
+  bookings: [],
+  payments: [],
+  services: [],
+  stockMonitoring: [],
+  quoteRequests: [],
+  commissions: [],
+  expenses: [],
+  auditLogs: [],
+  archivedAuditLogs: [],
+  financialReport: { totals: {}, payments: [], expenses: [], commissions: [] },
+  alerts: [],
+  settings: {},
   reviews: [
     { id: "REV-1", customer: "Customer One", rating: 5, comment: "Excellent finish.", status: "Pending" },
   ],
@@ -94,6 +112,13 @@ function setContext(currentUser = generalManager, overrides = {}) {
 function renderStaff(currentUser = generalManager) {
   setContext(currentUser);
   render(<StaffEngagement />);
+}
+
+function renderStaffMain(currentUser = salesAssociate) {
+  localStorage.setItem("token", "test-token");
+  localStorage.setItem("user", JSON.stringify(currentUser));
+  setContext(currentUser);
+  render(<StaffMain session={currentUser} />);
 }
 
 function expectNoStaffMutationControls(scope = screen) {
@@ -163,6 +188,55 @@ test("other Staff roles with Engagement access receive the same view-only Engage
   expect(screen.getByText("Reward Pool")).toBeInTheDocument();
   expect(screen.queryByText("Reward History")).not.toBeInTheDocument();
   expectNoStaffMutationControls();
+});
+
+test("Sales Associate opens canonical Staff Engagement with read-only Reviews, Promos, and Reward Pool", () => {
+  renderStaffMain(salesAssociate);
+
+  fireEvent.click(screen.getAllByText("Engagement")[1]);
+
+  expect(screen.getByText("Reviews")).toBeInTheDocument();
+  expect(screen.getByText("Customer One")).toBeInTheDocument();
+  expect(screen.getByText("★★★★★")).toBeInTheDocument();
+  expect(screen.getByText("Excellent finish.")).toBeInTheDocument();
+  expect(screen.getByText("Promos")).toBeInTheDocument();
+  expect(screen.getByText("Summer Shine")).toBeInTheDocument();
+  expect(screen.getByText("Used 2/10")).toBeInTheDocument();
+  expect(screen.getByText("Save on detailing.")).toBeInTheDocument();
+  expect(screen.getByText("Reward Pool")).toBeInTheDocument();
+  expect(screen.getByText("Loyalty Spark")).toBeInTheDocument();
+  expect(screen.getByText("Ceramic Care Kit")).toBeInTheDocument();
+  expect(screen.queryByText("Reward History")).not.toBeInTheDocument();
+  expect(screen.queryByText("CLAIM-1")).not.toBeInTheDocument();
+  expectNoStaffMutationControls();
+});
+
+test("Sales Associate reward search, filters, and details stay read-only", () => {
+  renderStaff(salesAssociate);
+
+  fireEvent.change(screen.getByPlaceholderText("Search reward"), { target: { value: "ceramic" } });
+  expect(screen.getByText("Ceramic Care Kit")).toBeInTheDocument();
+  expect(screen.queryByText("Loyalty Spark")).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText("Search reward"), { target: { value: "" } });
+  const [rarityFilter, statusFilter] = screen.getAllByRole("combobox");
+  fireEvent.change(rarityFilter, { target: { value: "Rare" } });
+  fireEvent.change(statusFilter, { target: { value: "Disabled" } });
+
+  expect(screen.getByText("Ceramic Care Kit")).toBeInTheDocument();
+  expect(screen.queryByText("Loyalty Spark")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+  const dialog = screen.getByRole("dialog", { name: "Reward Details" });
+  expect(within(dialog).getByText("Ceramic Care Kit")).toBeInTheDocument();
+  expect(within(dialog).getByText("CERAMIC-KIT")).toBeInTheDocument();
+  expect(within(dialog).getByText("Premium towel kit.")).toBeInTheDocument();
+  expect(within(dialog).getByText("Rare")).toBeInTheDocument();
+  expect(within(dialog).getByText("Disabled")).toBeInTheDocument();
+  expectNoStaffMutationControls(within(dialog));
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog", { name: "Reward Details" })).not.toBeInTheDocument();
 });
 
 test("Admin Engagement keeps canonical management controls and Reward History", () => {

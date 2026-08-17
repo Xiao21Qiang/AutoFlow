@@ -191,8 +191,10 @@ describe("Phase 5 export routes", () => {
   beforeAll(async () => {
     const adminUser = { id: "USR-ADMIN", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
     const salesAssociateUser = { id: "USR-SA", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
+    const generalManagerUser = { id: "USR-GM", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+    const salesManagerUser = { id: "USR-SM", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
     const customerUser = { id: "USR-CUST", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" };
-    const users = [adminUser, salesAssociateUser, customerUser];
+    const users = [adminUser, salesAssociateUser, generalManagerUser, salesManagerUser, customerUser];
 
     stub(__testModels.User, "findOne", (query = {}) => ({
       lean: async () => users.find((user) => user.id === query.id || user.email === query.email) || null,
@@ -288,5 +290,26 @@ describe("Phase 5 export routes", () => {
         meta: expect.objectContaining({ reportType: "tracking" }),
       }),
     ]));
+  });
+
+  test("keeps Reward History export Admin-only at the route layer", async () => {
+    const adminToken = signJwt({ sub: "USR-ADMIN", email: "admin@example.com", userType: "Admin", role: "Admin" });
+    const salesAssociateToken = signJwt({ sub: "USR-SA", email: "sales@example.com", userType: "Staff", role: "Sales Associate" });
+    const generalManagerToken = signJwt({ sub: "USR-GM", email: "gm@example.com", userType: "Staff", role: "General Manager" });
+    const salesManagerToken = signJwt({ sub: "USR-SM", email: "sales-manager@example.com", userType: "Staff", role: "Sales Manager" });
+
+    const adminResponse = await invokeApp("/api/admin/reports/reward-history/pdf", {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(adminResponse.status).toBe(200);
+    expect(String(adminResponse.headers["content-type"])).toContain("application/pdf");
+
+    for (const token of [salesAssociateToken, generalManagerToken, salesManagerToken]) {
+      const response = await invokeApp("/api/admin/reports/reward-history/pdf", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(response.status).toBe(403);
+      expect(JSON.parse(response.body.toString("utf8")).message).toBe("You do not have permission to export this report.");
+    }
   });
 });
