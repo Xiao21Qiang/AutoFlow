@@ -247,6 +247,77 @@ describe("Sales Associate authorization foundation shell", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
+  test("preserves the approved Sales Associate navigation after Profile save", async () => {
+    const profileSession = {
+      ...salesAssociate,
+      first: "Sales",
+      last: "Associate",
+      phone: "09170000001",
+    };
+    const updateProfile = jest.fn().mockResolvedValue({
+      ...profileSession,
+      first: "Sasha",
+      email: "sasha@example.com",
+      userType: "Staff",
+      role: "Sales Associate",
+    });
+    setContext({
+      currentUser: profileSession,
+      updateProfile,
+      requestPasswordChangeOtp: jest.fn(),
+      verifyPasswordChangeOtp: jest.fn(),
+      resetPasswordWithOtp: jest.fn(),
+    });
+    renderStaffMain(profileSession);
+
+    fireEvent.click(screen.getByText("Profile"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Account" }));
+    fireEvent.change(screen.getByLabelText("Edit first name"), { target: { value: "Sasha" } });
+    fireEvent.change(screen.getByLabelText("Edit email"), { target: { value: "Sasha@Example.com" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.queryByText("Update your personal information")).not.toBeInTheDocument());
+    expect(updateProfile).toHaveBeenCalledWith({
+      first: "Sasha",
+      last: "Associate",
+      email: "sasha@example.com",
+      phone: "09170000001",
+    });
+    expect(updateProfile.mock.calls[0][0]).not.toHaveProperty("role");
+    expect(updateProfile.mock.calls[0][0]).not.toHaveProperty("userType");
+    expect(updateProfile.mock.calls[0][0]).not.toHaveProperty("status");
+
+    for (const label of [
+      "Dashboard",
+      "Analytics",
+      "Bookings",
+      "Services",
+      "Service Tracking",
+      "Payment Tracking",
+      "Engagement",
+      "Profile",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const label of [
+      "User Management",
+      "Detailer Management",
+      "Stock Monitoring",
+      "Financial Tracker",
+      "Audit Logs",
+      "My Work",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getByText("Bookings"));
+    expect(screen.getByRole("button", { name: "Add New Booking" })).toBeInTheDocument();
+    expect(screen.queryByText("Financial Tracker")).not.toBeInTheDocument();
+  });
+
   test("blocks duplicate Sales Associate Bookings export clicks", async () => {
     let resolveExport;
     downloadAuthenticatedFile.mockImplementation(() => new Promise((resolve) => {
