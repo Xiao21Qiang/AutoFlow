@@ -42,6 +42,14 @@ const services = [
   },
 ];
 
+const salesAssociate = { id: "SA-1", name: "Sales Associate", email: "sales@example.com", userType: "Staff", role: "Sales Associate" };
+const generalManager = { id: "GM-1", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" };
+const salesManager = { id: "SM-1", name: "Sales Manager", email: "sales-manager@example.com", userType: "Staff", role: "Sales Manager" };
+const inventoryClerk = { id: "INV-1", name: "Inventory Clerk", email: "inventory@example.com", userType: "Staff", role: "Inventory Clerk" };
+const juniorDetailer = { id: "JD-1", name: "Junior Detailer", email: "junior@example.com", userType: "Staff", role: "Junior Detailer" };
+const seniorDetailer = { id: "SD-1", name: "Senior Detailer", email: "senior@example.com", userType: "Staff", role: "Senior Detailer" };
+const marketing = { id: "MKT-1", name: "Marketing", email: "marketing@example.com", userType: "Staff", role: "Marketing" };
+
 let mockData = {};
 
 jest.mock("./context/AdminDataContext", () => ({
@@ -70,7 +78,7 @@ beforeEach(() => {
   mockDeleteService.mockReset();
 });
 
-function renderStaff(user = { id: "GM-1", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" }) {
+function renderStaff(user = generalManager) {
   mockData = { currentUser: user };
   render(<StaffServices />);
 }
@@ -90,7 +98,7 @@ function expectReadOnlyDialog(dialog) {
 }
 
 test("Staff View Only opens selected Basic Service details without mutation controls", () => {
-  renderStaff();
+  renderStaff(salesAssociate);
 
   expect(screen.getByText("Essential Wash")).toBeInTheDocument();
   staffMutationControls().forEach((name) => {
@@ -121,7 +129,7 @@ test("Staff View Only opens selected Basic Service details without mutation cont
 });
 
 test("Staff View Only opens selected Package details including package contents", () => {
-  renderStaff();
+  renderStaff(salesAssociate);
 
   fireEvent.click(screen.getAllByRole("button", { name: "View Only" })[1]);
 
@@ -159,12 +167,37 @@ test("View Only uses stable service identity and does not retain stale modal det
 });
 
 test.each([
-  [{ id: "GM-1", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" }],
-  [{ id: "STF-1", name: "Detailer", email: "detailer@example.com", userType: "Staff", role: "Senior Detailer" }],
+  generalManager,
+  salesAssociate,
+  salesManager,
+  inventoryClerk,
+  juniorDetailer,
+  seniorDetailer,
+  marketing,
 ])("Staff Services is view-only for %s", (user) => {
   renderStaff(user);
 
   expect(screen.getAllByRole("button", { name: "View Only" })).toHaveLength(2);
+  staffMutationControls().forEach((name) => {
+    expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+  });
+});
+
+test("Sales Associate uses shared Staff Services search and filters without mutation controls", () => {
+  renderStaff(salesAssociate);
+
+  fireEvent.change(screen.getByPlaceholderText("Search Services..."), { target: { value: "premium" } });
+
+  expect(screen.queryByText("Essential Wash")).not.toBeInTheDocument();
+  expect(screen.getByText("Premium Protection Package")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText("Search Services..."), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "" }));
+  fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Wash" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+  expect(screen.getByText("Essential Wash")).toBeInTheDocument();
+  expect(screen.queryByText("Premium Protection Package")).not.toBeInTheDocument();
   staffMutationControls().forEach((name) => {
     expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
   });

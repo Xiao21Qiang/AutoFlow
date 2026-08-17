@@ -156,6 +156,12 @@ beforeAll(async () => {
     services.push(saved);
     return saved;
   });
+  stub(__testModels.Service, "findOneAndDelete", async (query = {}) => {
+    const index = services.findIndex((service) => service.id === query.id);
+    if (index === -1) return null;
+    const [deleted] = services.splice(index, 1);
+    return doc(deleted);
+  });
   stub(__testModels.StockMonitoringItem, "find", () => chain(stockItems));
   stub(__testModels.AuditLog, "create", async (payload) => {
     auditLogs.push(clone(payload));
@@ -252,11 +258,19 @@ describe("Admin service creation route validation", () => {
     ["General Manager", generalManagerUser],
     ["Sales Associate", salesAssociateUser],
     ["other Staff", detailerUser],
-  ])("%s creation is rejected even with forged Admin role fields", async (_label, user) => {
+  ])("%s creation is rejected even with forged Admin role fields and Staff credential", async (_label, user) => {
     const response = await request("/api/admin/services", {
       method: "POST",
       token: auth(user),
-      body: basePayload({ role: "Admin", userType: "Admin", actorRole: "Admin", actorUserType: "Admin" }),
+      body: basePayload({
+        role: "Admin",
+        userType: "Admin",
+        actorRole: "Admin",
+        actorUserType: "Admin",
+        employeeRole: "Admin",
+        specialPin: "654321",
+        specialPassword: "StaffPass1!",
+      }),
     });
     expect(response.status).toBe(403);
     expect(response.body.message).toBe("Admin access required.");
@@ -428,12 +442,21 @@ describe("Admin service update route validation", () => {
     ["General Manager", generalManagerUser],
     ["Sales Associate", salesAssociateUser],
     ["other Staff", detailerUser],
-  ])("%s update is rejected even with forged Admin role fields", async (_label, user) => {
+  ])("%s update is rejected even with forged Admin role fields and Staff credential", async (_label, user) => {
     seedServices();
     const response = await request("/api/admin/services/SVC-1", {
       method: "PUT",
       token: auth(user),
-      body: basePayload({ name: "Forged Update", role: "Admin", userType: "Admin", actorRole: "Admin", actorUserType: "Admin" }),
+      body: basePayload({
+        name: "Forged Update",
+        role: "Admin",
+        userType: "Admin",
+        actorRole: "Admin",
+        actorUserType: "Admin",
+        employeeRole: "Admin",
+        specialPin: "654321",
+        specialPassword: "StaffPass1!",
+      }),
     });
     expect(response.status).toBe(403);
     expect(response.body.message).toBe("Admin access required.");
@@ -454,5 +477,58 @@ describe("Admin service update route validation", () => {
     expect(response.status).toBe(200);
     expect(services[0]).toMatchObject({ id: "SVC-1", name: "Legacy Wash", enabled: false });
     expect(auditLogs).toHaveLength(1);
+  });
+});
+
+describe("Admin-only service deletion route", () => {
+  function seedServiceForDelete() {
+    resetData([{ id: "SVC-DELETE", name: "Legacy Wash", enabled: false, consumablesBySize: {}, consumables: [] }]);
+  }
+
+  test("Admin can delete a service through the canonical management route", async () => {
+    seedServiceForDelete();
+    const response = await request("/api/admin/services/SVC-DELETE", {
+      method: "DELETE",
+      token: auth(adminUser),
+      body: { auditUser: "admin@example.com" },
+    });
+
+    expect(response.status).toBe(204);
+    expect(services).toHaveLength(0);
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: "Deleted service",
+        targetId: "SVC-DELETE",
+      }),
+    ]));
+  });
+
+  test("Sales Associate cannot delete a service with forged Admin role fields or valid Staff credentials", async () => {
+    seedServiceForDelete();
+    const response = await request("/api/admin/services/SVC-DELETE", {
+      method: "DELETE",
+      token: auth(salesAssociateUser),
+      body: {
+        role: "Admin",
+        userType: "Admin",
+        employeeRole: "Admin",
+        actorRole: "Admin",
+        actorUserType: "Admin",
+        specialPin: "654321",
+        specialPassword: "StaffPass1!",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
+    expect(services).toHaveLength(1);
+    expect(services[0].id).toBe("SVC-DELETE");
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Unauthorized admin route attempt",
+      }),
+    ]));
   });
 });
