@@ -8787,11 +8787,11 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     if (isPaymentReviewer && (isMarkingFinalPaymentPaid || isRejectingFinalPayment || isMarkingPaid)) {
       validateStageReadyForReview(existingPayment, "finalPayment", isMarkingPaid ? "Paid" : nextFinalPaymentStatus);
     }
-    if (isPaymentReviewer && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid)) {
+    if (isPaymentReviewer && (isMarkingPaid || isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid || isRejectingDownPayment || isRejectingFinalPayment)) {
       await requireSpecialCredentialForRequest(req, { mode: "pin", scope: actorType === "staff" ? "staff" : "admin", actionKey: ACTION_KEYS.paymentVerify });
 
       const methodForVerification = normalizePaymentMethodLabel(
-        isMarkingDownPaymentPaid
+        isMarkingDownPaymentPaid || isRejectingDownPayment
           ? (existingPayment.downPaymentMethod || existingPayment.method)
           : (existingPayment.finalPaymentMethod || existingPayment.method)
       );
@@ -8958,10 +8958,27 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           auditUser: req.authUser?.email || req.body.auditUser || "",
           method: normalizePaymentMethodLabel(existingPayment.method),
           reference: existingPayment.reference || "",
+          proofImage: existingPayment.proofImage || "",
+          proofFileName: existingPayment.proofFileName || "",
+          proofSubmittedAt: existingPayment.proofSubmittedAt || "",
           downPaymentMethod: preservedReviewerDownPaymentMethod,
           downPaymentReference: existingPayment.downPaymentReference || "",
+          downPaymentProofUrl: existingPayment.downPaymentProofUrl || existingPayment.proofImage || "",
+          downPaymentProofName: existingPayment.downPaymentProofName || existingPayment.proofFileName || "",
+          downPaymentProofSubmittedAt: existingPayment.downPaymentProofSubmittedAt || existingPayment.proofSubmittedAt || null,
+          downPaymentReferenceCheckStatus: existingPayment.downPaymentReferenceCheckStatus || "",
+          downPaymentReferenceCheckedAt: existingPayment.downPaymentReferenceCheckedAt || null,
+          downPaymentOcrAdvisoryStatus: existingPayment.downPaymentOcrAdvisoryStatus || "",
+          downPaymentOcrAdvisoryText: existingPayment.downPaymentOcrAdvisoryText || "",
           finalPaymentMethod: preservedReviewerFinalPaymentMethod,
           finalPaymentReference: existingPayment.finalPaymentReference || existingPayment.reference || "",
+          finalPaymentProofUrl: existingPayment.finalPaymentProofUrl || "",
+          finalPaymentProofName: existingPayment.finalPaymentProofName || "",
+          finalPaymentProofSubmittedAt: existingPayment.finalPaymentProofSubmittedAt || null,
+          finalPaymentReferenceCheckStatus: existingPayment.finalPaymentReferenceCheckStatus || "",
+          finalPaymentReferenceCheckedAt: existingPayment.finalPaymentReferenceCheckedAt || null,
+          finalPaymentOcrAdvisoryStatus: existingPayment.finalPaymentOcrAdvisoryStatus || "",
+          finalPaymentOcrAdvisoryText: existingPayment.finalPaymentOcrAdvisoryText || "",
         };
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
     let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")

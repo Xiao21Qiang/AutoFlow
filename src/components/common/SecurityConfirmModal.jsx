@@ -28,6 +28,12 @@ const MODE_COPY = {
     placeholder: "Enter special PIN",
     confirm: "Verify Cash Payment",
   },
+  pinWithAccount: {
+    field: "Special PIN",
+    type: "password",
+    placeholder: "Enter special PIN",
+    confirm: "Confirm PIN",
+  },
 };
 
 export default function SecurityConfirmModal({
@@ -60,6 +66,7 @@ export default function SecurityConfirmModal({
   const actorType = normalizeUserType(currentUser);
   const fallbackScope = String(scope || "").trim().toLowerCase() === "staff" ? "staff" : "admin";
   const resolvedScope = actorType === "staff" || actorType === "admin" ? actorType : fallbackScope;
+  const requiresAccountName = mode === "cash" || mode === "pinWithAccount";
 
   useEffect(() => {
     setSecret("");
@@ -77,7 +84,7 @@ export default function SecurityConfirmModal({
   const expectedName = getCurrentUserDisplayName(currentUser).trim().toLowerCase();
   const trimmedSecret = secret.trim();
   const trimmedAccountName = accountName.trim();
-  const confirmDisabled = loading || (disableConfirmWhenEmpty && (!trimmedSecret || (mode === "cash" && !trimmedAccountName)));
+  const confirmDisabled = loading || (disableConfirmWhenEmpty && (!trimmedSecret || (requiresAccountName && !trimmedAccountName)));
 
   const handleConfirm = async (event) => {
     event?.preventDefault();
@@ -88,12 +95,12 @@ export default function SecurityConfirmModal({
       secretInputRef.current?.focus();
       return;
     }
-    if (mode === "cash" && !trimmedAccountName) {
+    if (requiresAccountName && !trimmedAccountName) {
       setAccountNameError("Please fill out this field.");
       accountNameInputRef.current?.focus();
       return;
     }
-    const credentialValue = mode === "pin" || mode === "cash" ? trimmedSecret : secret;
+    const credentialValue = mode === "pin" || mode === "cash" || mode === "pinWithAccount" ? trimmedSecret : secret;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -103,7 +110,7 @@ export default function SecurityConfirmModal({
         await validateSpecialCredential(mode === "password" ? "password" : "pin", credentialValue, resolvedScope, currentUser, actionKey);
       }
 
-      if (mode === "cash" && trimmedAccountName.toLowerCase() !== expectedName) {
+      if (requiresAccountName && trimmedAccountName.toLowerCase() !== expectedName) {
         throw new Error("Entered account name does not match the logged-in account.");
       }
 
@@ -152,7 +159,7 @@ export default function SecurityConfirmModal({
             </div>
             {secretError ? <div className="secFieldError" id={secretErrorId}>{secretError}</div> : null}
           </label>
-          {mode === "cash" && (
+          {requiresAccountName && (
           <label className="secModalField">
             <span>Logged-in Account Name</span>
             <input

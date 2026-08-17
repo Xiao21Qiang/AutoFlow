@@ -17,7 +17,7 @@ import {
   isDownPaymentSatisfied,
   isPaidStatus,
 } from "../../utils/paymentStages";
-import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
+import { ACTION_KEYS, canPerformAction, normalizeUserType } from "../../utils/rbac";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
@@ -196,6 +196,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const classes = CLASS_NAMES[role] || CLASS_NAMES.admin;
   const { payments, updatePayment, users, currentUser, loadPaymentProof } = useAdminData();
   const canVerifyPayments = canPerformAction(currentUser, ACTION_KEYS.paymentVerify);
+  const reviewerUserType = normalizeUserType(currentUser);
   const customerNameByEmail = useMemo(() => {
     const map = new Map();
     users
@@ -424,6 +425,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 const showToast = (type, message) => setToast({ type, message, id: Date.now() });
                 const isMarkingDownPaymentPaid = form.downPaymentStatus === "Paid" && selectedPayment.downPaymentStatus !== "Paid";
                 const isMarkingFinalPaymentPaid = form.finalPaymentStatus === "Paid" && !isPaidStatus(selectedPayment.finalPaymentStatus) && !isPaidStatus(selectedPayment.status);
+                const isRejectingDownPayment = form.downPaymentStatus === "Rejected" && selectedPayment.downPaymentStatus !== "Rejected";
+                const isRejectingFinalPayment = form.finalPaymentStatus === "Rejected" && selectedPayment.finalPaymentStatus !== "Rejected";
+                const requiresReviewCredential = isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid || isRejectingDownPayment || isRejectingFinalPayment;
+                const isReviewingFinalPayment = isMarkingFinalPaymentPaid || isRejectingFinalPayment;
                 const savePayment = async (securityPayload = {}) => {
                   if (savingPaymentRef.current) return;
                   savingPaymentRef.current = true;
@@ -454,23 +459,26 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     setIsSavingPayment(false);
                   }
                 };
-                if ((isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) && !canVerifyPayments) {
+                if (requiresReviewCredential && !canVerifyPayments) {
                   showToast("error", "You can view payment status, but you cannot verify payments.");
                   return;
                 }
-                if (isMarkingFinalPaymentPaid && !finalPaymentReviewable) {
+                if (isReviewingFinalPayment && !finalPaymentReviewable) {
                   showToast("error", "Full payment can only be reviewed after the customer submits remaining balance proof.");
                   return;
                 }
-                if (isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid) {
-                  const methodForCredential = isMarkingDownPaymentPaid
+                if (requiresReviewCredential) {
+                  const methodForCredential = isMarkingDownPaymentPaid || isRejectingDownPayment
                     ? selectedPayment.downPaymentMethod || selectedPayment.method
                     : selectedPayment.finalPaymentMethod || selectedPayment.method;
+                  const isCashReview = String(methodForCredential || "").trim().toLowerCase() === "cash";
                   setSecurityConfirm({
-                    mode: role === "staff" || String(methodForCredential || "").trim().toLowerCase() === "cash" ? "cash" : "pin",
+                    mode: reviewerUserType === "staff" ? "pinWithAccount" : isCashReview ? "cash" : "pin",
                     actionKey: ACTION_KEYS.paymentVerify,
-                    title: isMarkingDownPaymentPaid ? "Verify Down Payment" : "Verify Full Payment",
-                    message: "Enter the required security confirmation before marking this payment as Paid.",
+                    title: isMarkingDownPaymentPaid || isRejectingDownPayment
+                      ? `${isRejectingDownPayment ? "Reject" : "Verify"} Down Payment`
+                      : `${isRejectingFinalPayment ? "Reject" : "Verify"} Full Payment`,
+                    message: `Enter the required security confirmation before marking this payment as ${isRejectingDownPayment || isRejectingFinalPayment ? "Rejected" : "Paid"}.`,
                     onConfirm: async (securityPayload) => {
                       try {
                         await savePayment(securityPayload);

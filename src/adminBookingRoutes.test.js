@@ -331,6 +331,60 @@ function seedPaymentReviewBooking() {
   });
 }
 
+function seedFinalPaymentReviewBooking() {
+  resetData([
+    {
+      id: "B-FINAL-REVIEW",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+      status: "In Progress",
+      amount: 1000,
+      originalAmount: 1000,
+    },
+  ]);
+  payments.push({
+    id: "PAY-FINAL-REVIEW",
+    bookingId: "B-FINAL-REVIEW",
+    customer: "Customer One",
+    customerEmail: "customer@example.com",
+    service: "Ceramic Coating",
+    totalAmount: 1000,
+    finalAmount: 1000,
+    amount: 1000,
+    amountPaid: 300,
+    remainingBalance: 700,
+    downPaymentRequired: true,
+    downPaymentAmount: 300,
+    downPaymentStatus: "Paid",
+    downPaymentMethod: "GCash",
+    downPaymentReference: "DP-REF-1",
+    downPaymentProofUrl: "uploads/downpayment-proof.png",
+    downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+    downPaymentReferenceCheckStatus: "submitted",
+    downPaymentReferenceCheckedAt: "2099-12-01T00:01:00.000Z",
+    downPaymentOcrAdvisoryStatus: "matched_advisory",
+    finalPaymentStatus: "For Verification",
+    finalPaymentMethod: "GCash",
+    finalPaymentReference: "FINAL-REF-1",
+    finalPaymentProofUrl: "uploads/final-payment-proof.png",
+    finalPaymentProofName: "final-payment-proof.png",
+    finalPaymentProofSubmittedAt: "2099-12-02T00:00:00.000Z",
+    finalPaymentReferenceCheckStatus: "submitted",
+    finalPaymentReferenceCheckedAt: "2099-12-02T00:01:00.000Z",
+    finalPaymentOcrAdvisoryStatus: "matched_advisory",
+    finalPaymentOcrAdvisoryText: "FINAL-REF-1",
+    status: "For Verification",
+  });
+}
+
 function seedCancelledRescheduleBooking({ paymentPatch = {}, serviceName = "Ceramic Coating", bookingPatch = {} } = {}) {
   resetData([
     {
@@ -1318,6 +1372,103 @@ describe("Payment verification state remains separate from booking status", () =
       downPaymentStatus: "Paid",
       downPaymentReviewStatus: "Verified",
       downPaymentVerifiedBy: "sales@example.com",
+    });
+    expect(bookings[0].status).toBe("Scheduled");
+  });
+
+  test("Sales Associate payment verification rejects Admin special PIN as a Staff-scope credential failure", async () => {
+    seedPaymentReviewBooking();
+    const originalPayment = clone(payments[0]);
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Paid",
+        specialPin: "123456",
+        accountName: "Sales Associate",
+      },
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.body.message).toBe("Incorrect staff special PIN.");
+    expect(payments[0]).toEqual(originalPayment);
+    expect(bookings[0].status).toBe("Scheduled");
+  });
+
+  test("Sales Associate verifies submitted final payment proof and preserves proof metadata", async () => {
+    seedFinalPaymentReviewBooking();
+    const response = await request("/api/admin/payments/PAY-FINAL-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        finalPaymentStatus: "Paid",
+        finalPaymentNotes: "Verified by Sales Associate",
+        finalPaymentProofUrl: "uploads/forged-proof.png",
+        finalPaymentReference: "FORGED-REF",
+        finalPaymentOcrAdvisoryStatus: "legacy",
+        specialPin: "654321",
+        accountName: "Sales Associate",
+        auditUser: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      finalPaymentStatus: "Paid",
+      finalPaymentReviewStatus: "Verified",
+      finalPaymentVerifiedBy: "sales@example.com",
+      finalPaymentReference: "FINAL-REF-1",
+      finalPaymentProofUrl: "uploads/final-payment-proof.png",
+      finalPaymentProofName: "final-payment-proof.png",
+      finalPaymentOcrAdvisoryStatus: "matched_advisory",
+    });
+    expect(bookings[0].status).toBe("In Progress");
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        targetId: "PAY-FINAL-REVIEW",
+      }),
+    ]));
+  });
+
+  test("Sales Associate rejection requires Staff special PIN before mutating payment state", async () => {
+    seedPaymentReviewBooking();
+    const originalPayment = clone(payments[0]);
+    const missingCredential = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Rejected",
+        downPaymentNotes: "Reference did not match.",
+      },
+    });
+
+    expect(missingCredential.status).toBe(401);
+    expect(payments[0]).toEqual(originalPayment);
+
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Rejected",
+        downPaymentNotes: "Reference did not match.",
+        specialPin: "654321",
+        accountName: "Sales Associate",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentStatus: "Rejected",
+      downPaymentReviewStatus: "Rejected",
+      downPaymentRejectedBy: "sales@example.com",
+      downPaymentRejectionReason: "Reference did not match.",
     });
     expect(bookings[0].status).toBe("Scheduled");
   });

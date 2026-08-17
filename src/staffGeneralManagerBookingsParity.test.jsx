@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import StaffMain from "./screens/staff/StaffMain";
 import { validateSpecialCredential } from "./utils/reauth";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/downloadExport";
@@ -378,6 +378,7 @@ describe("General Manager Payment Tracking parity shell", () => {
     fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Paid" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByPlaceholderText("General Manager"), { target: { value: "General Manager" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
 
     await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
@@ -393,6 +394,7 @@ describe("General Manager Payment Tracking parity shell", () => {
       expect.objectContaining({
         downPaymentStatus: "Paid",
         specialPin: "654321",
+        accountName: "General Manager",
       })
     ));
   });
@@ -408,9 +410,15 @@ describe("General Manager Payment Tracking parity shell", () => {
     expect(screen.queryByText("View only")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    expect(await screen.findByText("Review Payment")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("GCash")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("DP-REF-1")).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/December 1, 2099/)).toBeInTheDocument();
+    expect(screen.getByText("Submitted with customer-side OCR advisory metadata.")).toBeInTheDocument();
     fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Paid" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByPlaceholderText("Sales Associate"), { target: { value: "Sales Associate" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
 
     await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
@@ -426,6 +434,65 @@ describe("General Manager Payment Tracking parity shell", () => {
       expect.objectContaining({
         downPaymentStatus: "Paid",
         specialPin: "654321",
+        accountName: "Sales Associate",
+      })
+    ));
+  });
+
+  test("blocks duplicate Sales Associate payment review confirmations", async () => {
+    let resolveUpdate;
+    const updatePayment = jest.fn(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    setContext({ currentUser: salesAssociate, updatePayment });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Payment Tracking"));
+    fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Paid" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByPlaceholderText("Sales Associate"), { target: { value: "Sales Associate" } });
+    const confirmButton = screen.getByRole("button", { name: "Confirm PIN" });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      resolveUpdate({});
+    });
+  });
+
+  test("requires Sales Associate Staff PIN confirmation for payment rejection", async () => {
+    const updatePayment = jest.fn().mockResolvedValue({});
+    setContext({ currentUser: salesAssociate, updatePayment });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Payment Tracking"));
+    fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Rejected" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Reject Down Payment")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByPlaceholderText("Sales Associate"), { target: { value: "Sales Associate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "654321",
+      "staff",
+      expect.objectContaining({ userType: "Staff", role: "Sales Associate" }),
+      "payment.verify"
+    ));
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledWith(
+      "PAY-1",
+      expect.objectContaining({
+        downPaymentStatus: "Rejected",
+        specialPin: "654321",
+        accountName: "Sales Associate",
       })
     ));
   });
