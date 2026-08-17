@@ -17,6 +17,7 @@ jest.setTimeout(15000);
 
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
 const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
 const customerUser = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
 
@@ -142,11 +143,12 @@ beforeAll(async () => {
   stub(__testModels.User, "findOne", (query = {}) => {
     if (query.id === adminUser.id || query.email === adminUser.email) return doc(adminUser);
     if (query.id === generalManagerUser.id || query.email === generalManagerUser.email) return doc(generalManagerUser);
+    if (query.id === salesAssociateUser.id || query.email === salesAssociateUser.email) return doc(salesAssociateUser);
     if (query.id === detailerUser.id || query.email === detailerUser.email) return doc(detailerUser);
     if (query.id === customerUser.id || query.email === customerUser.email) return doc(customerUser);
     return doc(null);
   });
-  stub(__testModels.User, "find", () => chain([adminUser, generalManagerUser, detailerUser, customerUser]));
+  stub(__testModels.User, "find", () => chain([adminUser, generalManagerUser, salesAssociateUser, detailerUser, customerUser]));
   stub(__testModels.Service, "find", () => chain(services));
   stub(__testModels.Service, "findOne", (query = {}) => doc(services.find((service) => service.id === query.id || service.name === query.name)));
   stub(__testModels.Service, "create", async (payload) => {
@@ -248,6 +250,7 @@ describe("Admin service creation route validation", () => {
 
   test.each([
     ["General Manager", generalManagerUser],
+    ["Sales Associate", salesAssociateUser],
     ["other Staff", detailerUser],
   ])("%s creation is rejected even with forged Admin role fields", async (_label, user) => {
     const response = await request("/api/admin/services", {
@@ -423,6 +426,7 @@ describe("Admin service update route validation", () => {
 
   test.each([
     ["General Manager", generalManagerUser],
+    ["Sales Associate", salesAssociateUser],
     ["other Staff", detailerUser],
   ])("%s update is rejected even with forged Admin role fields", async (_label, user) => {
     seedServices();

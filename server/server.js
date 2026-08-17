@@ -2236,8 +2236,10 @@ const ROLE_MODULES = {
   ],
   "sales associate": [
     MODULE_KEYS.dashboard,
+    MODULE_KEYS.analytics,
     MODULE_KEYS.bookings,
     MODULE_KEYS.services,
+    MODULE_KEYS.serviceTracking,
     MODULE_KEYS.paymentTracking,
     MODULE_KEYS.engagement,
     MODULE_KEYS.profile,
@@ -2306,7 +2308,15 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingView,
     ACTION_KEYS.bookingCreate,
     ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
+    ACTION_KEYS.bookingUpdateStatus,
+    ACTION_KEYS.trackingView,
+    ACTION_KEYS.trackingUpdateIssueNotes,
+    ACTION_KEYS.trackingUpdateWarranty,
+    ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
+    ACTION_KEYS.paymentVerify,
     ACTION_KEYS.engagementView,
   ],
   "inventory clerk": [
@@ -2514,7 +2524,7 @@ function canReassignDetailer(user) {
 function canUpdatePlaceSlot(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const role = getEffectiveRole(user);
-  if (role === "general manager") return true;
+  if (role === "general manager" || role === "sales associate") return true;
   if (role === "junior detailer" || role === "senior detailer") {
     return canViewDetailerTask(user, booking, users) && isBookingAssignedToUser(booking, user);
   }
@@ -6164,6 +6174,10 @@ function filterBootstrapDataForRole(data, authUser = {}) {
     const scopedUsers = data.users.filter((user) => {
       const type = normalizeUserType(user.userType, user.role);
       if (type === "admin") return false;
+      if (staffRole === "sales associate") {
+        const userEmail = String(user.email || "").trim().toLowerCase();
+        return type === "customer" || isActiveDetailerUser(user) || userEmail === email;
+      }
       if (hasModule(MODULE_KEYS.userManagement)) return staffRole === "general manager" ? type === "staff" || type === "customer" : type === "staff";
       if (staffRole === "junior detailer" || staffRole === "senior detailer") return type === "staff";
       if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
@@ -6186,6 +6200,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
       commissions: scopedCommissions,
+      financialReport: canSeeFinancials ? data.financialReport : { totals: {}, payments: [], expenses: [], commissions: [] },
       customerRewards: [],
       rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
       alerts: canSeeStock ? data.alerts : [],
@@ -6784,7 +6799,7 @@ app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (
       res.status(404).json({ message: "Quote request not found." });
       return;
     }
-    await recordAudit(req.body.auditUser, "Updated quote request status", quoteRequest.id, { status });
+    await recordAudit(getAuthenticatedAuditUser(req), "Updated quote request status", quoteRequest.id, { status });
     res.json(quoteRequest);
   } catch (error) {
     next(error);
@@ -7489,7 +7504,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     } else if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)) {
       denyForbidden(res);
       return;
-    } else if (staffRoleForBookingUpdate === "sales manager" || staffRoleForBookingUpdate === "sales associate") {
+    } else if (staffRoleForBookingUpdate === "sales manager") {
       [
         "issueNote",
         "issueTypes",
@@ -7921,7 +7936,7 @@ app.patch("/api/admin/bookings/:id/reschedule", requireRoles("admin", "staff"), 
     const actorRole = getEffectiveRole(req.authUser);
     const allUsersForScope = await User.find({}).lean();
 
-    if (actorType !== "admin" && actorRole !== "general manager") {
+    if (actorType !== "admin" && actorRole !== "general manager" && actorRole !== "sales associate") {
       denyForbidden(res);
       return;
     }

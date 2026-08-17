@@ -156,4 +156,53 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-JR"]);
     expect(scoped.commissions).toEqual([]);
   });
+
+  test("scopes Sales Associate bootstrap data to authorized module needs", () => {
+    const scoped = filterBootstrapDataForRole({
+      bookings: [{ id: "B-SA", assigned: "Senior One", customerEmail: "c@example.com" }],
+      services: [{ id: "SVC-1", name: "Coating" }],
+      stockMonitoring: [{ id: "STK-1", name: "Soap" }],
+      payments: [{ id: "PAY-SA", bookingId: "B-SA", customerEmail: "c@example.com" }],
+      users: [
+        { id: "SA", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" },
+        { id: "ADM", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" },
+        { id: "MKT", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" },
+        { id: "DET", email: "senior@example.com", name: "Senior One", userType: "Staff", role: "Senior Detailer", status: "active" },
+        { id: "CUS", email: "c@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" },
+      ],
+      auditLogs: [{ id: "AUD-1", userId: "sales@example.com", action: "Updated booking" }],
+      archivedAuditLogs: [{ id: "AUD-2", userId: "sales@example.com", action: "Archived" }],
+      reviews: [{ id: "REV-1" }],
+      promos: [{ id: "PRO-1", status: "active" }],
+      quoteRequests: [],
+      expenses: [{ id: "EXP-1", amount: 500 }],
+      commissions: [{ id: "COM-1", worker: "Senior One", earned: 50 }],
+      rewards: [{ id: "RWD-1" }],
+      customerRewards: [{ id: "CR-1" }],
+      alerts: [{ title: "Low stock" }],
+      financialReport: {
+        totals: { expenses: 500, commissions: 50 },
+        payments: [{ id: "PAY-SA" }],
+        expenses: [{ id: "EXP-1" }],
+        commissions: [{ id: "COM-1" }],
+      },
+      summary: { paidRevenue: 1000 },
+      settings: { requiredDownPaymentAmount: 300 },
+    }, { id: "SA", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate" });
+
+    expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-SA"]);
+    expect(scoped.payments.map((payment) => payment.id)).toEqual(["PAY-SA"]);
+    expect(scoped.users.map((user) => user.email).sort()).toEqual(["c@example.com", "sales@example.com", "senior@example.com"]);
+    expect(scoped.services).toHaveLength(1);
+    expect(scoped.reviews).toHaveLength(1);
+    expect(scoped.promos).toHaveLength(1);
+    expect(scoped.rewards).toHaveLength(1);
+    expect(scoped.auditLogs).toEqual([]);
+    expect(scoped.archivedAuditLogs).toEqual([]);
+    expect(scoped.stockMonitoring).toEqual([]);
+    expect(scoped.alerts).toEqual([]);
+    expect(scoped.expenses).toEqual([]);
+    expect(scoped.commissions).toEqual([]);
+    expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
+  });
 });

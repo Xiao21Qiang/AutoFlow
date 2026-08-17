@@ -59,9 +59,10 @@ describe("Engagement mutation RBAC", () => {
   const originals = [];
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
   const generalManager = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+  const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   const staff = { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Marketing", status: "active" };
   const customer = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
-  const users = [admin, generalManager, staff, customer];
+  const users = [admin, generalManager, salesAssociate, staff, customer];
 
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
@@ -144,6 +145,20 @@ describe("Engagement mutation RBAC", () => {
     const response = await request(path, {
       method,
       token: auth(generalManager),
+      body: forgedAdminBody,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
+    expect(__testModels.Promo.create).not.toHaveBeenCalled();
+    expect(__testModels.Reward.create).not.toHaveBeenCalled();
+    expect(__testModels.Reward.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  test.each(mutationRoutes)("%s denies Sales Associate even with forged Admin body and Staff credentials", async (_label, method, path) => {
+    const response = await request(path, {
+      method,
+      token: auth(salesAssociate),
       body: forgedAdminBody,
     });
 

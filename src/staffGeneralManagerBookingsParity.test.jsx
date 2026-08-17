@@ -163,6 +163,74 @@ describe("General Manager Bookings parity shell", () => {
   });
 });
 
+describe("Sales Associate authorization foundation shell", () => {
+  test("shows exactly the approved Sales Associate navigation modules", () => {
+    setContext({ currentUser: salesAssociate });
+    renderStaffMain(salesAssociate);
+
+    for (const label of [
+      "Dashboard",
+      "Analytics",
+      "Bookings",
+      "Services",
+      "Service Tracking",
+      "Payment Tracking",
+      "Engagement",
+      "Profile",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+
+    for (const label of [
+      "User Management",
+      "Detailer Management",
+      "Stock Monitoring",
+      "Financial Tracker",
+      "Audit Logs",
+      "My Work",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
+  test("uses Admin Bookings parity without exposing Delete", () => {
+    setContext({ currentUser: salesAssociate });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Bookings"));
+
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add New Booking" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit Booking")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("uses Admin Tracking parity for Service Tracking", () => {
+    setContext({
+      currentUser: salesAssociate,
+      bookings: [{
+        ...baseData.bookings[0],
+        id: "B-SA-TRACK-1",
+        status: "Scheduled",
+        assigned: "Detailer One",
+        issueNote: "",
+        issueTypes: [],
+        issueMarkers: [],
+        warrantyChecklistItems: [],
+      }],
+    });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.queryByText("View only")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit Tracking Row")).toBeInTheDocument();
+  });
+});
+
 describe("General Manager Service Tracking parity shell", () => {
   test("uses canonical Admin Tracking features for unassigned tracking records", () => {
     setContext({
@@ -245,14 +313,44 @@ describe("General Manager Payment Tracking parity shell", () => {
     ));
   });
 
-  test("other payment-view Staff roles stay view-only", () => {
-    setContext({ currentUser: salesAssociate });
+  test("validates Sales Associate payment verification with Staff credential scope", async () => {
+    const updatePayment = jest.fn().mockResolvedValue({});
+    setContext({ currentUser: salesAssociate, updatePayment });
     renderStaffMain(salesAssociate);
 
     fireEvent.click(screen.getByText("Payment Tracking"));
 
-    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
-    expect(screen.getByText("View only")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.queryByText("View only")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Paid" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledTimes(1));
+    expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "654321",
+      "staff",
+      expect.objectContaining({ userType: "Staff", role: "Sales Associate" }),
+      "payment.verify"
+    );
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledWith(
+      "PAY-1",
+      expect.objectContaining({
+        downPaymentStatus: "Paid",
+        specialPin: "654321",
+      })
+    ));
+  });
+
+  test("other Staff roles without Payment Tracking keep the module hidden", () => {
+    setContext({ currentUser: seniorDetailer });
+    renderStaffMain(seniorDetailer);
+
+    expect(screen.queryByText("Payment Tracking")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "✎" })).not.toBeInTheDocument();
   });
 });

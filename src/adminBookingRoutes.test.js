@@ -543,11 +543,14 @@ describe("Admin-only booking deletion route", () => {
     expect(payments).toHaveLength(1);
   });
 
-  test("General Manager cannot delete even a Cancelled booking with Staff credential or forged Admin body data", async () => {
+  test.each([
+    ["General Manager", generalManagerUser],
+    ["Sales Associate", salesAssociateUser],
+  ])("%s cannot delete even a Cancelled booking with Staff credential or forged Admin body data", async (_label, actor) => {
     seedDeletedBooking("Cancelled");
     const response = await request("/api/admin/bookings/B-DELETE", {
       method: "DELETE",
-      token: auth(generalManagerUser),
+      token: auth(actor),
       body: {
         specialPin: "654321",
         userType: "Admin",
@@ -642,6 +645,19 @@ describe("Role-aware special credential validation", () => {
       actorUserType: "Admin",
       actorRole: "Admin",
       actionKey: "booking.updateStatus",
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("Sales Associate PIN validation derives Staff scope and ignores forged Admin scope for authorized actions", async () => {
+    const response = await validateCredential(salesAssociateUser, {
+      mode: "pin",
+      value: "654321",
+      scope: "admin",
+      actorUserType: "Admin",
+      actorRole: "Admin",
+      actionKey: "payment.verify",
     });
 
     expect(response.status).toBe(200);
@@ -777,6 +793,25 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
           placeSlot: 2,
           status: "Scheduled",
         }),
+      }),
+    ]));
+  });
+
+  test("Sales Associate may reschedule an eligible Cancelled booking with Staff PIN and authenticated audit actor", async () => {
+    seedCancelledRescheduleBooking();
+    const response = await request(reschedulePath(), {
+      method: "PATCH",
+      token: auth(salesAssociateUser),
+      body: reschedulePayload("654321", { auditUser: "admin@example.com", userType: "Admin", role: "Admin" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled" });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Rescheduled booking",
+        targetId: "B-CANCELLED-RESCHEDULE",
       }),
     ]));
   });
@@ -1034,6 +1069,29 @@ describe("Payment verification state remains separate from booking status", () =
     expect(bookings[0].status).toBe("Scheduled");
   });
 
+  test("Sales Associate verifies submitted downpayment proof with Staff special PIN and leaves booking status unchanged", async () => {
+    seedPaymentReviewBooking();
+    const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...payments[0],
+        downPaymentStatus: "Paid",
+        downPaymentNotes: "Verified by Sales Associate",
+        specialPin: "654321",
+        accountName: "Sales Associate",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentStatus: "Paid",
+      downPaymentReviewStatus: "Verified",
+      downPaymentVerifiedBy: "sales@example.com",
+    });
+    expect(bookings[0].status).toBe("Scheduled");
+  });
+
   test("General Manager payment verification rejects Admin special PIN as a Staff-scope credential failure", async () => {
     seedPaymentReviewBooking();
     const originalPayment = clone(payments[0]);
@@ -1054,16 +1112,16 @@ describe("Payment verification state remains separate from booking status", () =
     expect(bookings[0].status).toBe("Scheduled");
   });
 
-  test("payment-view Staff without verify authority cannot approve payment proof", async () => {
+  test("Staff without verify authority cannot approve payment proof", async () => {
     seedPaymentReviewBooking();
     const response = await request("/api/admin/payments/PAY-GM-REVIEW", {
       method: "PUT",
-      token: auth(salesAssociateUser),
+      token: auth(marketingUser),
       body: {
         ...payments[0],
         downPaymentStatus: "Paid",
         specialPin: "654321",
-        accountName: "Sales Associate",
+        accountName: "Marketing",
       },
     });
 
