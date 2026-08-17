@@ -1,3 +1,5 @@
+import { useRef, useState } from "react";
+
 export function quoteStatusLabel(status) {
   return String(status || "").trim().toLowerCase() === "received" ? "Received" : "Under Review";
 }
@@ -12,6 +14,9 @@ export function DashboardQuoteRequestModal({
   updateQuoteRequest,
   classPrefix = "admin",
 }) {
+  const isUpdatingRef = useRef(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+
   if (!selectedQuoteRequest) return null;
 
   const prefix = classPrefix === "st" ? "st" : "admin";
@@ -38,9 +43,18 @@ export function DashboardQuoteRequestModal({
             <span>Status</span>
             <select
               value={quoteStatusLabel(selectedQuoteRequest.status)}
+              disabled={isUpdating}
               onChange={async (event) => {
+                if (isUpdatingRef.current) return;
                 const status = event.target.value;
-                await updateQuoteRequest(selectedQuoteRequest.id, { status });
+                isUpdatingRef.current = true;
+                setIsUpdating(true);
+                try {
+                  await updateQuoteRequest(selectedQuoteRequest.id, { status });
+                } finally {
+                  isUpdatingRef.current = false;
+                  setIsUpdating(false);
+                }
               }}
             >
               <option>Under Review</option>

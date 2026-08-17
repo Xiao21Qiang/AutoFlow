@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { DashboardBookingModal, DashboardQuoteRequestModal, quoteStatusLabel } from "../../components/dashboard/DashboardDetailModals";
 import { getOutstandingBalance, getRecognizedRevenue, getStockState, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
+import { ACTION_KEYS, MODULE_KEYS, canAccessModule, canPerformAction } from "../../utils/rbac";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 const toKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -40,13 +41,21 @@ function buildCalendarGrid(monthDate) {
   return cells;
 }
 
-export default function StaffDashboard({ goTo }) {
+export default function StaffDashboard({ session, goTo }) {
   const { bookings, stockMonitoring, payments, quoteRequests, summary, updateQuoteRequest } = useAdminData();
   const today = useMemo(() => new Date(), []);
   const [monthDate, setMonthDate] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => new Date(today));
   const [selectedQuoteRequest, setSelectedQuoteRequest] = useState(null);
   const [selectedBookingId, setSelectedBookingId] = useState("");
+  const canOpenBookings = canAccessModule(session, MODULE_KEYS.bookings);
+  const canOpenTracking = canAccessModule(session, MODULE_KEYS.serviceTracking);
+  const canOpenStockMonitoring = canAccessModule(session, MODULE_KEYS.stockMonitoring);
+  const canOpenPayments = canAccessModule(session, MODULE_KEYS.paymentTracking);
+  const canOpenServices = canAccessModule(session, MODULE_KEYS.services);
+  const canOpenEngagement = canAccessModule(session, MODULE_KEYS.engagement);
+  const canCreateBooking = canPerformAction(session, ACTION_KEYS.bookingCreate);
+  const canManageServices = canPerformAction(session, ACTION_KEYS.servicesManage);
 
   const bookingsByDate = useMemo(() => {
     const map = new Map();
@@ -123,28 +132,28 @@ export default function StaffDashboard({ goTo }) {
 
   const alerts = useMemo(() => {
     const out = [];
-    if (stockSummary.criticalCount > 0) {
+    if (canOpenStockMonitoring && stockSummary.criticalCount > 0) {
       out.push({ title: `Critical stock (${stockSummary.criticalCount})`, sub: "Items below the current reorder level need immediate restocking.", target: "stock-monitoring" });
     }
-    if (stockSummary.lowCount > 0) {
+    if (canOpenStockMonitoring && stockSummary.lowCount > 0) {
       out.push({ title: `Low stock (${stockSummary.lowCount})`, sub: "Items just above the current reorder level should be reviewed next.", target: "stock-monitoring" });
     }
-    if (pendingPaymentsCount > 0) {
+    if (canOpenPayments && pendingPaymentsCount > 0) {
       out.push({ title: `Pending payments (${pendingPaymentsCount})`, sub: `Total pending: ₱ ${pendingPaymentsTotal.toLocaleString()}`, target: "payments" });
     }
-    if (inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, sub: "Review service tracking to avoid delays.", target: "tracking" });
+    if (canOpenTracking && inProgressCount > 0) out.push({ title: `Jobs in progress (${inProgressCount})`, sub: "Review service tracking to avoid delays.", target: "tracking" });
     return out;
-  }, [stockSummary, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
+  }, [canOpenPayments, canOpenStockMonitoring, canOpenTracking, stockSummary, pendingPaymentsCount, pendingPaymentsTotal, inProgressCount]);
 
   return (
     <div className="stDashWrap">
       <div className="stDashStats">
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="stDashStatNum">{bookingsToday}</div><div className="stDashStatLabel">Bookings today</div></button>
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="stDashStatNum">{inProgressCount}</div><div className="stDashStatLabel">In Progress</div></button>
-        <button className={`stDashStatCard stDashStatCardClickable${stockSummary.criticalCount > 0 ? " critical" : ""}`} type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.criticalCount}</div><div className="stDashStatLabel">Critical Stock</div></button>
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenue</div></button>
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.lowCount}</div><div className="stDashStatLabel">Low Stock</div></button>
-        <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.healthyCount}</div><div className="stDashStatLabel">Healthy Stock</div></button>
+        {canOpenBookings && <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("bookings")}><div className="stDashStatNum">{bookingsToday}</div><div className="stDashStatLabel">Bookings today</div></button>}
+        {canOpenTracking && <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("tracking")}><div className="stDashStatNum">{inProgressCount}</div><div className="stDashStatLabel">In Progress</div></button>}
+        {canOpenStockMonitoring && <button className={`stDashStatCard stDashStatCardClickable${stockSummary.criticalCount > 0 ? " critical" : ""}`} type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.criticalCount}</div><div className="stDashStatLabel">Critical Stock</div></button>}
+        {canOpenPayments && <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("payments")}><div className="stDashStatNum">₱ {paidRevenue.toLocaleString()}</div><div className="stDashStatLabel">Paid Revenue</div></button>}
+        {canOpenStockMonitoring && <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.lowCount}</div><div className="stDashStatLabel">Low Stock</div></button>}
+        {canOpenStockMonitoring && <button className="stDashStatCard stDashStatCardClickable" type="button" onClick={() => goTo?.("stock-monitoring")}><div className="stDashStatNum">{stockSummary.healthyCount}</div><div className="stDashStatLabel">Healthy Stock</div></button>}
       </div>
 
       <div className="stDashTopGrid">
@@ -166,10 +175,10 @@ export default function StaffDashboard({ goTo }) {
           <div className="stDashTitle">Quick actions</div>
           <div className="stDashSub">Common tasks you do often.</div>
           <div className="stQuickGrid">
-            <div className="stQuickCard" onClick={() => goTo?.("bookings")}><div className="stQuickTitle">Create Booking</div><div className="stQuickDesc">Add a new appointment</div></div>
-            <div className="stQuickCard" onClick={() => goTo?.("stock-monitoring")}><div className="stQuickTitle">Restock item</div><div className="stQuickDesc">Update stocks and supplies</div></div>
-            <div className="stQuickCard" onClick={() => goTo?.("services")}><div className="stQuickTitle">View Services</div><div className="stQuickDesc">Manage service list</div></div>
-            <div className="stQuickCard" onClick={() => goTo?.("engagement")}><div className="stQuickTitle">Customer Reviews</div><div className="stQuickDesc">Read recent feedback</div></div>
+            {canOpenBookings && canCreateBooking && <div className="stQuickCard" onClick={() => goTo?.("bookings")}><div className="stQuickTitle">Create Booking</div><div className="stQuickDesc">Add a new appointment</div></div>}
+            {canOpenStockMonitoring && <div className="stQuickCard" onClick={() => goTo?.("stock-monitoring")}><div className="stQuickTitle">Restock item</div><div className="stQuickDesc">Update stocks and supplies</div></div>}
+            {canOpenServices && <div className="stQuickCard" onClick={() => goTo?.("services")}><div className="stQuickTitle">{canManageServices ? "Add Service" : "View Services"}</div><div className="stQuickDesc">{canManageServices ? "Manage service list" : "Inspect the service list"}</div></div>}
+            {canOpenEngagement && <div className="stQuickCard" onClick={() => goTo?.("engagement")}><div className="stQuickTitle">Customer Reviews</div><div className="stQuickDesc">Read recent feedback</div></div>}
           </div>
         </div>
 

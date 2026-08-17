@@ -31,6 +31,30 @@ const currentUser = {
   role: "General Manager",
 };
 
+const salesAssociate = {
+  id: "STF-SA-1",
+  email: "sales@example.com",
+  name: "Sales Associate",
+  userType: "Staff",
+  role: "Sales Associate",
+};
+
+const salesManager = {
+  id: "STF-SM-1",
+  email: "sales-manager@example.com",
+  name: "Sales Manager",
+  userType: "Staff",
+  role: "Sales Manager",
+};
+
+const seniorDetailer = {
+  id: "STF-SR-1",
+  email: "senior@example.com",
+  name: "Senior Detailer",
+  userType: "Staff",
+  role: "Senior Detailer",
+};
+
 const dashboardData = {
   bookings: [
     {
@@ -58,7 +82,11 @@ const dashboardData = {
       status: "Scheduled",
     },
   ],
-  stockMonitoring: [],
+  stockMonitoring: [
+    { id: "STK-CRIT", name: "Shampoo", currentStock: 1, maxStock: 10, reorderLevel: 3 },
+    { id: "STK-LOW", name: "Wax", currentStock: 4, maxStock: 10, reorderLevel: 3 },
+    { id: "STK-OK", name: "Towel", currentStock: 8, maxStock: 10, reorderLevel: 3 },
+  ],
   payments: [
     { id: "PAY-2", bookingId: "B-TEST-002", status: "Paid" },
   ],
@@ -125,6 +153,21 @@ afterEach(() => {
 });
 
 describe("Staff General Manager dashboard parity", () => {
+  test("keeps General Manager on the canonical staff dashboard including authorized stock shortcuts", () => {
+    const goTo = jest.fn();
+    render(<StaffDashboard session={currentUser} goTo={goTo} />);
+
+    expect(screen.getByText("Recent Quote Requests")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming Bookings")).toBeInTheDocument();
+    expect(screen.getByText("Critical Stock")).toBeInTheDocument();
+    expect(screen.getByText("Low Stock")).toBeInTheDocument();
+    expect(screen.getByText("Healthy Stock")).toBeInTheDocument();
+    expect(screen.getByText("Restock item")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Restock item").closest(".stQuickCard"));
+    expect(goTo).toHaveBeenCalledWith("stock-monitoring");
+  });
+
   test("activates the correct booking row with the canonical booking details workflow", () => {
     render(<StaffDashboard session={currentUser} />);
 
@@ -188,6 +231,103 @@ describe("Staff General Manager dashboard parity", () => {
     await waitFor(() => {
       expect(mockUpdateQuoteRequest).toHaveBeenCalledWith("Q-TEST-002", { status: "Received" });
     });
+  });
+});
+
+describe("Sales Associate dashboard parity", () => {
+  test("renders the canonical GM dashboard content while withholding unauthorized stock shortcuts", () => {
+    const goTo = jest.fn();
+    render(<StaffDashboard session={salesAssociate} goTo={goTo} />);
+
+    expect(screen.getByText("Recent Quote Requests")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming Bookings")).toBeInTheDocument();
+    expect(screen.getByText("Bookings today")).toBeInTheDocument();
+    expect(screen.getByText("In Progress")).toBeInTheDocument();
+    expect(screen.getByText("Paid Revenue")).toBeInTheDocument();
+    expect(screen.getByText("Create Booking")).toBeInTheDocument();
+    expect(screen.getByText("View Services")).toBeInTheDocument();
+    expect(screen.getByText("Customer Reviews")).toBeInTheDocument();
+
+    expect(screen.queryByText("Critical Stock")).not.toBeInTheDocument();
+    expect(screen.queryByText("Low Stock")).not.toBeInTheDocument();
+    expect(screen.queryByText("Healthy Stock")).not.toBeInTheDocument();
+    expect(screen.queryByText("Restock item")).not.toBeInTheDocument();
+    expect(screen.queryByText("Financial Tracker")).not.toBeInTheDocument();
+    expect(screen.queryByText("User Management")).not.toBeInTheDocument();
+    expect(screen.queryByText("Audit Logs")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Bookings today").closest("button"));
+    fireEvent.click(screen.getByText("In Progress").closest("button"));
+    fireEvent.click(screen.getByText("Paid Revenue").closest("button"));
+    fireEvent.click(screen.getByText("View Services").closest(".stQuickCard"));
+    fireEvent.click(screen.getByText("Customer Reviews").closest(".stQuickCard"));
+
+    expect(goTo).toHaveBeenCalledWith("bookings");
+    expect(goTo).toHaveBeenCalledWith("tracking");
+    expect(goTo).toHaveBeenCalledWith("payments");
+    expect(goTo).toHaveBeenCalledWith("services");
+    expect(goTo).toHaveBeenCalledWith("engagement");
+    expect(goTo).not.toHaveBeenCalledWith("stock-monitoring");
+  });
+
+  test("opens the same booking detail modal without Delete exposure", () => {
+    render(<StaffDashboard session={salesAssociate} />);
+
+    clickButtonContaining("SUV • Status: Scheduled");
+
+    const modal = screen.getByText("Booking Details").closest(".stDetailModalOverlay");
+    expect(within(modal).getByText("B-TEST-002")).toBeInTheDocument();
+    expect(within(modal).getByText("DJ De Guzman")).toBeInTheDocument();
+    expect(within(modal).getByText("Paid")).toBeInTheDocument();
+    expect(within(modal).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("updates quote status once while a Dashboard update is already submitting", async () => {
+    let resolveUpdate;
+    mockUpdateQuoteRequest.mockImplementation(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    render(<StaffDashboard session={salesAssociate} />);
+
+    clickButtonContaining("Marco Reyes");
+    const modal = screen.getByText("Quote Request Details").closest(".stDetailModalOverlay");
+
+    fireEvent.change(within(modal).getByRole("combobox"), { target: { value: "Received" } });
+    fireEvent.change(within(modal).getByRole("combobox"), { target: { value: "Under Review" } });
+
+    expect(mockUpdateQuoteRequest).toHaveBeenCalledTimes(1);
+    expect(within(modal).getByRole("combobox")).toBeDisabled();
+
+    await act(async () => {
+      resolveUpdate({});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(within(modal).getByRole("combobox")).not.toBeDisabled());
+  });
+});
+
+describe("Staff dashboard role regressions", () => {
+  test("Sales Manager keeps authorized Dashboard shortcuts without stock-module access", () => {
+    render(<StaffDashboard session={salesManager} />);
+
+    expect(screen.getByText("Bookings today")).toBeInTheDocument();
+    expect(screen.getByText("In Progress")).toBeInTheDocument();
+    expect(screen.getByText("Paid Revenue")).toBeInTheDocument();
+    expect(screen.getByText("Create Booking")).toBeInTheDocument();
+    expect(screen.queryByText("Restock item")).not.toBeInTheDocument();
+    expect(screen.queryByText("Critical Stock")).not.toBeInTheDocument();
+  });
+
+  test("ordinary assigned-work Staff do not receive payment, stock, service, or engagement Dashboard shortcuts", () => {
+    render(<StaffDashboard session={seniorDetailer} />);
+
+    expect(screen.getByText("Bookings today")).toBeInTheDocument();
+    expect(screen.getByText("In Progress")).toBeInTheDocument();
+    expect(screen.queryByText("Paid Revenue")).not.toBeInTheDocument();
+    expect(screen.queryByText("Restock item")).not.toBeInTheDocument();
+    expect(screen.queryByText("View Services")).not.toBeInTheDocument();
+    expect(screen.queryByText("Customer Reviews")).not.toBeInTheDocument();
   });
 });
 
