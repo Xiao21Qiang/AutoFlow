@@ -128,6 +128,7 @@ describe("Phase 5 export helpers", () => {
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "my-work")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "commissions")).toBe(true);
     expect(canExportReport({ userType: "Admin", role: "Admin" }, "reward-history")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "tracking")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "payments")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "financial")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "audit-logs")).toBe(false);
@@ -189,10 +190,13 @@ describe("Phase 5 export routes", () => {
 
   beforeAll(async () => {
     const adminUser = { id: "USR-ADMIN", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
+    const salesAssociateUser = { id: "USR-SA", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
     const customerUser = { id: "USR-CUST", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" };
-    const users = [adminUser, customerUser];
+    const users = [adminUser, salesAssociateUser, customerUser];
 
-    stub(__testModels.User, "findOne", () => ({ lean: async () => adminUser }));
+    stub(__testModels.User, "findOne", (query = {}) => ({
+      lean: async () => users.find((user) => user.id === query.id || user.email === query.email) || null,
+    }));
     stub(__testModels.User, "find", () => chain(users));
     stub(__testModels.Booking, "find", () => chain(baseData.bookings));
     stub(__testModels.Service, "find", () => chain(baseData.services));
@@ -266,5 +270,23 @@ describe("Phase 5 export routes", () => {
     expect(String(response.headers["content-type"])).toContain("text/csv");
     expect(String(response.headers["content-disposition"])).toContain("attachment");
     expect(text).toContain('"\'@command"');
+  });
+
+  test("allows Sales Associate to export Tracking report and audits the authenticated actor", async () => {
+    auditEvents.length = 0;
+    const token = signJwt({ sub: "USR-SA", email: "sales@example.com", userType: "Staff", role: "Sales Associate" });
+    const response = await invokeApp("/api/admin/reports/tracking/pdf", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(response.status).toBe(200);
+    expect(String(response.headers["content-type"])).toContain("application/pdf");
+    expect(auditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Report exported",
+        meta: expect.objectContaining({ reportType: "tracking" }),
+      }),
+    ]));
   });
 });

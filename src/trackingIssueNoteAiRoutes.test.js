@@ -17,10 +17,11 @@ const { __testModels, app, signJwt } = require("../server/server");
 
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
 const customerUser = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
 const seniorDetailerUser = { id: "STF-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
-const users = [adminUser, generalManagerUser, marketingUser, customerUser, seniorDetailerUser];
+const users = [adminUser, generalManagerUser, salesAssociateUser, marketingUser, customerUser, seniorDetailerUser];
 
 const booking = {
   id: "B-AI-1",
@@ -186,6 +187,26 @@ describe("tracking issue note AI route", () => {
     const audit = auditLogs.find((log) => log.targetId === "tracking-issue-note");
     expect(audit.userId).toBe("gm@example.com");
     expect(audit.meta.actorRole).toBe("general manager");
+    expect(audit.meta.actorUserType).toBe("staff");
+    expect(JSON.stringify(audit)).not.toContain("test-groq-key");
+  });
+
+  test("allows Sales Associate as Staff and attributes audit to the authenticated Sales Associate", async () => {
+    const response = await request("/api/ai/tracking/issue-note", {
+      token: auth(salesAssociateUser),
+      body: aiBody({ auditUser: "admin@example.com", actorRole: "Admin", actorUserType: "Admin" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      available: true,
+      technicianFriendlyNote: "Inspect the marked panel for a paint blemish before coating.",
+      suggestedNextAction: "Confirm prep requirements before service.",
+      customerSafeSummary: "A marked area needs inspection before work begins.",
+    });
+    const audit = auditLogs.find((log) => log.targetId === "tracking-issue-note");
+    expect(audit.userId).toBe("sales@example.com");
+    expect(audit.meta.actorRole).toBe("sales associate");
     expect(audit.meta.actorUserType).toBe("staff");
     expect(JSON.stringify(audit)).not.toContain("test-groq-key");
   });

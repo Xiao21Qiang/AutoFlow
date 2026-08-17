@@ -143,6 +143,7 @@ export default function AdminTracking() {
   const mapRef = useRef(null);
   const savingTrackingRef = useRef(false);
   const issueNoteAiRequestRef = useRef(false);
+  const exportInFlightRef = useRef(false);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
   const staffOptions = useMemo(() => getDetailerStaffOptions(users), [users]);
   const staffOptionSet = useMemo(() => new Set(staffOptions.map((option) => option.toLowerCase())), [staffOptions]);
@@ -210,9 +211,15 @@ export default function AdminTracking() {
     return "stBooked";
   };
 
-  const exportPdf = () =>
+  const exportPdf = () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
     downloadAuthenticatedFile(buildReportDownloadPath("tracking", "pdf"), "autoflow-tracking-report.pdf")
-      .catch((error) => window.alert(error.message || "Could not download report."));
+      .catch((error) => window.alert(error.message || "Could not download report."))
+      .finally(() => {
+        exportInFlightRef.current = false;
+      });
+  };
 
   const resetIssueNoteAi = () => {
     setIssueNoteAi({

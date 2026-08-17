@@ -292,6 +292,27 @@ describe("Sales Associate authorization foundation shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("Edit Tracking Row")).toBeInTheDocument();
   });
+
+  test("blocks duplicate Sales Associate Service Tracking export clicks", async () => {
+    let resolveExport;
+    downloadAuthenticatedFile.mockImplementation(() => new Promise((resolve) => {
+      resolveExport = resolve;
+    }));
+    setContext({ currentUser: salesAssociate });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+    const exportButton = screen.getByRole("button", { name: "Export as PDF" });
+    fireEvent.click(exportButton);
+    fireEvent.click(exportButton);
+
+    expect(buildReportDownloadPath).toHaveBeenCalledWith("tracking", "pdf");
+    expect(downloadAuthenticatedFile).toHaveBeenCalledTimes(1);
+    expect(downloadAuthenticatedFile).toHaveBeenCalledWith("/api/admin/reports/tracking/pdf", "autoflow-tracking-report.pdf");
+
+    resolveExport();
+    await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledTimes(1));
+  });
 });
 
 describe("General Manager Service Tracking parity shell", () => {

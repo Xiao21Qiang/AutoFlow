@@ -7,6 +7,7 @@ const mockGenerateTrackingIssueNote = jest.fn();
 const mockSecurityConfirm = jest.fn();
 
 let mockBookings = [];
+let mockPayments = [];
 let mockCurrentUser = null;
 
 const activeDetailerOne = {
@@ -43,11 +44,12 @@ const deletedDetailer = {
 };
 const mockAdminUser = { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" };
 const generalManagerUser = { id: "STF-GM", name: "General Manager", email: "gm@example.com", userType: "Staff", role: "General Manager" };
+const salesAssociateUser = { id: "STF-SA", name: "Sales Associate", email: "sales@example.com", userType: "Staff", role: "Sales Associate" };
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: () => ({
     bookings: mockBookings,
-    payments: [],
+    payments: mockPayments,
     users: [
       activeDetailerOne,
       activeDetailerTwo,
@@ -103,6 +105,7 @@ function selectOptionValues(select) {
 
 beforeEach(() => {
   seedBookings();
+  mockPayments = [];
   mockCurrentUser = mockAdminUser;
   mockUpdateBooking.mockReset();
   mockGenerateTrackingIssueNote.mockReset();
@@ -211,6 +214,59 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(openSecurityProps.scope).toBeUndefined();
     expect(openSecurityProps.actionKey).toBe(ACTION_KEYS.bookingUpdateStatus);
     expect(mockUpdateBooking).not.toHaveBeenCalled();
+  });
+
+  test("lets Sales Associate edit unassigned issue notes through the shared Admin Tracking flow", async () => {
+    mockCurrentUser = salesAssociateUser;
+    seedBookings({
+      assigned: "Detailer One",
+      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
+    });
+    openEditModal();
+
+    expect(screen.getByText("Issue notes can be edited while this booking is Scheduled.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Marker" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Generate Suggestion" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save Issue Notes" })).toBeEnabled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: /Issue Notes/i }), { target: { value: "Paint blemish near rear panel." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Issue Notes" }));
+
+    await waitFor(() => expect(mockUpdateBooking).toHaveBeenCalledWith("B-1", expect.objectContaining({
+      status: "Scheduled",
+      issueNote: "Paint blemish near rear panel.",
+      issueTypes: [],
+    })));
+  });
+
+  test("lets Sales Associate edit unassigned warranty details when GM lifecycle gates pass", async () => {
+    mockCurrentUser = salesAssociateUser;
+    seedBookings({
+      status: "In Progress",
+      assigned: "Detailer One",
+      issueNote: "Surface concern documented.",
+      warrantyCoveragePackage: "Standard Warranty",
+      warrantyChecklistItems: [{ id: "paint", label: "Paint inspection", done: false, doneBy: "", notes: "" }],
+      warrantyAcknowledgement: { dateLocation: "", clientName: "Customer One" },
+    });
+    mockPayments = [{ id: "PAY-1", bookingId: "B-1", finalPaymentStatus: "Paid", status: "Paid" }];
+    openEditModal();
+
+    expect(screen.getByText("Warranty details can be edited while this service is In Progress and fully paid.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Warranty Details" })).toBeEnabled();
+
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    fireEvent.change(screen.getByLabelText("Date / Location"), { target: { value: "2099-12-31 / QC" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Warranty Details" }));
+
+    await waitFor(() => expect(mockUpdateBooking).toHaveBeenCalledWith("B-1", expect.objectContaining({
+      status: "In Progress",
+      warrantyCoveragePackage: "Standard Warranty",
+      warrantyAcknowledgement: expect.objectContaining({ dateLocation: "2099-12-31 / QC" }),
+      warrantyChecklistItems: expect.arrayContaining([
+        expect.objectContaining({ done: true }),
+      ]),
+    })));
   });
 
   test("generates an Admin issue note suggestion once and displays the canonical result", async () => {

@@ -75,9 +75,10 @@ export function isAssignedStaffForBooking(booking = {}, user = {}) {
 }
 
 export function canManageTrackingAction(user = {}, actionKey = "") {
+  const effectiveRole = getEffectiveRole(user);
   return (
     isAdminUser(user) ||
-    (getEffectiveRole(user) === "general manager" && canPerformAction(user, actionKey))
+    ((effectiveRole === "general manager" || effectiveRole === "sales associate") && canPerformAction(user, actionKey))
   );
 }
 

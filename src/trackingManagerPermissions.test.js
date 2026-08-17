@@ -9,6 +9,14 @@ const generalManager = {
   role: "General Manager",
 };
 
+const salesAssociate = {
+  id: "STF-SA",
+  name: "Sales Associate",
+  email: "sales@example.com",
+  userType: "Staff",
+  role: "Sales Associate",
+};
+
 const seniorDetailer = {
   id: "STF-SR",
   name: "Senior Detailer",
@@ -45,6 +53,14 @@ describe("Service Tracking manager permissions", () => {
     })).toBe(true);
   });
 
+  test("lets Sales Associate edit unassigned issue notes through the admin-parity tracking flow", () => {
+    expect(canEditIssueNotes({
+      booking: scheduledBooking,
+      currentUser: salesAssociate,
+      allowAdmin: true,
+    })).toBe(true);
+  });
+
   test("keeps non-manager staff assignment-scoped even inside shared helpers", () => {
     expect(canEditIssueNotes({
       booking: scheduledBooking,
@@ -55,6 +71,10 @@ describe("Service Tracking manager permissions", () => {
 
   test("lets General Manager edit unassigned warranty details when lifecycle gates pass", () => {
     expect(canEditWarranty(inProgressBooking, paidPayment, generalManager, { allowAdmin: true })).toBe(true);
+  });
+
+  test("lets Sales Associate edit unassigned warranty details when lifecycle gates pass", () => {
+    expect(canEditWarranty(inProgressBooking, paidPayment, salesAssociate, { allowAdmin: true })).toBe(true);
   });
 
   test("keeps non-manager staff warranty edits assignment-scoped", () => {

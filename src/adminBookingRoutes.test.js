@@ -251,6 +251,47 @@ function seedPendingBooking() {
   ]);
 }
 
+function seedInProgressTrackingBooking(paymentPatch = {}) {
+  resetData([
+    {
+      id: "B-TRACKING",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      service: "Ceramic Coating",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+      status: "In Progress",
+      amount: 1000,
+      originalAmount: 1000,
+      issueNote: "Paint blemish documented before service.",
+      issueTypes: ["Paint blemish"],
+      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
+      warrantyCoveragePackage: "Standard Warranty",
+      warrantyChecklistItems: [{ id: "paint", label: "Paint inspection", done: true, doneBy: "Detailer One", notes: "Checked" }],
+      warrantyAcknowledgement: { dateLocation: "2099-12-31 / QC", clientName: "Customer One" },
+    },
+  ]);
+  payments.push({
+    id: "PAY-TRACKING",
+    bookingId: "B-TRACKING",
+    totalAmount: 1000,
+    finalAmount: 1000,
+    downPaymentRequired: true,
+    downPaymentAmount: 300,
+    downPaymentStatus: "Paid",
+    downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
+    finalPaymentStatus: "Paid",
+    finalPaymentVerifiedAt: "2099-12-02T00:10:00.000Z",
+    status: "Paid",
+    ...paymentPatch,
+  });
+}
+
 function seedPaymentReviewBooking() {
   resetData([
     {
@@ -374,6 +415,14 @@ beforeAll(async () => {
     payments.push(clone(payload));
     return clone(payload);
   });
+  stub(__testModels.Payment, "find", (query = {}) => {
+    const result = payments.filter((payment) => {
+      if (query.customerEmail && payment.customerEmail !== query.customerEmail) return false;
+      if (query.customer && payment.customer !== query.customer) return false;
+      return true;
+    });
+    return chain(result);
+  });
   stub(__testModels.Payment, "findOne", (query = {}) => {
     if (query.$or) {
       return doc(payments.find((payment) =>
@@ -407,10 +456,19 @@ beforeAll(async () => {
   stub(__testModels.Payment, "countDocuments", async () => 0);
   stub(__testModels.Promo, "findOne", () => doc(null));
   stub(__testModels.CustomerReward, "findOne", () => doc(null));
+  stub(__testModels.CustomerReward, "find", () => chain([]));
+  stub(__testModels.CustomerReward, "create", async (payload) => clone(payload));
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
   stub(__testModels.Review, "countDocuments", async () => 0);
   stub(__testModels.Commission, "findOne", () => doc(null));
+  stub(__testModels.Commission, "create", async (payload) => clone(payload));
   stub(__testModels.Commission, "countDocuments", async () => 0);
+  stub(__testModels.Reward, "find", () => chain([]));
+  stub(__testModels.Reward, "findOneAndUpdate", async () => null);
+  stub(__testModels.StockMonitoringItem, "find", () => chain([]));
+  stub(__testModels.StockMonitoringItem, "updateOne", async () => ({}));
+  stub(__testModels.Expense, "findOne", async () => null);
+  stub(__testModels.Expense, "create", async (payload) => clone(payload));
   stub(__testModels.AuditLog, "create", async (payload) => {
     auditLogs.push(clone(payload));
     return clone(payload);
@@ -630,6 +688,111 @@ describe("Cancelled booking immutability", () => {
   });
 });
 
+describe("Sales Associate Service Tracking route parity", () => {
+  test("Sales Associate can move Scheduled tracking to In Progress with issue fields and authenticated audit actor", async () => {
+    seedScheduledBooking({ finalPaymentStatus: "For Verification", status: "For Verification" });
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        status: "In Progress",
+        issueNote: "Paint blemish documented before service.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
+        auditUser: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      status: "In Progress",
+      issueNote: "Paint blemish documented before service.",
+      issueTypes: ["Paint blemish"],
+    });
+    expect(payments[0].finalPaymentStatus).toBe("For Verification");
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Updated booking status",
+        targetId: "B-RESCHEDULE",
+        meta: expect.objectContaining({ status: "In Progress" }),
+      }),
+    ]));
+  });
+
+  test("Sales Associate can complete valid In Progress tracking without forging the audit actor", async () => {
+    seedInProgressTrackingBooking();
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        status: "Completed",
+        auditUser: "admin@example.com",
+        actor: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0].status).toBe("Completed");
+    expect(payments[0].finalPaymentStatus).toBe("Paid");
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Updated booking status",
+        targetId: "B-TRACKING",
+        meta: expect.objectContaining({ status: "Completed" }),
+      }),
+    ]));
+  });
+
+  test("Sales Associate completion is rejected when final payment is still for verification", async () => {
+    seedInProgressTrackingBooking({ finalPaymentStatus: "For Verification", status: "For Verification", finalPaymentVerifiedAt: "" });
+    const originalBooking = clone(bookings[0]);
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        status: "Completed",
+        auditUser: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Full payment must be marked as paid before completing this booking.");
+    expect(bookings[0]).toEqual(originalBooking);
+  });
+
+  test("Sales Associate cannot roll In Progress tracking back to Scheduled through Service Tracking", async () => {
+    seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        status: "Scheduled",
+        specialPin: "654321",
+        auditUser: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Booking status cannot transition from In Progress to Scheduled.");
+    expect(bookings[0]).toEqual(originalBooking);
+  });
+});
+
 describe("Role-aware special credential validation", () => {
   async function validateCredential(actor, body, token = auth(actor)) {
     return request("/api/admin/security/validate", {
@@ -666,10 +829,12 @@ describe("Role-aware special credential validation", () => {
   });
 
   test.each([
-    ["incorrect Staff PIN", "000000"],
-    ["Admin PIN supplied by Staff", "123456"],
-  ])("General Manager %s is rejected as a Staff-scope credential failure", async (_label, value) => {
-    const response = await validateCredential(generalManagerUser, {
+    ["General Manager", generalManagerUser, "incorrect Staff PIN", "000000"],
+    ["General Manager", generalManagerUser, "Admin PIN supplied by Staff", "123456"],
+    ["Sales Associate", salesAssociateUser, "incorrect Staff PIN", "000000"],
+    ["Sales Associate", salesAssociateUser, "Admin PIN supplied by Staff", "123456"],
+  ])("%s %s is rejected as a Staff-scope credential failure", async (_roleLabel, actor, _label, value) => {
+    const response = await validateCredential(actor, {
       mode: "pin",
       value,
       scope: "admin",
