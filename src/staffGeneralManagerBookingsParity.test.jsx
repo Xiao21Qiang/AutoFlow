@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import StaffMain from "./screens/staff/StaffMain";
 import { validateSpecialCredential } from "./utils/reauth";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/downloadExport";
 
 const mockUseAdminData = jest.fn();
 
@@ -17,6 +18,11 @@ jest.mock("./utils/reauth", () => ({
   getCurrentUserDisplayName: (user = {}) => user.name || user.email || "",
   validateSpecialCredential: jest.fn(),
   verifyCurrentPassword: jest.fn(),
+}));
+
+jest.mock("./utils/downloadExport", () => ({
+  buildReportDownloadPath: jest.fn((reportType, format) => `/api/admin/reports/${reportType}/${format}`),
+  downloadAuthenticatedFile: jest.fn(),
 }));
 
 const generalManager = {
@@ -130,6 +136,10 @@ beforeEach(() => {
   localStorage.clear();
   validateSpecialCredential.mockReset();
   validateSpecialCredential.mockResolvedValue(true);
+  buildReportDownloadPath.mockClear();
+  buildReportDownloadPath.mockImplementation((reportType, format) => `/api/admin/reports/${reportType}/${format}`);
+  downloadAuthenticatedFile.mockReset();
+  downloadAuthenticatedFile.mockResolvedValue(undefined);
   setContext();
 });
 
@@ -137,6 +147,23 @@ function renderStaffMain(session = generalManager) {
   localStorage.setItem("token", "test-token");
   localStorage.setItem("user", JSON.stringify(session));
   render(<StaffMain session={session} />);
+}
+
+function paidCancelledBookingPayment() {
+  return {
+    id: "PAY-CANCELLED",
+    bookingId: "B-CANCELLED",
+    customer: "Customer One",
+    customerEmail: "customer@example.com",
+    service: "Ceramic Coating",
+    totalAmount: 1000,
+    finalAmount: 1000,
+    downPaymentRequired: true,
+    downPaymentAmount: 300,
+    downPaymentStatus: "Paid",
+    downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
+    finalPaymentStatus: "Pending",
+  };
 }
 
 describe("General Manager Bookings parity shell", () => {
@@ -204,6 +231,42 @@ describe("Sales Associate authorization foundation shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("Edit Booking")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("shows the GM-equivalent cancelled reschedule workflow without exposing Delete", () => {
+    setContext({ currentUser: salesAssociate, payments: [paidCancelledBookingPayment()] });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Bookings"));
+
+    expect(screen.getByRole("button", { name: "Reschedule" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("blocks duplicate Sales Associate Bookings export clicks", async () => {
+    let resolveExport;
+    downloadAuthenticatedFile.mockImplementation(() => new Promise((resolve) => {
+      resolveExport = resolve;
+    }));
+    setContext({ currentUser: salesAssociate });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Bookings"));
+    const exportButton = screen.getByRole("button", { name: "Export as PDF" });
+    fireEvent.click(exportButton);
+    fireEvent.click(exportButton);
+
+    expect(buildReportDownloadPath).toHaveBeenCalledWith("bookings", "pdf");
+    expect(downloadAuthenticatedFile).toHaveBeenCalledTimes(1);
+    expect(downloadAuthenticatedFile).toHaveBeenCalledWith("/api/admin/reports/bookings/pdf", "autoflow-bookings-report.pdf");
+    expect(screen.getByRole("button", { name: "Exporting..." })).toBeDisabled();
+
+    resolveExport();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Bookings report export started."));
   });
 
   test("uses Admin Tracking parity for Service Tracking", () => {

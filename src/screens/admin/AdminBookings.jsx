@@ -5,7 +5,7 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
@@ -183,6 +183,7 @@ function ModalSelect({
 
 export default function AdminBookings({ initialAction = null, onActionHandled, allowDelete = true }) {
   const { bookings, services, promos, users, payments, currentUser, createBooking, updateBooking, rescheduleBooking, deleteBooking } = useAdminData();
+  const exportInFlightRef = useRef(false);
   const serviceOptions = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
     [services]
@@ -230,6 +231,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   const [customerFieldError, setCustomerFieldError] = useState("");
   const [touchedFields, setTouchedFields] = useState({});
   const [formError, setFormError] = useState("");
+  const [exportState, setExportState] = useState({ status: "idle", message: "" });
   const [toast, setToast] = useState(null);
   const todayKey = getTodayKey();
   
@@ -258,7 +260,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     return Boolean(
       isBookingDownPaymentSatisfied(booking, bookingPayment) &&
       canPerformAction(currentUser, ACTION_KEYS.bookingUpdateStatus) &&
-      (currentUserRole === "admin" || currentUserRole === "general manager")
+      (currentUserRole === "admin" || currentUserRole === "general manager" || currentUserRole === "sales associate")
     );
   }, [currentUser, currentUserRole, payments]);
   const canUseCancelledRescheduleWorkflow = Boolean(selectedBooking && canRescheduleCancelledBooking(selectedBooking));
@@ -496,13 +498,24 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     setIsDeleteConfirmOpen(true);
   };
 
-  const exportPdf = () =>
-    downloadAuthenticatedFile(buildReportDownloadPath("bookings", "pdf"), "autoflow-bookings-report.pdf")
-      .catch((error) => window.alert(error.message || "Could not download report."));
+  const exportPdf = async () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportState({ status: "loading", message: "" });
+    try {
+      await downloadAuthenticatedFile(buildReportDownloadPath("bookings", "pdf"), "autoflow-bookings-report.pdf");
+      setExportState({ status: "success", message: "Bookings report export started." });
+    } catch (error) {
+      setExportState({ status: "error", message: error.message || "Could not download report." });
+    } finally {
+      exportInFlightRef.current = false;
+    }
+  };
 
   return (
     <div className="bookingsWrap">
-      <div className="bookingsRow"><div className="searchGroup"><div className="searchBox"><img src={icoSearch} alt="" className="searchIcon" /><input className="searchInput" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search Bookings..." /></div><button className="filterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img src={icoFilter} alt="" className="filterIcon" /></button></div><div className="actionBtns"><button className="btn btnDark" type="button" onClick={exportPdf}>Export as PDF</button><button className="btn btnGold" type="button" onClick={openAddModal}>Add New Booking</button></div></div>
+      <div className="bookingsRow"><div className="searchGroup"><div className="searchBox"><img src={icoSearch} alt="" className="searchIcon" /><input className="searchInput" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search Bookings..." /></div><button className="filterBtn" type="button" onClick={() => setIsFilterOpen(true)}><img src={icoFilter} alt="" className="filterIcon" /></button></div><div className="actionBtns"><button className="btn btnDark" type="button" onClick={exportPdf} disabled={exportState.status === "loading"}>{exportState.status === "loading" ? "Exporting..." : "Export as PDF"}</button><button className="btn btnGold" type="button" onClick={openAddModal}>Add New Booking</button></div></div>
+      {exportState.message ? <div className="bookSlotHint" role={exportState.status === "error" ? "alert" : "status"}>{exportState.message}</div> : null}
 
       <div className="tableCard"><table className="tbl"><thead className="tableHead"><tr><th>Booking ID</th><th>Booking Date</th><th>Customer</th><th>Vehicle Model</th><th>Plate Number</th><th>Service</th><th>Assigned To</th><th className="colActions">Actions</th></tr></thead><tbody>{pageRows.length === 0 ? <tr><td colSpan={8} style={{ padding: 16, color: "var(--muted)", fontWeight: 900 }}>No bookings found.</td></tr> : pageRows.map((b) => {
         const canRescheduleRow = canRescheduleCancelledBooking(b);
