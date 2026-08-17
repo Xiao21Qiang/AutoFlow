@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -433,6 +433,8 @@ function AnalyticsAiCard({ title, type, buttonLabel, state, onGenerate }) {
 export default function AdminAnalytics() {
   const { payments = [], bookings = [], reviews = [], generateAnalyticsInterpretation } = useAdminData();
   const today = useMemo(() => new Date(), []);
+  const aiRequestInFlightRef = useRef({ descriptive: false, predictive: false });
+  const exportInFlightRef = useRef(false);
   const availableYears = useMemo(() => {
     const years = new Set([today.getFullYear()]);
     payments.forEach((payment) => {
@@ -456,6 +458,7 @@ export default function AdminAnalytics() {
   });
   const [descriptiveAiState, setDescriptiveAiState] = useState(createAiState);
   const [predictiveAiState, setPredictiveAiState] = useState(createAiState);
+  const [exportState, setExportState] = useState({ status: "idle", message: "" });
 
   const verifiedRevenueEvents = useMemo(
     () => payments.flatMap((payment) => getVerifiedRevenueEventsForPayment(payment)),
@@ -565,6 +568,8 @@ export default function AdminAnalytics() {
 
   const generateAnalytics = async (analysisType) => {
     const setState = analysisType === "predictive" ? setPredictiveAiState : setDescriptiveAiState;
+    if (aiRequestInFlightRef.current[analysisType]) return;
+    aiRequestInFlightRef.current[analysisType] = true;
     setState({ ...createAiState(), status: "loading" });
 
     try {
@@ -606,22 +611,39 @@ export default function AdminAnalytics() {
         status: "error",
         message: error.message || "Unable to generate analysis right now.",
       });
+    } finally {
+      aiRequestInFlightRef.current[analysisType] = false;
     }
   };
 
-  const exportPdf = () =>
-    downloadAuthenticatedFile(buildReportDownloadPath("analytics", "pdf"), "autoflow-analytics-report.pdf")
-      .catch((error) => window.alert(error.message || "Could not download report."));
+  const exportPdf = async () => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportState({ status: "loading", message: "" });
+    try {
+      await downloadAuthenticatedFile(buildReportDownloadPath("analytics", "pdf"), "autoflow-analytics-report.pdf");
+      setExportState({ status: "success", message: "Analytics report export started." });
+    } catch (error) {
+      setExportState({ status: "error", message: error.message || "Could not download report." });
+    } finally {
+      exportInFlightRef.current = false;
+    }
+  };
 
   const maxRatingCount = Math.max(...ratingDistribution.map((item) => item.count), 1);
 
   return (
     <div className="anaWrap">
       <div className="anaTopRow">
-        <button className="anaExportBtn" type="button" onClick={exportPdf}>
-          Export as PDF
+        <button className="anaExportBtn" type="button" onClick={exportPdf} disabled={exportState.status === "loading"}>
+          {exportState.status === "loading" ? "Exporting..." : "Export as PDF"}
         </button>
       </div>
+      {exportState.message && (
+        <div className={`anaAiStatus anaAiStatus-${exportState.status}`} role={exportState.status === "error" ? "alert" : "status"}>
+          {exportState.message}
+        </div>
+      )}
 
       <div className="anaDashboardGrid">
         <section className="anaCard anaSalesCard">
