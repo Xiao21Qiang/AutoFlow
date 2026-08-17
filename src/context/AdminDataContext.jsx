@@ -593,7 +593,7 @@ export function AdminDataProvider({ children, session }) {
       last: updatedUser.last || payload.last || currentUser.last,
       phone: updatedUser.phone || payload.phone || currentUser.phone,
       userType: updatedUser.userType || currentUser.userType || session?.userType || normalizeUserType(currentUser.userType, currentUser.role),
-      role: updatedUser.role || payload.role || currentUser.role || session?.role || "New",
+      role: updatedUser.role || currentUser.role || session?.role || "New",
       cars: Array.isArray(updatedUser.cars) ? updatedUser.cars : Array.isArray(payload.cars) ? payload.cars : Array.isArray(currentUser.cars) ? currentUser.cars : [],
     };
     if (!result?.token) {

@@ -476,6 +476,72 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
       role: "Owner",
     }));
   });
+
+  test("profile update local fallback ignores caller-supplied protected role fields", async () => {
+    const legacyAdmin = {
+      id: "USR-ADMIN",
+      email: "admin@example.com",
+      name: "Admin One",
+      first: "Admin",
+      last: "One",
+      phone: "09111111111",
+      userType: "Admin",
+      role: "Owner",
+      status: "active",
+    };
+    await renderAndResolveInitial(buildPayload({ users: [legacyAdmin] }));
+
+    const updatedAdmin = {
+      ...legacyAdmin,
+      first: "Updated",
+      name: "Updated One",
+    };
+    apiRequest.mockImplementation((path) => {
+      if (path === "/api/admin/users/USR-ADMIN?refreshSession=1") {
+        return Promise.resolve({
+          first: "Updated",
+          last: "One",
+          email: "admin@example.com",
+          phone: "09111111111",
+        });
+      }
+      if (path === "/api/admin/bootstrap") {
+        return Promise.resolve(buildPayload({ users: [updatedAdmin] }));
+      }
+      return Promise.resolve({});
+    });
+
+    let returnedUser;
+    await act(async () => {
+      returnedUser = await context.updateProfile({
+        first: "Updated",
+        last: "One",
+        email: "admin@example.com",
+        phone: "09111111111",
+        role: "Admin",
+        userType: "Admin",
+        status: "active",
+      });
+    });
+
+    const submittedBody = JSON.parse(apiRequest.mock.calls[0][1].body);
+    expect(submittedBody).toEqual({
+      first: "Updated",
+      last: "One",
+      email: "admin@example.com",
+      phone: "09111111111",
+      auditUser: "admin@example.com",
+    });
+    expect(returnedUser).toEqual(expect.objectContaining({
+      first: "Updated",
+      role: "Owner",
+      userType: "Admin",
+    }));
+    expect(JSON.parse(localStorage.getItem("user"))).toEqual(expect.objectContaining({
+      role: "Owner",
+      userType: "Admin",
+    }));
+  });
 });
 
 describe("security validation refresh behavior", () => {

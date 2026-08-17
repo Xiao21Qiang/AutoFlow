@@ -2,6 +2,40 @@ import "../../styles/css/staff/staffProfileStyle.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 
+const PROFILE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PROFILE_NAME_REGEX = /^[\p{L}\s'.-]+$/u;
+
+function validateProfileForm(form) {
+  const payload = {
+    first: String(form.first || "").trim().replace(/\s+/g, " "),
+    last: String(form.last || "").trim().replace(/\s+/g, " "),
+    email: String(form.email || "").trim().toLowerCase(),
+    phone: String(form.phone || "").trim().replace(/\D/g, "").slice(0, 11),
+  };
+  const errors = {};
+
+  if (!payload.first) errors.first = "First name is required.";
+  else if (!PROFILE_NAME_REGEX.test(payload.first)) errors.first = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  if (!payload.last) errors.last = "Last name is required.";
+  else if (!PROFILE_NAME_REGEX.test(payload.last)) errors.last = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  if (!payload.email) errors.email = "Email is required.";
+  else if (!PROFILE_EMAIL_REGEX.test(payload.email)) errors.email = "Please enter a valid email address.";
+  if (!payload.phone) errors.phone = "Contact number is required.";
+  else if (!/^09\d{9}$/.test(payload.phone)) errors.phone = "Contact number must be 11 digits and start with 09.";
+
+  return { payload, errors, isValid: Object.keys(errors).length === 0 };
+}
+
+function getProfilePasswordError(password) {
+  const value = String(password || "");
+  if (!value) return "Please enter a new password.";
+  if (value.length < 8) return "Password must be at least 8 characters.";
+  if (!/[A-Z]/.test(value)) return "Password must include at least 1 uppercase letter.";
+  if (!/[a-z]/.test(value)) return "Password must include at least 1 lowercase letter.";
+  if (!/\d/.test(value)) return "Password must include at least 1 number.";
+  return "";
+}
+
 export default function StaffProfile({ session }) {
   const { currentUser, updateProfile, requestPasswordChangeOtp, verifyPasswordChangeOtp, resetPasswordWithOtp } = useAdminData();
   const initial = useMemo(
@@ -27,8 +61,12 @@ export default function StaffProfile({ session }) {
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [passError, setPassError] = useState("");
+  const [profileErrors, setProfileErrors] = useState({});
+  const [profileSaveError, setProfileSaveError] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
   const otpRefs = useRef([]);
   const timerRef = useRef(null);
+  const profileSavingRef = useRef(false);
 
   useEffect(() => {
     setSaved(initial);
@@ -65,11 +103,16 @@ export default function StaffProfile({ session }) {
     setNewPass("");
     setConfirmPass("");
     setPassError("");
+    setProfileErrors({});
+    setProfileSaveError("");
+    setProfileSaving(false);
+    profileSavingRef.current = false;
     setAnimating(true);
     setModalOpen(true);
   };
 
-  const closeModal = () => {
+  const closeModal = ({ force = false } = {}) => {
+    if (profileSavingRef.current && !force) return;
     clearInterval(timerRef.current);
     setAnimating(false);
     setTimeout(() => setModalOpen(false), 180);
@@ -142,32 +185,16 @@ export default function StaffProfile({ session }) {
   };
 
   const handleSaveAll = async () => {
-    const payload = {
-      first: form.first.trim(),
-      last: form.last.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-    };
+    if (profileSavingRef.current) return;
 
-    if (!payload.first || !payload.last) {
-      window.alert("Please enter your first and last name.");
-      return;
-    }
-
-    if (!payload.email.includes("@")) {
-      window.alert("Please enter a valid email address.");
-      return;
-    }
+    const validation = validateProfileForm(form);
+    setProfileErrors(validation.errors);
+    setProfileSaveError("");
+    if (!validation.isValid) return;
 
     if (pwStep === "newpass") {
-      if (!newPass) {
-        setPassError("Please enter a new password.");
-        return;
-      }
-      if (newPass.length < 8) {
-        setPassError("Password must be at least 8 characters.");
-        return;
-      }
+      const passwordError = getProfilePasswordError(newPass);
+      if (passwordError) { setPassError(passwordError); return; }
       if (newPass !== confirmPass) {
         setPassError("Passwords do not match.");
         return;
@@ -176,15 +203,62 @@ export default function StaffProfile({ session }) {
         setPassError("Please verify the OTP again.");
         return;
       }
-      await resetPasswordWithOtp({ verificationId: otpSession.verificationId, password: newPass });
     }
 
-    await updateProfile(payload);
-    setSaved(payload);
-    closeModal();
+    const savedComparable = {
+      first: String(saved.first || "").trim().replace(/\s+/g, " "),
+      last: String(saved.last || "").trim().replace(/\s+/g, " "),
+      email: String(saved.email || "").trim().toLowerCase(),
+      phone: String(saved.phone || "").trim().replace(/\D/g, "").slice(0, 11),
+    };
+    const hasProfileChanges = ["first", "last", "email", "phone"].some((key) => validation.payload[key] !== savedComparable[key]);
+    const hasPasswordChange = pwStep === "newpass";
+    if (!hasProfileChanges && !hasPasswordChange) {
+      closeModal({ force: true });
+      return;
+    }
+
+    profileSavingRef.current = true;
+    setProfileSaving(true);
+    try {
+      if (hasPasswordChange) {
+        await resetPasswordWithOtp({ verificationId: otpSession.verificationId, password: newPass });
+      }
+      if (hasProfileChanges) {
+        const updatedUser = await updateProfile(validation.payload);
+        setSaved({
+          first: updatedUser?.first || validation.payload.first,
+          last: updatedUser?.last || validation.payload.last,
+          email: updatedUser?.email || validation.payload.email,
+          phone: updatedUser?.phone || validation.payload.phone,
+        });
+      }
+      setNewPass("");
+      setConfirmPass("");
+      setPassError("");
+      setOtpSession({ verificationId: "", destination: "" });
+      setOtpDigits(["", "", "", "", "", ""]);
+      closeModal({ force: true });
+    } catch (error) {
+      setProfileSaveError(error.message || "Could not save account changes.");
+    } finally {
+      profileSavingRef.current = false;
+      setProfileSaving(false);
+    }
   };
 
-  const canSave = pwStep === "idle" || pwStep === "newpass";
+  const updateProfileField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setProfileSaveError("");
+    setProfileErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const canSave = (pwStep === "idle" || pwStep === "newpass") && !profileSaving;
 
   return (
     <>
@@ -240,7 +314,7 @@ export default function StaffProfile({ session }) {
                 <p className="stM-title">Edit Account</p>
                 <p className="stM-sub">Update your personal information</p>
               </div>
-              <button className="stM-x" onClick={closeModal}>
+              <button className="stM-x" type="button" onClick={closeModal} disabled={profileSaving}>
                 ✕
               </button>
             </div>
@@ -251,19 +325,25 @@ export default function StaffProfile({ session }) {
                   <div className="stM-label">First Name</div>
                   <input
                     className="stM-input"
+                    aria-label="Edit first name"
+                    aria-invalid={profileErrors.first ? "true" : undefined}
                     value={form.first}
-                    onChange={(e) => setForm((prev) => ({ ...prev, first: e.target.value }))}
+                    onChange={(e) => updateProfileField("first", e.target.value)}
                     placeholder="First name"
                   />
+                  {profileErrors.first && <div className="stErr-msg">{profileErrors.first}</div>}
                 </div>
                 <div className="stM-field">
                   <div className="stM-label">Last Name</div>
                   <input
                     className="stM-input"
+                    aria-label="Edit last name"
+                    aria-invalid={profileErrors.last ? "true" : undefined}
                     value={form.last}
-                    onChange={(e) => setForm((prev) => ({ ...prev, last: e.target.value }))}
+                    onChange={(e) => updateProfileField("last", e.target.value)}
                     placeholder="Last name"
                   />
+                  {profileErrors.last && <div className="stErr-msg">{profileErrors.last}</div>}
                 </div>
               </div>
 
@@ -271,24 +351,30 @@ export default function StaffProfile({ session }) {
                 <div className="stM-label">Email</div>
                 <input
                   className="stM-input"
+                  aria-label="Edit email"
+                  aria-invalid={profileErrors.email ? "true" : undefined}
                   type="email"
                   value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  onChange={(e) => updateProfileField("email", e.target.value)}
                   placeholder="Enter your email"
                 />
+                {profileErrors.email && <div className="stErr-msg">{profileErrors.email}</div>}
               </div>
 
               <div className="stM-field">
                 <div className="stM-label">Phone</div>
                 <input
                   className="stM-input"
+                  aria-label="Edit phone"
+                  aria-invalid={profileErrors.phone ? "true" : undefined}
                   type="tel"
                   value={form.phone}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }))
+                    updateProfileField("phone", e.target.value.replace(/\D/g, "").slice(0, 11))
                   }
                   placeholder="09xx xxx xxxx"
                 />
+                {profileErrors.phone && <div className="stErr-msg">{profileErrors.phone}</div>}
               </div>
 
               <div className="stM-divider">
@@ -434,14 +520,15 @@ export default function StaffProfile({ session }) {
                   </>
                 )}
               </div>
+              {profileSaveError && <div className="stErr-msg">{profileSaveError}</div>}
             </div>
 
             <div className="stM-foot">
-              <button className="stM-cancel" type="button" onClick={closeModal}>
+              <button className="stM-cancel" type="button" onClick={closeModal} disabled={profileSaving}>
                 Cancel
               </button>
               <button className="stM-save" type="button" disabled={!canSave} onClick={handleSaveAll}>
-                Save Changes
+                {profileSaving ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>

@@ -39,6 +39,16 @@ const staffUser = {
   password: "StaffPass1!",
 };
 
+const salesAssociateUser = {
+  id: "SA-1",
+  email: "sales@example.com",
+  name: "Sales Associate",
+  userType: "Staff",
+  role: "Sales Associate",
+  status: "active",
+  password: "SalesPass1!",
+};
+
 const customerUser = {
   id: "CUS-1",
   email: "customer@example.com",
@@ -109,7 +119,7 @@ async function request(path, { method = "PATCH", token = auth(), body = {} } = {
 }
 
 function resetData() {
-  users = [clone(adminUser), clone(staffUser), clone(customerUser)];
+  users = [clone(adminUser), clone(staffUser), clone(salesAssociateUser), clone(customerUser)];
   auditLogs = [];
   securitySetting = {
     id: "security-settings",
@@ -253,6 +263,7 @@ describe("Required down payment settings route", () => {
 
   test.each([
     ["Staff", staffUser],
+    ["Sales Associate", salesAssociateUser],
     ["Customer", customerUser],
   ])("unauthorized %s cannot update required down payment", async (_label, actor) => {
     const response = await patchDownPayment({
@@ -263,6 +274,27 @@ describe("Required down payment settings route", () => {
     expect(response.status).toBe(403);
     expect(response.body.message).toBe("Admin access required.");
     expect(securitySetting.requiredDownPaymentAmount).toBe(500);
+    expect(securitySetting.save).not.toHaveBeenCalled();
+    expect(successAuditLogs()).toHaveLength(0);
+  });
+
+  test.each([
+    ["read Security Controls", "GET", "/api/admin/security-controls", {}],
+    ["update Security Controls", "PUT", "/api/admin/security-controls", {
+      email: "sales@example.com",
+      currentPassword: "SalesPass1!",
+      adminSpecialPin: "123456",
+      staffSpecialPassword: "StaffSpecial2!",
+    }],
+  ])("Sales Associate cannot %s directly", async (_label, method, path, body) => {
+    const response = await request(path, {
+      method,
+      token: auth(salesAssociateUser),
+      body,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin access required.");
     expect(securitySetting.save).not.toHaveBeenCalled();
     expect(successAuditLogs()).toHaveLength(0);
   });

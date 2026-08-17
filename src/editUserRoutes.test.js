@@ -81,6 +81,19 @@ const otherStaffUser = {
   password: "other-hash",
 };
 
+const salesAssociateUser = {
+  id: "SA-1",
+  email: "sales@example.com",
+  name: "Sales Associate",
+  first: "Sales",
+  last: "Associate",
+  phone: "09170000001",
+  userType: "Staff",
+  role: "Sales Associate",
+  status: "active",
+  password: "sales-hash",
+};
+
 const customerUser = {
   id: "CUS-1",
   email: "customer@example.com",
@@ -767,6 +780,141 @@ describe("Edit User route validation", () => {
 
     const passwordResponse = await putUser("STF-1", { ...staffUser, password: "NewPass1!" }, staffUser);
     expect(passwordResponse.status).toBe(403);
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  test("Sales Associate can update own allowed profile fields and refresh session without role drift", async () => {
+    resetData([salesAssociateUser]);
+    const response = await request("/api/admin/users/SA-1?refreshSession=1", {
+      token: auth(salesAssociateUser),
+      body: {
+        first: "  Sasha  ",
+        last: " Associate ",
+        email: "Sasha@Example.com",
+        phone: "0917-999-8888",
+        auditUser: "spoofed@example.com",
+        actor: "Admin",
+        actorId: "ADM-1",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.token).toEqual(expect.any(String));
+    expect(response.body.user).toEqual(expect.objectContaining({
+      id: "SA-1",
+      first: "Sasha",
+      last: "Associate",
+      name: "Sasha Associate",
+      email: "sasha@example.com",
+      phone: "09179998888",
+      userType: "staff",
+      role: "sales associate",
+    }));
+    expect(users.find((user) => user.id === "SA-1")).toEqual(expect.objectContaining({
+      first: "Sasha",
+      last: "Associate",
+      email: "sasha@example.com",
+      phone: "09179998888",
+      userType: "Staff",
+      role: "Sales Associate",
+      status: "active",
+    }));
+    expect(__testModels.User.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(__testModels.User.findOneAndUpdate.mock.calls[0][1]).toEqual({
+      first: "Sasha",
+      last: "Associate",
+      name: "Sasha Associate",
+      email: "sasha@example.com",
+      phone: "09179998888",
+    });
+    expect(successAuditLogs()).toHaveLength(1);
+    expect(successAuditLogs()[0]).toEqual(expect.objectContaining({
+      userId: "sales@example.com",
+      targetId: "SA-1",
+      meta: expect.objectContaining({
+        actorId: "SA-1",
+        actorRole: "sales associate",
+        result: "allowed",
+      }),
+    }));
+  });
+
+  test.each([
+    ["blank first name", { first: "   " }, 400, "First name is required."],
+    ["whitespace-only last name", { last: "   " }, 400, "Last name is required."],
+    ["malformed email", { email: "sales@" }, 400, "Please enter a valid email address."],
+    ["duplicate email", { email: "other.staff@example.com" }, 409, "That email is already registered."],
+    ["duplicate phone", { phone: "09999999999" }, 409, "That contact number is already registered."],
+  ])("Sales Associate profile rejects %s before mutation", async (_label, override, status, message) => {
+    resetData([salesAssociateUser]);
+    const response = await request("/api/admin/users/SA-1?refreshSession=1", {
+      token: auth(salesAssociateUser),
+      body: {
+        first: "Sales",
+        last: "Associate",
+        email: "sales@example.com",
+        phone: "09170000001",
+        ...override,
+      },
+    });
+
+    expect(response.status).toBe(status);
+    expect(response.body.message).toBe(message);
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(successAuditLogs()).toHaveLength(0);
+    expect(users.find((user) => user.id === "SA-1")).toEqual(expect.objectContaining({
+      first: "Sales",
+      last: "Associate",
+      role: "Sales Associate",
+      status: "active",
+    }));
+  });
+
+  test.each([
+    ["role escalation", { role: "Admin", userType: "Admin", employeeRole: "General Manager" }, "Profile updates cannot change protected account fields."],
+    ["status change", { status: "deactivated", isActive: false }, "Profile updates cannot change protected account fields."],
+    ["password injection", { password: "NewPass1!" }, "Profile updates cannot change protected account fields."],
+  ])("Sales Associate profile rejects crafted %s payload", async (_label, protectedPayload, message) => {
+    resetData([salesAssociateUser]);
+    const response = await request("/api/admin/users/SA-1?refreshSession=1", {
+      token: auth(salesAssociateUser),
+      body: {
+        first: "Sasha",
+        last: "Associate",
+        email: "sasha@example.com",
+        phone: "09179998888",
+        ...protectedPayload,
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe(message);
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(users.find((user) => user.id === "SA-1")).toEqual(expect.objectContaining({
+      role: "Sales Associate",
+      userType: "Staff",
+      status: "active",
+      password: "sales-hash",
+    }));
+  });
+
+  test.each([
+    ["another Staff account", "STF-2"],
+    ["Admin account", "ADM-1"],
+  ])("Sales Associate cannot update %s by changing the route id", async (_label, targetId) => {
+    resetData([salesAssociateUser]);
+    const response = await request(`/api/admin/users/${targetId}?refreshSession=1`, {
+      token: auth(salesAssociateUser),
+      body: {
+        first: "Sasha",
+        last: "Associate",
+        email: "sasha@example.com",
+        phone: "09179998888",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You can only update your own profile.");
     expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
