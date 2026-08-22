@@ -2189,6 +2189,7 @@ const ACTION_KEYS = {
   paymentVerify: "payment.verify",
   paymentOverride: "payment.override",
   stockView: "stock.view",
+  stockCreate: "stock.create",
   stockManage: "stock.manage",
   engagementView: "engagement.view",
   engagementManage: "engagement.manage",
@@ -2246,7 +2247,6 @@ const ROLE_MODULES = {
     MODULE_KEYS.dashboard,
     MODULE_KEYS.stockMonitoring,
     MODULE_KEYS.serviceTracking,
-    MODULE_KEYS.bookings,
     MODULE_KEYS.auditLogs,
     MODULE_KEYS.profile,
   ],
@@ -2287,6 +2287,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.paymentView,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.stockView,
+    ACTION_KEYS.stockCreate,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.engagementView,
     ACTION_KEYS.commissionViewAll,
@@ -2312,7 +2313,6 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.engagementView,
   ],
   "inventory clerk": [
-    ACTION_KEYS.bookingView,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
@@ -2484,8 +2484,9 @@ function canViewBooking(user, booking, users = []) {
       (bookingCustomerId && actorId && bookingCustomerId === actorId)
     );
   }
-  if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
   const role = getEffectiveRole(user);
+  if (role === "inventory clerk" && canPerformAction(user, ACTION_KEYS.trackingView)) return true;
+  if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
   if (role === "junior detailer" || role === "senior detailer") return canViewDetailerTask(user, booking, users);
   return true;
 }
@@ -6234,13 +6235,13 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       auditLogs: scopedAuditLogs,
       archivedAuditLogs: [],
       reviews: canSeeEngagement || staffRole === "marketing" ? data.reviews : [],
-      promos: canSeeEngagement ? data.promos : data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
+      promos: canSeeEngagement ? data.promos : [],
       quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
       commissions: scopedCommissions,
       financialReport: canSeeFinancials ? data.financialReport : { totals: {}, payments: [], expenses: [], commissions: [] },
       customerRewards: [],
-      rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
+      rewards: canSeeEngagement ? data.rewards : [],
       alerts: canSeeStock ? data.alerts : [],
       settings: scopedSettings,
     };
@@ -7540,20 +7541,26 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       req.body = Object.fromEntries(
         Object.entries(req.body || {}).filter(([key]) => detailerAllowedFields.has(key))
       );
-    } else if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)) {
-      denyForbidden(res);
-      return;
-    } else if (staffRoleForBookingUpdate === "sales manager" || staffRoleForBookingUpdate === "sales associate") {
+    } else if (["sales manager", "sales associate", "inventory clerk"].includes(staffRoleForBookingUpdate)) {
       const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
       if (trackingMutationFields.length) {
         res.status(403).json({
           message: staffRoleForBookingUpdate === "sales associate"
             ? "Sales Associate does not have access to Service Tracking."
-            : "Sales Manager has view-only access to Service Tracking.",
+            : `${staffRoleForBookingUpdate === "inventory clerk" ? "Inventory Clerk" : "Sales Manager"} has view-only access to Service Tracking.`,
           fields: trackingMutationFields,
         });
         return;
       }
+    }
+
+    if (
+      staffRoleForBookingUpdate !== "junior detailer" &&
+      staffRoleForBookingUpdate !== "senior detailer" &&
+      !canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)
+    ) {
+      denyForbidden(res);
+      return;
     }
 
     if (isCancelledStatus(existingBooking.status)) {
@@ -8399,9 +8406,10 @@ function validateStockQuantityLimit({ currentStock, maxStock, reorderLevel, qtyT
   return stockDomain.validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd });
 }
 
-app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockManage), async (req, res, next) => {
+app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockCreate), async (req, res, next) => {
   try {
     validateStockCreatePayload(req.body);
+    const actor = getAuthenticatedAuditUser(req);
     const item = await StockMonitoringItem.create({
       id: createId("INV"),
       ...stockDomain.normalizeStockPayload(req.body),
@@ -8418,11 +8426,11 @@ app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireA
         note: `Added ${initialStock} item(s) at P${unitCost.toLocaleString("en-PH")} per unit.`,
         category: "Supplies",
         amount: initialStock * unitCost,
-        paidBy: req.body.auditUser || "Admin",
+        paidBy: actor,
       });
     }
 
-    await recordAudit(req.body.auditUser, "Created stock monitoring item", item.id, { name: item.name });
+    await recordSafeAudit(req, "Created stock monitoring item", item.id, { name: item.name });
     res.status(201).json(item);
   } catch (error) {
     next(error);
@@ -8449,7 +8457,7 @@ app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), requi
     const nextPayload = stockDomain.normalizeStockPayload(req.body, existingItem);
 
     const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, nextPayload, { new: true });
-    await recordAudit(req.body.auditUser, "Updated stock monitoring item", req.params.id);
+    await recordSafeAudit(req, "Updated stock monitoring item", req.params.id);
     res.json(item);
   } catch (error) {
     next(error);
@@ -8506,11 +8514,11 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
         note: req.body.notes || "",
         category: "Supplies",
         amount: qtyToAdd * costPerUnit,
-        paidBy: req.body.restockedBy || "Admin",
+        paidBy: getAuthenticatedAuditUser(req),
       });
     }
 
-    await recordAudit(req.body.auditUser, "Restocked stock monitoring item", req.params.id, { qtyToAdd });
+    await recordSafeAudit(req, "Restocked stock monitoring item", req.params.id, { qtyToAdd });
     res.json(item);
   } catch (error) {
     next(error);
@@ -8529,7 +8537,7 @@ app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), as
       res.status(404).json({ message: "Stock monitoring item not found." });
       return;
     }
-    await recordAudit(req.body?.auditUser || req.query.auditUser, "Deleted stock monitoring item", req.params.id);
+    await recordSafeAudit(req, "Deleted stock monitoring item", req.params.id);
     res.status(204).end();
   } catch (error) {
     next(error);
@@ -10604,6 +10612,7 @@ module.exports = {
   buildTrackingIssueNoteAiInput,
   buildAnalyticsFallbackResponse,
   buildFinancialFallbackResponse,
+  canAccessModule,
   canPerformAction,
   canExportReport,
   canViewBooking,

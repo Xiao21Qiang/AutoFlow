@@ -57,6 +57,14 @@ const salesAssociate = {
   role: "Sales Associate",
 };
 
+const inventoryClerk = {
+  id: "STF-IC",
+  email: "inventory@example.com",
+  name: "Inventory Clerk",
+  userType: "Staff",
+  role: "Inventory Clerk",
+};
+
 const baseData = {
   bookings: [
     {
@@ -428,6 +436,54 @@ describe("Sales Associate authorization foundation shell", () => {
     expect(screen.queryByRole("dialog", { name: "Service Tracking Details" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View Only" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
+  });
+});
+
+describe("Inventory Clerk authorization foundation shell", () => {
+  test("shows exactly the approved Inventory Clerk navigation modules and read-only Audit management", () => {
+    setContext({
+      currentUser: inventoryClerk,
+      stockMonitoring: [{ id: "STK-1", name: "Soap", category: "Cleaning", currentStock: 4, maxStock: 20, reorderLevel: 5, pricePerUnit: 30 }],
+      auditLogs: [{ id: "AUD-1", userId: "inventory@example.com", action: "Restocked stock monitoring item", ts: "2026-08-22T01:00:00.000Z" }],
+    });
+    renderStaffMain(inventoryClerk);
+
+    for (const label of [
+      "Dashboard",
+      "Audit Logs",
+      "Service Tracking",
+      "Stock Monitoring",
+      "Profile",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+
+    for (const label of [
+      "Analytics",
+      "Bookings",
+      "Services",
+      "Payment Tracking",
+      "Financial Tracker",
+      "Engagement",
+      "User Management",
+      "Detailer Management",
+      "My Work",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(screen.getByText("Stock Monitoring"));
+    expect(screen.queryByRole("button", { name: "Add New Item" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restock" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Audit Logs"));
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select All" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive Logs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 });
 

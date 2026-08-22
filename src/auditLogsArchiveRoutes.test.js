@@ -64,6 +64,7 @@ async function request(path, { token, method = "POST", body = {} } = {}) {
 describe("Audit log archive routes", () => {
   const originals = [];
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
+  const inventoryClerk = { id: "INV-CLERK", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
 
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
@@ -72,7 +73,7 @@ describe("Audit log archive routes", () => {
 
   beforeAll(() => {
     stub(__testModels.User, "findOne", (query = {}) => {
-      const user = admin.id === query.id || admin.email === query.email ? admin : null;
+      const user = [admin, inventoryClerk].find((candidate) => candidate.id === query.id || candidate.email === query.email) || null;
       return user ? doc(user) : emptyDoc();
     });
     stub(__testModels.AuditLog, "updateMany", jest.fn());
@@ -288,6 +289,23 @@ describe("Audit log archive routes", () => {
       restoredAuditLogIds: ["AUD-A"],
       restoredCount: 1,
     }));
+  });
+
+  test("Inventory Clerk cannot archive or restore audit logs with forged Admin fields", async () => {
+    const archiveResponse = await request("/api/admin/audit-logs/archive", {
+      token: auth(inventoryClerk),
+      body: { ids: ["AUD-1"], role: "Admin", userType: "admin", employeeRole: "General Manager", scope: "admin", auditUser: "Admin" },
+    });
+    const restoreResponse = await request("/api/admin/audit-logs/unarchive", {
+      token: auth(inventoryClerk),
+      body: { ids: ["AUD-1"], role: "Admin", userType: "admin", employeeRole: "General Manager", scope: "admin", auditUser: "Admin" },
+    });
+
+    expect(archiveResponse.status).toBe(403);
+    expect(archiveResponse.body.message).toBe("Admin access required.");
+    expect(restoreResponse.status).toBe(403);
+    expect(restoreResponse.body.message).toBe("Admin access required.");
+    expect(__testModels.AuditLog.updateMany).not.toHaveBeenCalled();
   });
 
   test.each([

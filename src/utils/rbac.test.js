@@ -15,6 +15,7 @@ const admin = { userType: "Admin", role: "Admin" };
 const generalManager = { userType: "Staff", role: "General Manager" };
 const salesManager = { userType: "Staff", role: "Sales Manager" };
 const salesAssociate = { userType: "Staff", role: "Sales Associate" };
+const inventoryClerk = { userType: "Staff", role: "Inventory Clerk" };
 const seniorDetailer = { userType: "Staff", role: "Senior Detailer" };
 const juniorDetailer = { userType: "Staff", role: "Junior Detailer" };
 const marketing = { userType: "Staff", role: "Marketing" };
@@ -52,8 +53,68 @@ describe("Phase 1 permission matrix", () => {
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionViewAll)).toBe(true);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionMarkPaid)).toBe(false);
     expect(canPerformAction(generalManager, ACTION_KEYS.commissionVoid)).toBe(false);
+    expect(canPerformAction(generalManager, ACTION_KEYS.stockCreate)).toBe(true);
     expect(canAccessModule(generalManager, MODULE_KEYS.userManagement)).toBe(false);
     expect(canAccessModule(generalManager, MODULE_KEYS.detailerManagement)).toBe(false);
+  });
+
+  test("limits Inventory Clerk to the exact five approved modules", () => {
+    expect(normalizeRole({ role: "  Inventory   Clerk  " })).toBe("inventory clerk");
+    expect(normalizeUserType(inventoryClerk)).toBe("staff");
+    expect(getEffectiveRole(inventoryClerk)).toBe("inventory clerk");
+    expect(getAllowedModules(inventoryClerk)).toEqual([
+      MODULE_KEYS.dashboard,
+      MODULE_KEYS.stockMonitoring,
+      MODULE_KEYS.serviceTracking,
+      MODULE_KEYS.auditLogs,
+      MODULE_KEYS.profile,
+    ]);
+
+    for (const moduleKey of [
+      MODULE_KEYS.analytics,
+      MODULE_KEYS.bookings,
+      MODULE_KEYS.services,
+      MODULE_KEYS.paymentTracking,
+      MODULE_KEYS.financialTracker,
+      MODULE_KEYS.engagement,
+      MODULE_KEYS.userManagement,
+      MODULE_KEYS.detailerManagement,
+      MODULE_KEYS.myWork,
+      MODULE_KEYS.settings,
+    ]) {
+      expect(canAccessModule(inventoryClerk, moduleKey)).toBe(false);
+    }
+  });
+
+  test("gives Inventory Clerk audit read, tracking view, and stock manage without stock create or booking access", () => {
+    for (const actionKey of [
+      ACTION_KEYS.trackingView,
+      ACTION_KEYS.stockView,
+      ACTION_KEYS.stockManage,
+      ACTION_KEYS.auditViewOperational,
+    ]) {
+      expect(canPerformAction(inventoryClerk, actionKey)).toBe(true);
+    }
+
+    for (const actionKey of [
+      ACTION_KEYS.bookingView,
+      ACTION_KEYS.bookingCreate,
+      ACTION_KEYS.bookingUpdate,
+      ACTION_KEYS.bookingUpdateStatus,
+      ACTION_KEYS.stockCreate,
+      ACTION_KEYS.trackingUpdateIssueNotes,
+      ACTION_KEYS.trackingUpdateWarranty,
+      ACTION_KEYS.trackingComplete,
+      ACTION_KEYS.paymentView,
+      ACTION_KEYS.paymentVerify,
+      ACTION_KEYS.engagementView,
+      ACTION_KEYS.engagementManage,
+      ACTION_KEYS.usersManageStaff,
+      ACTION_KEYS.settingsManageSecurity,
+      ACTION_KEYS.settingsManageDownPayment,
+    ]) {
+      expect(canPerformAction(inventoryClerk, actionKey)).toBe(false);
+    }
   });
 
   test("preserves operational payment review only for authorized staff roles", () => {
@@ -137,6 +198,7 @@ describe("Phase 1 permission matrix", () => {
       ACTION_KEYS.settingsManageSecurity,
       ACTION_KEYS.settingsManageDownPayment,
       ACTION_KEYS.stockView,
+      ACTION_KEYS.stockCreate,
       ACTION_KEYS.commissionViewAll,
       ACTION_KEYS.commissionMarkPaid,
     ]) {

@@ -139,6 +139,11 @@ describe("Phase 5 export helpers", () => {
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "analytics")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "financial")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "audit-logs")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "audit-logs")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "stock")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "bookings")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "tracking")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "analytics")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "General Manager" }, "reward-history")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "reward-history")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Marketing" }, "reward-history")).toBe(false);

@@ -18,7 +18,7 @@ const {
 const { buildFinancialReportDto, buildInvoiceDto } = require("../server/domain/invoices");
 const { getOutstandingBalance, getVerifiedPaidAmount } = require("../server/domain/payments");
 const { validateStockPayload } = require("../server/domain/stock");
-const { ACTION_KEYS, canPerformAction, filterBootstrapDataForRole } = require("../server/server");
+const { ACTION_KEYS, MODULE_KEYS, canAccessModule, canExportReport, canPerformAction, filterBootstrapDataForRole } = require("../server/server");
 
 describe("Phase 3 payment method and proof integrity", () => {
   test("normalizes every canonical supported payment method and safe legacy labels", () => {
@@ -205,5 +205,65 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.commissions).toEqual([]);
     expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
     expect(scoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
+  });
+
+  test("scopes Inventory Clerk to tracking support data, stock, and operational audit logs", () => {
+    const inventoryClerk = { id: "INV-CLERK", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk" };
+    const scoped = filterBootstrapDataForRole({
+      bookings: [{ id: "B-IC", assigned: "Senior One", customerEmail: "c@example.com" }],
+      services: [{ id: "SVC-1", name: "Coating" }],
+      stockMonitoring: [{ id: "STK-1", name: "Soap" }],
+      payments: [{ id: "PAY-IC", bookingId: "B-IC", customerEmail: "c@example.com" }],
+      users: [
+        inventoryClerk,
+        { id: "ADM", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" },
+        { id: "CUS", email: "c@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" },
+      ],
+      auditLogs: [
+        { id: "AUD-STOCK", userId: "admin@example.com", action: "Restocked stock monitoring item" },
+        { id: "AUD-BOOK", userId: "admin@example.com", action: "Updated booking" },
+      ],
+      archivedAuditLogs: [{ id: "AUD-ARCH", userId: "admin@example.com", action: "Archived audit logs" }],
+      reviews: [{ id: "REV-1" }],
+      promos: [{ id: "PRO-1", status: "active" }],
+      quoteRequests: [{ id: "QR-1" }],
+      expenses: [{ id: "EXP-1", amount: 500 }],
+      commissions: [{ id: "COM-1", worker: "Senior One", earned: 50 }],
+      rewards: [{ id: "RWD-1", active: true }],
+      customerRewards: [{ id: "CR-1" }],
+      alerts: [{ title: "Low stock" }],
+      financialReport: {
+        totals: { expenses: 500 },
+        payments: [{ id: "PAY-IC" }],
+        expenses: [{ id: "EXP-1" }],
+        commissions: [{ id: "COM-1" }],
+      },
+      settings: { requiredDownPaymentAmount: 300 },
+    }, inventoryClerk);
+
+    expect(canAccessModule(inventoryClerk, MODULE_KEYS.bookings)).toBe(false);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingView)).toBe(false);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.trackingView)).toBe(true);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockManage)).toBe(true);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockCreate)).toBe(false);
+    expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-IC"]);
+    expect(scoped.services).toEqual([]);
+    expect(scoped.stockMonitoring.map((item) => item.id)).toEqual(["STK-1"]);
+    expect(scoped.payments).toEqual([]);
+    expect(scoped.users.map((user) => user.email)).toEqual(["inventory@example.com"]);
+    expect(scoped.auditLogs.map((log) => log.id)).toEqual(["AUD-STOCK"]);
+    expect(scoped.archivedAuditLogs).toEqual([]);
+    expect(scoped.reviews).toEqual([]);
+    expect(scoped.promos).toEqual([]);
+    expect(scoped.quoteRequests).toEqual([]);
+    expect(scoped.expenses).toEqual([]);
+    expect(scoped.commissions).toEqual([]);
+    expect(scoped.rewards).toEqual([]);
+    expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
+    expect(canExportReport(inventoryClerk, "audit-logs")).toBe(true);
+    expect(canExportReport(inventoryClerk, "stock")).toBe(true);
+    expect(canExportReport(inventoryClerk, "bookings")).toBe(false);
+    expect(canExportReport(inventoryClerk, "tracking")).toBe(true);
+    expect(canExportReport(inventoryClerk, "analytics")).toBe(false);
   });
 });

@@ -70,6 +70,14 @@ describe("stock restock route unit cost validation", () => {
     role: "Admin",
     status: "active",
   };
+  const inventoryClerk = {
+    id: "INV-CLERK",
+    email: "inventory@example.com",
+    name: "Inventory Clerk",
+    userType: "Staff",
+    role: "Inventory Clerk",
+    status: "active",
+  };
   let item;
   let stockFindOneMock;
   let createdStockItems;
@@ -80,7 +88,10 @@ describe("stock restock route unit cost validation", () => {
   }
 
   beforeAll(() => {
-    stub(__testModels.User, "findOne", () => ({ lean: async () => admin }));
+    stub(__testModels.User, "findOne", (query = {}) => {
+      const user = [admin, inventoryClerk].find((candidate) => candidate.id === query.id || candidate.email === query.email) || admin;
+      return { lean: async () => user };
+    });
     stub(__testModels.AuditLog, "create", jest.fn(async (payload) => payload));
     stub(__testModels.Expense, "findOne", jest.fn(async () => null));
     stub(__testModels.Expense, "create", jest.fn(async (payload) => payload));
@@ -211,6 +222,32 @@ describe("stock restock route unit cost validation", () => {
       const response = await postStockItem(override);
       expect(response.status).toBe(400);
       expect(response.body.message).toBe(message);
+      expect(createdStockItems).toHaveLength(0);
+      expect(__testModels.StockMonitoringItem.create).not.toHaveBeenCalled();
+      expect(__testModels.Expense.create).not.toHaveBeenCalled();
+      expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
+    });
+
+    test("denies Inventory Clerk direct stock creation even with forged admin fields", async () => {
+      const response = await request("/api/admin/stock-monitoring", {
+        token: auth(inventoryClerk),
+        body: {
+          name: "Microfiber Towels",
+          category: "Cleaning",
+          currentStock: 10,
+          maxStock: 100,
+          reorderLevel: 20,
+          pricePerUnit: 30,
+          role: "Admin",
+          userType: "admin",
+          employeeRole: "General Manager",
+          scope: "admin",
+          auditUser: "Admin",
+        },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.body.message).toBe("You do not have permission to perform this action.");
       expect(createdStockItems).toHaveLength(0);
       expect(__testModels.StockMonitoringItem.create).not.toHaveBeenCalled();
       expect(__testModels.Expense.create).not.toHaveBeenCalled();

@@ -4,7 +4,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import ToastMessage from "../../components/common/ToastMessage";
-import { ACTION_KEYS } from "../../utils/rbac";
+import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
 import { getStockPercent as getSharedStockPercent, getStockState } from "../../utils/businessMetrics";
 import { getRestockFieldErrors, isRestockFormReady, parsePositiveFiniteNumber } from "../../utils/stockRestockValidation";
 
@@ -139,6 +139,7 @@ export default function StaffStockMonitoring() {
     () => stockMonitoring.find((item) => item.id === selectedItemId) || null,
     [stockMonitoring, selectedItemId]
   );
+  const canCreateStock = canPerformAction(currentUser, ACTION_KEYS.stockCreate);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -373,11 +374,13 @@ export default function StaffStockMonitoring() {
           </button>
         </div>
 
-        <div className="stInvActions">
-          <button className="stInvAddBtn" type="button" onClick={openAddModal}>
-            Add New Item
-          </button>
-        </div>
+        {canCreateStock ? (
+          <div className="stInvActions">
+            <button className="stInvAddBtn" type="button" onClick={openAddModal}>
+              Add New Item
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="stInvCard">
@@ -603,7 +606,7 @@ export default function StaffStockMonitoring() {
               </form>
             )}
 
-            {modal === "add" && (
+            {modal === "add" && canCreateStock && (
               <form
                 onSubmit={handleAddSubmit}
               >

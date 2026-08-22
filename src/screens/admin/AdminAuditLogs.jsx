@@ -50,6 +50,7 @@ export default function AdminAuditLogs() {
   const [isSelectingAll, setIsSelectingAll] = useState(false);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
   const canArchiveLogs = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
+  const canViewArchivedLogs = canArchiveLogs;
 
   const getLogSelectionKey = (log) => String(log?.id || log?._id || "").trim();
   const sourceLogIds = useMemo(
@@ -145,35 +146,37 @@ export default function AdminAuditLogs() {
           <input className="auditSearchInput" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search Logs..." />
         </div>
 
-        <div className="auditToggle">
-          <button
-            className={`auditToggleBtn${!showArchived ? " active" : ""}`}
-            type="button"
-            onClick={() => {
-              setShowArchived(false);
-              setPage(1);
-            }}
-          >
-            Active
-          </button>
-          <button
-            className={`auditToggleBtn${showArchived ? " active" : ""}`}
-            type="button"
-            onClick={() => {
-              setShowArchived(true);
-              setPage(1);
-            }}
-          >
-            Archived
-          </button>
-        </div>
+        {canViewArchivedLogs ? (
+          <div className="auditToggle">
+            <button
+              className={`auditToggleBtn${!showArchived ? " active" : ""}`}
+              type="button"
+              onClick={() => {
+                setShowArchived(false);
+                setPage(1);
+              }}
+            >
+              Active
+            </button>
+            <button
+              className={`auditToggleBtn${showArchived ? " active" : ""}`}
+              type="button"
+              onClick={() => {
+                setShowArchived(true);
+                setPage(1);
+              }}
+            >
+              Archived
+            </button>
+          </div>
+        ) : null}
 
         <button className="auditFilterBtn" type="button" onClick={() => setIsFilterOpen(true)}>
           <img className="auditFilterIcon" src={icoFilter} alt="" />
         </button>
 
         <div className="auditBtns">
-          <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div>
+          {canArchiveLogs ? <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div> : null}
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
           {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllLogs} disabled={isSelectingAll || sourceLogIds.length === 0}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
           {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={deselectAllLogs} disabled={!selectedLogIds.length || isSelectingAll}>Deselect All</button> : null}
@@ -184,9 +187,11 @@ export default function AdminAuditLogs() {
 
       <div className="auditBoard">
         <div className="auditTableHead">
-          <label className="auditSelectCell auditSelectHead">
-            <input type="checkbox" checked={allPagedSelected} onChange={togglePageSelection} aria-label="Select all visible logs" />
-          </label>
+          {canArchiveLogs ? (
+            <label className="auditSelectCell auditSelectHead">
+              <input type="checkbox" checked={allPagedSelected} onChange={togglePageSelection} aria-label="Select all visible logs" />
+            </label>
+          ) : <div />}
           <div>ID</div>
           <div>User ID</div>
           <div>Action</div>
@@ -204,18 +209,20 @@ export default function AdminAuditLogs() {
                 className={`auditTableRow${isSelected ? " selected" : ""}`}
                 key={selectionKey}
                 type="button"
-                onClick={() => toggleLogSelection(selectionKey)}
+                onClick={() => canArchiveLogs && toggleLogSelection(selectionKey)}
               >
-                <span className="auditSelectCell">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    disabled={!selectionKey}
-                    onChange={() => toggleLogSelection(selectionKey)}
-                    onClick={(event) => event.stopPropagation()}
-                    aria-label={`Select audit log ${r.id || idx + 1}`}
-                  />
-                </span>
+                {canArchiveLogs ? (
+                  <span className="auditSelectCell">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={!selectionKey}
+                      onChange={() => toggleLogSelection(selectionKey)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`Select audit log ${r.id || idx + 1}`}
+                    />
+                  </span>
+                ) : <span />}
                 <span className="auditId">{r.id}</span>
                 <span>{r.userId}</span>
                 <span>

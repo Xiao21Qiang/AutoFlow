@@ -21,6 +21,7 @@ const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
 const salesManagerUser = { id: "SM-1", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
 const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
+const inventoryClerkUser = { id: "IC-1", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
 const customerUser = {
   id: "CUS-1",
   email: "customer@example.com",
@@ -50,7 +51,7 @@ const carWashService = {
   allowedArrivalTimes: ["10:00", "13:00"],
 };
 const serviceFixtures = [service, carWashService];
-const testUsers = [adminUser, generalManagerUser, marketingUser, salesManagerUser, salesAssociateUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
+const testUsers = [adminUser, generalManagerUser, marketingUser, salesManagerUser, salesAssociateUser, inventoryClerkUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -1160,6 +1161,69 @@ describe("Sales Manager Service Tracking view-only route enforcement", () => {
     expect(response.status).toBe(403);
     expect(response.body.message).toBe("Sales Manager has view-only access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status", "warrantyReleased", "warrantyReleasedAt"]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
+  });
+});
+
+describe("Inventory Clerk Service Tracking view-only route enforcement", () => {
+  test("Inventory Clerk can receive authorized tracking and warranty data", async () => {
+    seedInProgressTrackingBooking();
+
+    const trackingResponse = await request("/api/tracking/B-TRACKING?role=Admin&userType=admin&scope=admin", {
+      token: auth(inventoryClerkUser),
+    });
+    const warrantyResponse = await request("/api/tracking/B-TRACKING/warranty?role=Admin&userType=admin&scope=admin", {
+      token: auth(inventoryClerkUser),
+    });
+
+    expect(trackingResponse.status).toBe(200);
+    expect(trackingResponse.body).toMatchObject({
+      id: "B-TRACKING",
+      status: "In Progress",
+      issueNote: "Paint blemish documented before service.",
+    });
+    expect(warrantyResponse.status).toBe(200);
+    expect(warrantyResponse.body).toMatchObject({
+      id: "B-TRACKING",
+      status: "In Progress",
+    });
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Inventory Clerk cannot mutate tracking fields even with forged Admin data", async () => {
+    seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(inventoryClerkUser),
+      body: {
+        ...bookings[0],
+        status: "Completed",
+        issueNote: "Forged tracking note.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 40, y: 60, issueType: "Paint blemish" }],
+        warrantyReleased: true,
+        warrantyReleasedAt: "2099-12-31T08:00:00.000Z",
+        specialPin: "654321",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Inventory Clerk has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining([
+      "status",
+      "issueNote",
+      "issueMarkers",
+      "warrantyReleased",
+      "warrantyReleasedAt",
+    ]));
     expect(bookings[0]).toEqual(originalBooking);
     expect(auditLogs).toEqual([]);
   });
