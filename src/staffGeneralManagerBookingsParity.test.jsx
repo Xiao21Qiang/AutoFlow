@@ -198,6 +198,33 @@ describe("General Manager Bookings parity shell", () => {
   });
 });
 
+describe("Sales Manager Bookings create shell", () => {
+  test("uses canonical Admin Bookings validation without exposing Delete or changing Service Tracking view-only access", () => {
+    setContext({ currentUser: salesManager });
+    renderStaffMain(salesManager);
+
+    fireEvent.click(screen.getByText("Bookings"));
+
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add New Booking" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit Booking")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+    expect(screen.getByText("New Booking")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+    expect(screen.getAllByText("Please select a registered customer from the list.").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+    expect(screen.getByRole("button", { name: "View Only" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Sales Associate authorization foundation shell", () => {
   test("shows exactly the approved Sales Associate navigation modules", () => {
     setContext({ currentUser: salesAssociate });

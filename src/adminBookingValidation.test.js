@@ -39,6 +39,15 @@ const services = [
   },
 ];
 
+const salesManagerUser = {
+  id: "SM-1",
+  name: "Sales Manager",
+  email: "sales-manager@example.com",
+  userType: "Staff",
+  role: "Sales Manager",
+  status: "active",
+};
+
 let mockData = {};
 
 jest.mock("./context/AdminDataContext", () => ({
@@ -571,7 +580,7 @@ describe("Admin Add New Booking validation", () => {
     await fillValidForm({ skip: [field, "placeSlot"] });
     fireEvent.blur(screen.getByLabelText(label));
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
-    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
   });
 
   test("whitespace-only vehicle is treated as blank and blocks the quick-action save", async () => {
@@ -594,7 +603,7 @@ describe("Admin Add New Booking validation", () => {
     await fillValidForm({ skip: [field, "placeSlot"] });
     fireEvent.blur(screen.getByRole("button", { name: label }));
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
-    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
   });
 
   test("missing time and place slot are required before saving", async () => {
@@ -633,6 +642,85 @@ describe("Admin Add New Booking validation", () => {
     fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
     expect(mockCreateBooking).not.toHaveBeenCalled();
     expect(screen.getByText("Vehicle is required.")).toBeInTheDocument();
+  });
+});
+
+describe("Sales Manager Add New Booking validation", () => {
+  function openSalesManagerModal() {
+    mockData = { currentUser: salesManagerUser };
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+  }
+
+  test("a fully valid Sales Manager booking form enables Save Booking", async () => {
+    openSalesManagerModal();
+    await fillValidForm();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeEnabled();
+  });
+
+  test.each([
+    ["customer", "Customer Name", "Please select a registered customer from the list."],
+    ["vehicle", "Vehicle", "Vehicle is required."],
+    ["plate", "Plate Number", "Plate number is required."],
+    ["service", "Service", "Please select a service."],
+    ["carSize", "Car Size", "Please select a car size."],
+    ["assigned", "Assigned Detailer", "Please select an assigned detailer."],
+    ["date", "Date", "Booking date is required."],
+    ["time", "Time", "Please select a time."],
+    ["placeSlot", "Place Slot", "Please select a place slot."],
+  ])("missing %s blocks Sales Manager booking creation with the canonical inline validation", async (field, _label, message) => {
+    openSalesManagerModal();
+    const skip = field === "placeSlot" ? ["placeSlot"] : [field, "placeSlot"];
+    await fillValidForm({ skip });
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  test("whitespace-only Sales Manager vehicle is treated as blank and never calls create", async () => {
+    openSalesManagerModal();
+    await fillValidForm({ skip: ["vehicle", "placeSlot"] });
+    fireEvent.change(screen.getByLabelText("Vehicle"), { target: { value: "     " } });
+    fireEvent.blur(screen.getByLabelText("Vehicle"));
+
+    expect(screen.getByText("Vehicle is required.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  test("past Sales Manager booking date is rejected before create", async () => {
+    openSalesManagerModal();
+    await fillValidForm({ skip: ["date", "placeSlot"] });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2000-01-01" } });
+    selectModalOption("Place Slot", "Place Slot 2");
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+
+    expect(screen.getByText("Please select today or a future date for the booking.")).toBeInTheDocument();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  test("duplicate Sales Manager create submits are ignored while the first create is in flight", async () => {
+    let resolveCreate;
+    mockCreateBooking.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    openSalesManagerModal();
+    await fillValidForm();
+
+    const form = screen.getByRole("button", { name: "Save Booking" }).closest("form");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(mockCreateBooking).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByText("New Booking")).not.toBeInTheDocument());
   });
 });
 

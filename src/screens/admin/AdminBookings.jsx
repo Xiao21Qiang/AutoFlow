@@ -184,6 +184,7 @@ function ModalSelect({
 export default function AdminBookings({ initialAction = null, onActionHandled, allowDelete = true }) {
   const { bookings, services, promos, users, payments, currentUser, createBooking, updateBooking, rescheduleBooking, deleteBooking } = useAdminData();
   const exportInFlightRef = useRef(false);
+  const createInFlightRef = useRef(false);
   const serviceOptions = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false).map((service) => service.name),
     [services]
@@ -232,6 +233,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
   const [touchedFields, setTouchedFields] = useState({});
   const [formError, setFormError] = useState("");
   const [exportState, setExportState] = useState({ status: "idle", message: "" });
+  const [isCreatingBooking, setIsCreatingBooking] = useState(false);
   const [toast, setToast] = useState(null);
   const todayKey = getTodayKey();
   
@@ -380,7 +382,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     [availablePlaceSlots, form, hasNoAvailableSlots, matchedCustomer, modal]
   );
   const isAddBookingFormValid = modal !== "add" || (Object.keys(addBookingErrors).length === 0 && !customerFieldError);
-  const saveBookingDisabled = (modal === "add" && !isAddBookingFormValid) || isCancelledBookingLocked;
+  const saveBookingDisabled = (modal === "add" && (!isAddBookingFormValid || isCreatingBooking)) || isCancelledBookingLocked;
   const markFieldTouched = useCallback((field) => {
     setTouchedFields((prev) => ({ ...prev, [field]: true }));
   }, []);
@@ -757,8 +759,16 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
 
                 try {
                   if (modal === "add") {
-                    await createBooking(payload);
-                    setToast({ type: "success", message: "Booking created.", id: Date.now() });
+                    if (createInFlightRef.current) return;
+                    createInFlightRef.current = true;
+                    setIsCreatingBooking(true);
+                    try {
+                      await createBooking(payload);
+                      setToast({ type: "success", message: "Booking created.", id: Date.now() });
+                    } finally {
+                      createInFlightRef.current = false;
+                      setIsCreatingBooking(false);
+                    }
                   } else if (selectedBooking) {
                     const saveEdit = async (securityPayload = {}) => {
                       await updateBooking(selectedBooking.id, { ...selectedBooking, ...payload, ...securityPayload });
@@ -1071,7 +1081,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
                   </button>
                 )}
                 <button className="bookTextBtn" type="button" onClick={closeModal}>Cancel</button>
-                <button className="bookPrimaryBtn" type="submit" disabled={saveBookingDisabled}>Save Booking</button>
+                <button className="bookPrimaryBtn" type="submit" disabled={saveBookingDisabled}>{isCreatingBooking ? "Saving..." : "Save Booking"}</button>
               </div>
             </form>
             )}

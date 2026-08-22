@@ -608,6 +608,101 @@ describe("Admin booking creation route validation", () => {
   });
 });
 
+describe("Sales Manager booking creation route validation", () => {
+  test.each([
+    ["customer", { customerEmail: "" }],
+    ["vehicle", { vehicle: "   " }],
+    ["plate", { plate: "" }],
+    ["service", { service: "" }],
+    ["carSize", { carSize: "" }],
+    ["assigned", { assigned: "" }],
+    ["date", { date: "" }],
+    ["time", { time: "" }],
+    ["placeSlot", { placeSlot: "" }],
+  ])("direct API creation with missing %s is rejected for Sales Manager and not persisted", async (_field, patch) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(salesManagerUser),
+      body: { ...basePayload, ...patch },
+    });
+    expect(response.status).toBe(400);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test.each([
+    ["unregistered customer", { customer: "Ghost Customer", customerEmail: "ghost@example.com", plate: "ZZZ999" }],
+    ["unknown service", { service: "Ghost Service" }],
+    ["inactive detailer", { assigned: "Deleted Detailer" }],
+    ["invalid car size", { carSize: "Spaceship" }],
+    ["past booking date", { date: "2000-01-01" }],
+    ["invalid time", { time: "25:99" }],
+    ["invalid place slot", { placeSlot: 99 }],
+  ])("%s is rejected for Sales Manager booking creation", async (_label, patch) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(salesManagerUser),
+      body: { ...basePayload, ...patch },
+    });
+    expect(response.status).toBe(400);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("same date, time, and place slot conflict is rejected for Sales Manager booking creation", async () => {
+    resetData([{ ...basePayload, id: "B-ACTIVE", status: "Scheduled" }]);
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(salesManagerUser),
+      body: { ...basePayload, placeSlot: 1 },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toMatch(/already booked/);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("a valid Sales Manager request creates one Scheduled booking and audits the authenticated actor", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(salesManagerUser),
+      body: {
+        ...basePayload,
+        auditUser: "admin@example.com",
+        actor: "Admin",
+        userType: "Admin",
+        role: "Admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+    expect(bookings[0]).toMatchObject({
+      status: "Scheduled",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales-manager@example.com",
+        action: "Created booking",
+        targetId: bookings[0].id,
+      }),
+    ]));
+  });
+});
+
 describe("Admin-only booking deletion route", () => {
   test("Admin may delete a Cancelled booking with the correct Admin special PIN and authenticated audit actor", async () => {
     seedDeletedBooking("Cancelled");
@@ -658,6 +753,7 @@ describe("Admin-only booking deletion route", () => {
 
   test.each([
     ["General Manager", generalManagerUser],
+    ["Sales Manager", salesManagerUser],
     ["Sales Associate", salesAssociateUser],
   ])("%s cannot delete even a Cancelled booking with Staff credential or forged Admin body data", async (_label, actor) => {
     seedDeletedBooking("Cancelled");
