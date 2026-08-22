@@ -68,8 +68,9 @@ describe("Sales Associate Analytics backend routes", () => {
   const generalManager = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
   const salesManager = { id: "SM-1", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
   const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
+  const marketing = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
   const seniorDetailer = { id: "SR-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
-  const users = [admin, generalManager, salesManager, salesAssociate, seniorDetailer];
+  const users = [admin, generalManager, salesManager, salesAssociate, marketing, seniorDetailer];
 
   const analyticsData = {
     bookings: [
@@ -151,6 +152,7 @@ describe("Sales Associate Analytics backend routes", () => {
     ["Admin", admin],
     ["General Manager", generalManager],
     ["Sales Manager", salesManager],
+    ["Marketing", marketing],
   ])("allows %s to export Analytics report and audits the authenticated actor", async (_label, actor) => {
     const response = await invoke("/api/admin/reports/analytics/csv", {
       token: auth(actor),
@@ -220,6 +222,7 @@ describe("Sales Associate Analytics backend routes", () => {
   test.each([
     ["General Manager", generalManager],
     ["Sales Manager", salesManager],
+    ["Marketing", marketing],
   ])("allows %s Analytics AI using backend-authoritative scoped data", async (_label, actor) => {
     const response = await invoke("/api/ai/analytics/interpret", {
       method: "POST",
@@ -277,5 +280,27 @@ describe("Sales Associate Analytics backend routes", () => {
 
     expect(response.status).toBe(403);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["financial", "/api/admin/reports/financial/csv"],
+    ["stock", "/api/admin/reports/stock/csv"],
+    ["audit logs", "/api/admin/reports/audit-logs/csv"],
+    ["payments", "/api/admin/reports/payments/csv"],
+    ["tracking", "/api/admin/reports/tracking/csv"],
+    ["reward history", "/api/admin/reports/reward-history/csv"],
+  ])("denies Marketing unrelated %s exports even with forged Admin query data", async (_label, path) => {
+    const response = await invoke(`${path}?role=Admin&userType=admin&auditUser=Admin`, {
+      token: auth(marketing),
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to export this report.");
+    expect(auditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "marketing@example.com",
+        action: "Report export denied",
+      }),
+    ]));
   });
 });

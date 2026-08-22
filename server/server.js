@@ -2348,6 +2348,7 @@ const ROLE_ACTIONS = {
   ],
   marketing: [
     ACTION_KEYS.engagementView,
+    ACTION_KEYS.engagementManage,
   ],
 };
 
@@ -2422,6 +2423,14 @@ function requireModule(moduleKey) {
     }
     next();
   };
+}
+
+function requireEngagementManagement(req, res, next) {
+  if (!canPerformAction(req.authUser, ACTION_KEYS.engagementManage)) {
+    denyForbidden(res);
+    return;
+  }
+  next();
 }
 
 function getActorDisplayNames(user = {}) {
@@ -6152,6 +6161,44 @@ function isStockMonitoringAuditLog(log = {}) {
   return targetType === "stockmonitoringitem" && STOCK_MONITORING_AUDIT_OPERATIONS.has(operation);
 }
 
+function projectBookingForAnalytics(booking = {}) {
+  return {
+    id: booking.id || "",
+    date: booking.date || "",
+    createdAt: booking.createdAt || "",
+    service: booking.service || "",
+    status: booking.status || "",
+  };
+}
+
+function projectPaymentForAnalytics(payment = {}) {
+  return {
+    id: payment.id || "",
+    bookingId: payment.bookingId || "",
+    date: payment.date || "",
+    createdAt: payment.createdAt || "",
+    updatedAt: payment.updatedAt || "",
+    reviewedAt: payment.reviewedAt || "",
+    service: payment.service || "",
+    amount: payment.amount,
+    originalAmount: payment.originalAmount,
+    finalAmount: payment.finalAmount,
+    totalAmount: payment.totalAmount,
+    amountPaid: payment.amountPaid,
+    remainingBalance: payment.remainingBalance,
+    status: payment.status || "",
+    method: payment.method || "",
+    downPaymentRequired: payment.downPaymentRequired,
+    downPaymentAmount: payment.downPaymentAmount,
+    downPaymentStatus: payment.downPaymentStatus || "",
+    downPaymentMethod: payment.downPaymentMethod || "",
+    downPaymentVerifiedAt: payment.downPaymentVerifiedAt || "",
+    finalPaymentStatus: payment.finalPaymentStatus || "",
+    finalPaymentMethod: payment.finalPaymentMethod || "",
+    finalPaymentVerifiedAt: payment.finalPaymentVerifiedAt || "",
+  };
+}
+
 function filterBootstrapDataForRole(data, authUser = {}) {
   const userType = normalizeUserType(authUser.userType, authUser.role);
   const email = String(authUser.email || "").trim().toLowerCase();
@@ -6215,6 +6262,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
     const visibleBookingIds = new Set(scopedBookings.map((booking) => String(booking.id || "")));
     const canSeePayments = hasModule(MODULE_KEYS.paymentTracking);
     const canSeeFinancials = hasModule(MODULE_KEYS.financialTracker);
+    const canSeeAnalytics = hasModule(MODULE_KEYS.analytics);
     const canSeeStock = hasModule(MODULE_KEYS.stockMonitoring);
     const canSeeEngagement = hasModule(MODULE_KEYS.engagement);
     const canSeeCommissions =
@@ -6254,15 +6302,17 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
       return String(user.email || "").trim().toLowerCase() === email;
     });
-    const scopedSettings = staffRole === "sales associate"
+    const scopedSettings = staffRole === "sales associate" || staffRole === "marketing"
       ? { requiredDownPaymentAmount: DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT }
       : data.settings;
     return {
       ...data,
-      bookings: scopedBookings,
+      bookings: staffRole === "marketing" && canSeeAnalytics ? data.bookings.map(projectBookingForAnalytics) : scopedBookings,
       services: hasModule(MODULE_KEYS.services) || hasModule(MODULE_KEYS.bookings) || hasModule(MODULE_KEYS.myWork) ? data.services : [],
       stockMonitoring: canSeeStock ? data.stockMonitoring : [],
-      payments: canSeePayments
+      payments: staffRole === "marketing" && canSeeAnalytics
+        ? data.payments.map(projectPaymentForAnalytics)
+        : canSeePayments
         ? data.payments.filter((payment) => visibleBookingIds.has(String(payment.bookingId || "")) || staffRole === "general manager" || staffRole === "sales manager" || staffRole === "sales associate")
         : [],
       users: scopedUsers,
@@ -10089,7 +10139,7 @@ app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, re
   }
 });
 
-app.put("/api/admin/reviews/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/reviews/:id", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const review = await Review.findOne({ id: req.params.id });
     if (!review) {
@@ -10136,7 +10186,7 @@ app.put("/api/admin/reviews/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/promos", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const payload = engagementDomain.normalizePromotionPayload(req.body);
     await ensureApplicableServicesExist(payload.applicableServiceIds);
@@ -10171,7 +10221,7 @@ app.post("/api/admin/promos", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/promos/:id", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const existingPromo = await Promo.findOne({ id: req.params.id });
     if (!existingPromo) {
@@ -10215,7 +10265,7 @@ app.put("/api/admin/promos/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.patch("/api/admin/promos/:id/archive", requireAdminUser, async (req, res, next) => {
+app.patch("/api/admin/promos/:id/archive", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const promo = await Promo.findOneAndUpdate(
       { id: req.params.id },
@@ -10233,7 +10283,7 @@ app.patch("/api/admin/promos/:id/archive", requireAdminUser, async (req, res, ne
   }
 });
 
-app.patch("/api/admin/promos/:id/restore", requireAdminUser, async (req, res, next) => {
+app.patch("/api/admin/promos/:id/restore", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const promo = await Promo.findOneAndUpdate(
       { id: req.params.id },
@@ -10281,7 +10331,7 @@ app.post("/api/admin/promos/:id/use", requireAdminUser, async (req, res, next) =
   }
 });
 
-app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
+app.post("/api/admin/rewards", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const payload = normalizeRewardPayload(req.body);
     const duplicate = await Reward.findOne({ code: payload.code }).lean();
@@ -10306,7 +10356,7 @@ app.post("/api/admin/rewards", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
+app.put("/api/admin/rewards/:id", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const existingReward = await Reward.findOne(buildRewardLookupQuery(req.params.id));
     if (!existingReward) {
@@ -10340,7 +10390,7 @@ app.put("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
   }
 });
 
-app.patch("/api/admin/rewards/:id/status", requireAdminUser, async (req, res, next) => {
+app.patch("/api/admin/rewards/:id/status", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     if (!Object.prototype.hasOwnProperty.call(req.body || {}, "enabled") || typeof req.body.enabled !== "boolean") {
       res.status(400).json({ message: "Reward enabled status must be true or false." });
@@ -10378,7 +10428,7 @@ app.patch("/api/admin/rewards/:id/status", requireAdminUser, async (req, res, ne
   }
 });
 
-app.delete("/api/admin/rewards/:id", requireAdminUser, async (req, res, next) => {
+app.delete("/api/admin/rewards/:id", requireRoles("admin", "staff"), requireEngagementManagement, async (req, res, next) => {
   try {
     const historyCount = await CustomerReward.countDocuments({ rewardId: req.params.id });
     const reward = historyCount > 0

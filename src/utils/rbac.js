@@ -206,6 +206,7 @@ const ROLE_ACTIONS = {
   ],
   marketing: [
     ACTION_KEYS.engagementView,
+    ACTION_KEYS.engagementManage,
   ],
 };
 

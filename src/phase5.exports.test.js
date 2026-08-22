@@ -144,6 +144,17 @@ describe("Phase 5 export helpers", () => {
     expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "bookings")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "tracking")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Inventory Clerk" }, "analytics")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "analytics")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "services")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "reviews")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "promotions")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "rewards")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "bookings")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "tracking")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "stock")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "payments")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "financial")).toBe(false);
+    expect(canExportReport({ userType: "Staff", role: "Marketing" }, "audit-logs")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "General Manager" }, "reward-history")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "reward-history")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Marketing" }, "reward-history")).toBe(false);
@@ -206,8 +217,9 @@ describe("Phase 5 export routes", () => {
     const generalManagerUser = { id: "USR-GM", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
     const salesManagerUser = { id: "USR-SM", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
     const inventoryClerkUser = { id: "USR-IC", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
+    const marketingUser = { id: "USR-MKT", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
     const customerUser = { id: "USR-CUST", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" };
-    const users = [adminUser, salesAssociateUser, generalManagerUser, salesManagerUser, inventoryClerkUser, customerUser];
+    const users = [adminUser, salesAssociateUser, generalManagerUser, salesManagerUser, inventoryClerkUser, marketingUser, customerUser];
 
     stub(__testModels.User, "findOne", (query = {}) => ({
       lean: async () => users.find((user) => user.id === query.id || user.email === query.email) || null,
@@ -355,6 +367,7 @@ describe("Phase 5 export routes", () => {
     const salesAssociateToken = signJwt({ sub: "USR-SA", email: "sales@example.com", userType: "Staff", role: "Sales Associate" });
     const generalManagerToken = signJwt({ sub: "USR-GM", email: "gm@example.com", userType: "Staff", role: "General Manager" });
     const salesManagerToken = signJwt({ sub: "USR-SM", email: "sales-manager@example.com", userType: "Staff", role: "Sales Manager" });
+    const marketingToken = signJwt({ sub: "USR-MKT", email: "marketing@example.com", userType: "Staff", role: "Marketing" });
 
     const adminResponse = await invokeApp("/api/admin/reports/reward-history/pdf", {
       headers: { Authorization: `Bearer ${adminToken}` },
@@ -362,7 +375,7 @@ describe("Phase 5 export routes", () => {
     expect(adminResponse.status).toBe(200);
     expect(String(adminResponse.headers["content-type"])).toContain("application/pdf");
 
-    for (const token of [salesAssociateToken, generalManagerToken, salesManagerToken]) {
+    for (const token of [salesAssociateToken, generalManagerToken, salesManagerToken, marketingToken]) {
       const response = await invokeApp("/api/admin/reports/reward-history/pdf", {
         headers: { Authorization: `Bearer ${token}` },
       });

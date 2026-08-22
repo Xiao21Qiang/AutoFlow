@@ -53,8 +53,9 @@ describe("Dashboard quote request route RBAC", () => {
   const originals = [];
   const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   const marketing = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
+  const seniorDetailer = { id: "SR-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
-  const users = [salesAssociate, marketing, admin];
+  const users = [salesAssociate, marketing, seniorDetailer, admin];
 
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
@@ -113,9 +114,29 @@ describe("Dashboard quote request route RBAC", () => {
     }));
   });
 
-  test("Staff without booking-update authority cannot update Dashboard quote status", async () => {
+  test("Marketing can update Dashboard quote status through Engagement management and is audited as the authenticated actor", async () => {
     const response = await request("/api/admin/quote-requests/Q-1", {
       token: auth(marketing),
+      body: {
+        status: "Received",
+        auditUser: "admin@example.com",
+        userType: "Admin",
+        role: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ id: "Q-1", status: "Received" });
+    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "marketing@example.com",
+      action: "Updated quote request status",
+      targetId: "Q-1",
+    }));
+  });
+
+  test("Staff without booking-update or Engagement-management authority cannot update Dashboard quote status", async () => {
+    const response = await request("/api/admin/quote-requests/Q-1", {
+      token: auth(seniorDetailer),
       body: {
         status: "Received",
         auditUser: "admin@example.com",

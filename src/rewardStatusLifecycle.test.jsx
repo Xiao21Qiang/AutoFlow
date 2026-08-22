@@ -5,6 +5,7 @@ import { validateSpecialCredential } from "./utils/reauth";
 const mockUpdateRewardStatus = jest.fn();
 
 let mockRewardsState = [];
+let mockCurrentUser = { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" };
 
 jest.mock("./utils/reauth", () => {
   const actual = jest.requireActual("./utils/reauth");
@@ -21,7 +22,7 @@ jest.mock("./context/AdminDataContext", () => ({
     rewards: mockRewardsState,
     customerRewards: [],
     users: [],
-    currentUser: { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" },
+    currentUser: mockCurrentUser,
     createPromo: jest.fn(),
     updatePromo: jest.fn(),
     updateReview: jest.fn(),
@@ -85,6 +86,7 @@ function installStatusUpdater() {
 
 beforeEach(() => {
   mockRewardsState = [];
+  mockCurrentUser = { id: "ADM-1", name: "Admin", email: "admin@example.com", userType: "Admin", role: "Admin" };
   mockUpdateRewardStatus.mockReset();
   validateSpecialCredential.mockReset();
   validateSpecialCredential.mockResolvedValue(true);
@@ -128,6 +130,22 @@ describe("Reward Enable/Disable lifecycle", () => {
     expect(mockUpdateRewardStatus).toHaveBeenCalledWith("RWD-1", true);
     expect(within(rowForReward("Loyalty Spark")).getByText("Enabled")).toBeInTheDocument();
     expect(within(rowForReward("Loyalty Spark")).getByRole("button", { name: "Disable" })).toBeInTheDocument();
+  });
+
+  test("Marketing reward status changes use Staff Special PIN scope", async () => {
+    mockCurrentUser = { id: "MKT-1", name: "Marketing", email: "marketing@example.com", userType: "Staff", role: "Marketing" };
+    mockRewardsState = [rewardRecord()];
+    installStatusUpdater();
+    renderEngagement();
+
+    fireEvent.click(within(rowForReward("Loyalty Spark")).getByRole("button", { name: "Disable" }));
+    await confirmPin();
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Disable Reward" })).not.toBeInTheDocument());
+    expect(validateSpecialCredential).toHaveBeenCalledTimes(1);
+    expect(validateSpecialCredential).toHaveBeenCalledWith("pin", "123456", "staff", expect.objectContaining({ userType: "Staff", role: "Marketing" }), "engagement.manage");
+    expect(mockUpdateRewardStatus).toHaveBeenCalledWith("RWD-1", false);
+    expect(screen.queryByText("Reward History")).not.toBeInTheDocument();
   });
 
   test("empty PIN shows inline validation and sends no status update", async () => {

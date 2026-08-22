@@ -65,6 +65,7 @@ describe("Edit Reward route validation", () => {
   const originals = [];
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
   const staff = { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Marketing", status: "active" };
+  const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   let rewards;
   let auditLogs;
 
@@ -109,7 +110,7 @@ describe("Edit Reward route validation", () => {
 
   beforeAll(() => {
     stub(__testModels.User, "findOne", (query = {}) => {
-      const user = [admin, staff].find((item) => item.id === query.id || item.email === query.email);
+      const user = [admin, staff, salesAssociate].find((item) => item.id === query.id || item.email === query.email);
       return user ? doc(user) : emptyDoc();
     });
     stub(__testModels.Reward, "findOne", (query = {}) => {
@@ -297,17 +298,25 @@ describe("Edit Reward route validation", () => {
     expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
   });
 
-  test("staff cannot update rewards through the admin route", async () => {
+  test("Marketing can update rewards and forged audit fields do not change the authenticated actor", async () => {
+    const response = await putReward(validPayload({ auditUser: admin.email, role: "Admin", userType: "admin" }), staff);
+
+    expect(response.status).toBe(200);
+    expect(rewards[0]).toEqual(expect.objectContaining({ id: "RWD-1", name: "Loyalty Glow" }));
+    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      userId: staff.email,
+      action: "Reward definition updated",
+    }));
+  });
+
+  test("Sales Associate cannot update rewards through the Marketing Engagement route", async () => {
     const before = clone(rewards);
 
-    const response = await putReward(validPayload({ auditUser: staff.email }), staff);
+    const response = await putReward(validPayload({ auditUser: admin.email }), salesAssociate);
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Admin access required.");
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
     expect(rewards).toEqual(before);
     expect(__testModels.Reward.findOneAndUpdate).not.toHaveBeenCalled();
-    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      action: "Unauthorized admin route attempt",
-    }));
   });
 });

@@ -65,6 +65,7 @@ describe("Add Promo route validation", () => {
   const originals = [];
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
   const staff = { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Marketing", status: "active" };
+  const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   let promos;
   let auditLogs;
 
@@ -75,7 +76,7 @@ describe("Add Promo route validation", () => {
 
   beforeAll(() => {
     stub(__testModels.User, "findOne", (query = {}) => {
-      const user = [admin, staff].find((item) => item.id === query.id || item.email === query.email);
+      const user = [admin, staff, salesAssociate].find((item) => item.id === query.id || item.email === query.email);
       return user ? doc(user) : emptyDoc();
     });
     stub(__testModels.Promo, "findOne", (query = {}) => {
@@ -223,15 +224,23 @@ describe("Add Promo route validation", () => {
     expect(__testModels.AuditLog.create).toHaveBeenCalledTimes(1);
   });
 
-  test("staff cannot create promos through the admin route", async () => {
+  test("Marketing can create promos with authenticated actor attribution despite forged audit fields", async () => {
     const response = await postPromo(validPayload({ auditUser: staff.email }), staff);
 
+    expect(response.status).toBe(201);
+    expect(promos).toHaveLength(1);
+    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      userId: staff.email,
+      action: "Promotion created",
+    }));
+  });
+
+  test("Sales Associate cannot create promos through the Marketing Engagement route", async () => {
+    const response = await postPromo(validPayload({ auditUser: admin.email }), salesAssociate);
+
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Admin access required.");
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
     expect(promos).toHaveLength(0);
     expect(__testModels.Promo.create).not.toHaveBeenCalled();
-    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      action: "Unauthorized admin route attempt",
-    }));
   });
 });

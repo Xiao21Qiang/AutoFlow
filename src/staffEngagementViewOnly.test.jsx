@@ -35,6 +35,7 @@ jest.mock("./components/common/SecurityConfirmModal", () => (props) => {
 
 const generalManager = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager" };
 const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate" };
+const marketing = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing" };
 const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin" };
 
 const baseData = {
@@ -209,6 +210,27 @@ test("Sales Associate opens canonical Staff Engagement with read-only Reviews, P
   expect(screen.queryByText("Reward History")).not.toBeInTheDocument();
   expect(screen.queryByText("CLAIM-1")).not.toBeInTheDocument();
   expectNoStaffMutationControls();
+});
+
+test("Marketing opens canonical Engagement management without Admin-only Reward History", () => {
+  renderStaffMain(marketing);
+
+  fireEvent.click(screen.getAllByText("Engagement")[1]);
+
+  expect(screen.getByText("Reviews")).toBeInTheDocument();
+  expect(screen.getByText("Promos")).toBeInTheDocument();
+  expect(screen.getByText("Reward Pool Management")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add Promo" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add Reward" })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Edit" }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: /Enable|Disable/ }).length).toBeGreaterThan(0);
+  expect(screen.getAllByRole("button", { name: "Delete" }).length).toBeGreaterThan(0);
+  expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+  expect(screen.queryByText("Reward History")).not.toBeInTheDocument();
+  expect(screen.queryByText("CLAIM-1")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "View Reward History" })).not.toBeInTheDocument();
 });
 
 test("Sales Associate reward search, filters, and details stay read-only", () => {

@@ -66,6 +66,7 @@ describe("Add Reward route validation", () => {
   const originals = [];
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
   const staff = { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Marketing", status: "active" };
+  const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   let rewards;
   let auditLogs;
 
@@ -76,7 +77,7 @@ describe("Add Reward route validation", () => {
 
   beforeAll(() => {
     stub(__testModels.User, "findOne", (query = {}) => {
-      const user = [admin, staff].find((item) => item.id === query.id || item.email === query.email);
+      const user = [admin, staff, salesAssociate].find((item) => item.id === query.id || item.email === query.email);
       return user ? doc(user) : emptyDoc();
     });
     stub(__testModels.Reward, "findOne", (query = {}) => {
@@ -254,16 +255,24 @@ describe("Add Reward route validation", () => {
     expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
   });
 
-  test("staff cannot create rewards through the admin route", async () => {
-    const response = await postReward(validPayload({ auditUser: staff.email }), staff);
+  test("Marketing can create rewards and forged audit fields do not change the authenticated actor", async () => {
+    const response = await postReward(validPayload({ auditUser: admin.email, role: "Admin", userType: "admin" }), staff);
+
+    expect(response.status).toBe(201);
+    expect(rewards).toHaveLength(1);
+    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      userId: staff.email,
+      action: "Reward definition created",
+    }));
+  });
+
+  test("Sales Associate cannot create rewards through the Marketing Engagement route", async () => {
+    const response = await postReward(validPayload({ auditUser: admin.email }), salesAssociate);
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Admin access required.");
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
     expect(rewards).toHaveLength(0);
     expect(__testModels.Reward.create).not.toHaveBeenCalled();
-    expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      action: "Unauthorized admin route attempt",
-    }));
   });
 });
 

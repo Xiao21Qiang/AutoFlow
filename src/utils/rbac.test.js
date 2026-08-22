@@ -22,26 +22,60 @@ const marketing = { userType: "Staff", role: "Marketing" };
 const customer = { userType: "Customer", role: "New" };
 
 describe("Phase 1 permission matrix", () => {
-  test("keeps service, promotion, reward, and account mutation actions admin-only", () => {
+  test("keeps service and account mutation actions admin-only while Marketing alone gets Engagement management", () => {
     expect(canPerformAction(admin, ACTION_KEYS.servicesManage)).toBe(true);
     expect(canPerformAction(admin, ACTION_KEYS.engagementManage)).toBe(true);
     expect(canPerformAction(admin, ACTION_KEYS.usersManageStaff)).toBe(true);
     expect(canPerformAction(admin, ACTION_KEYS.usersDelete)).toBe(true);
+    expect(canPerformAction(marketing, ACTION_KEYS.engagementManage)).toBe(true);
 
     for (const user of [generalManager, salesManager, salesAssociate, seniorDetailer, juniorDetailer, marketing, customer]) {
       expect(canPerformAction(user, ACTION_KEYS.servicesManage)).toBe(false);
-      expect(canPerformAction(user, ACTION_KEYS.engagementManage)).toBe(false);
       expect(canPerformAction(user, ACTION_KEYS.usersManageStaff)).toBe(false);
       expect(canPerformAction(user, ACTION_KEYS.usersDelete)).toBe(false);
     }
+    for (const user of [generalManager, salesManager, salesAssociate, seniorDetailer, juniorDetailer, customer]) {
+      expect(canPerformAction(user, ACTION_KEYS.engagementManage)).toBe(false);
+    }
   });
 
-  test("keeps Engagement management Admin-only while Staff roles may view assigned Engagement modules", () => {
+  test("keeps Engagement management limited to Admin and Marketing while other Staff roles remain view-only", () => {
     expect(canPerformAction(admin, ACTION_KEYS.engagementManage)).toBe(true);
     for (const user of [generalManager, salesManager, salesAssociate, marketing]) {
       expect(canAccessModule(user, MODULE_KEYS.engagement)).toBe(true);
       expect(canPerformAction(user, ACTION_KEYS.engagementView)).toBe(true);
+    }
+    expect(canPerformAction(marketing, ACTION_KEYS.engagementManage)).toBe(true);
+    for (const user of [generalManager, salesManager, salesAssociate]) {
       expect(canPerformAction(user, ACTION_KEYS.engagementManage)).toBe(false);
+    }
+  });
+
+  test("recognizes Marketing as Staff with exactly the approved five modules", () => {
+    expect(normalizeRole({ role: "  Marketing  " })).toBe("marketing");
+    expect(normalizeUserType(marketing)).toBe("staff");
+    expect(getEffectiveRole(marketing)).toBe("marketing");
+    expect(getAllowedModules(marketing)).toEqual([
+      MODULE_KEYS.dashboard,
+      MODULE_KEYS.analytics,
+      MODULE_KEYS.services,
+      MODULE_KEYS.engagement,
+      MODULE_KEYS.profile,
+    ]);
+
+    for (const moduleKey of [
+      MODULE_KEYS.auditLogs,
+      MODULE_KEYS.bookings,
+      MODULE_KEYS.serviceTracking,
+      MODULE_KEYS.stockMonitoring,
+      MODULE_KEYS.paymentTracking,
+      MODULE_KEYS.financialTracker,
+      MODULE_KEYS.userManagement,
+      MODULE_KEYS.detailerManagement,
+      MODULE_KEYS.myWork,
+      MODULE_KEYS.settings,
+    ]) {
+      expect(canAccessModule(marketing, moduleKey)).toBe(false);
     }
   });
 

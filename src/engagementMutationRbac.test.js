@@ -60,9 +60,10 @@ describe("Engagement mutation RBAC", () => {
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
   const generalManager = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
   const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
+  const inventoryClerk = { id: "INV-1", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
   const staff = { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Marketing", status: "active" };
   const customer = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
-  const users = [admin, generalManager, salesAssociate, staff, customer];
+  const users = [admin, generalManager, salesAssociate, inventoryClerk, staff, customer];
 
   function stub(model, method, implementation) {
     originals.push([model, method, model[method]]);
@@ -129,21 +130,24 @@ describe("Engagement mutation RBAC", () => {
     status: "Published",
   };
 
-  const mutationRoutes = [
+  const engagementManageRoutes = [
     ["promo create", "POST", "/api/admin/promos"],
     ["promo edit", "PUT", "/api/admin/promos/PRO-1"],
     ["promo archive", "PATCH", "/api/admin/promos/PRO-1/archive"],
     ["promo restore", "PATCH", "/api/admin/promos/PRO-1/restore"],
-    ["promo use", "POST", "/api/admin/promos/PRO-1/use"],
     ["review moderation", "PUT", "/api/admin/reviews/REV-1"],
     ["reward create", "POST", "/api/admin/rewards"],
     ["reward edit", "PUT", "/api/admin/rewards/RWD-1"],
     ["reward status", "PATCH", "/api/admin/rewards/RWD-1/status"],
     ["reward delete", "DELETE", "/api/admin/rewards/RWD-1"],
+  ];
+
+  const adminOnlyRoutes = [
+    ["promo use", "POST", "/api/admin/promos/PRO-1/use"],
     ["manual reward generation", "POST", "/api/admin/rewards/generate"],
   ];
 
-  test.each(mutationRoutes)("%s denies General Manager even with forged Admin body and Staff credentials", async (_label, method, path) => {
+  test.each(engagementManageRoutes)("%s denies General Manager without Marketing Engagement management even with forged Admin body", async (_label, method, path) => {
     const response = await request(path, {
       method,
       token: auth(generalManager),
@@ -151,16 +155,30 @@ describe("Engagement mutation RBAC", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Admin access required.");
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
     expect(__testModels.Promo.create).not.toHaveBeenCalled();
     expect(__testModels.Reward.create).not.toHaveBeenCalled();
     expect(__testModels.Reward.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  test.each(mutationRoutes)("%s denies Sales Associate even with forged Admin body and Staff credentials", async (_label, method, path) => {
+  test.each(engagementManageRoutes)("%s denies Sales Associate without Marketing Engagement management even with forged Admin body", async (_label, method, path) => {
     const response = await request(path, {
       method,
       token: auth(salesAssociate),
+      body: forgedAdminBody,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
+    expect(__testModels.Promo.create).not.toHaveBeenCalled();
+    expect(__testModels.Reward.create).not.toHaveBeenCalled();
+    expect(__testModels.Reward.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  test.each(adminOnlyRoutes)("%s remains Admin-only and denies Marketing", async (_label, method, path) => {
+    const response = await request(path, {
+      method,
+      token: auth(staff),
       body: forgedAdminBody,
     });
 
@@ -172,10 +190,10 @@ describe("Engagement mutation RBAC", () => {
   });
 
   test.each([
-    ["other Staff", staff, 403, "Admin access required."],
-    ["Customer", customer, 403, "Admin access required."],
+    ["Inventory Clerk", inventoryClerk, 403, "You do not have permission to perform this action."],
+    ["Customer", customer, 403, "You do not have permission to perform this action."],
     ["Unauthenticated", null, 401, "Authentication required."],
-  ])("%s cannot call administrative Engagement mutations", async (_label, user, expectedStatus, expectedMessage) => {
+  ])("%s cannot call Marketing Engagement management mutations", async (_label, user, expectedStatus, expectedMessage) => {
     const response = await request("/api/admin/rewards/RWD-1/status", {
       method: "PATCH",
       token: user ? auth(user) : "",

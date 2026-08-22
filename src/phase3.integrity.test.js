@@ -207,6 +207,70 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
   });
 
+  test("scopes Marketing bootstrap to Analytics, Services, Engagement, Dashboard, and Profile needs only", () => {
+    const marketing = { id: "MKT", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing" };
+    const scoped = filterBootstrapDataForRole({
+      bookings: [{ id: "B-MKT", customer: "Customer", customerEmail: "c@example.com", service: "Coating", status: "Completed", date: "2026-08-01", plate: "ABC123" }],
+      services: [{ id: "SVC-1", name: "Coating" }],
+      stockMonitoring: [{ id: "STK-1", name: "Soap" }],
+      payments: [{ id: "PAY-MKT", bookingId: "B-MKT", customerEmail: "c@example.com", service: "Coating", totalAmount: 1000, finalPaymentStatus: "Paid", finalPaymentVerifiedAt: "2026-08-01T00:00:00.000Z", finalPaymentReference: "REF-1" }],
+      users: [
+        marketing,
+        { id: "ADM", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" },
+        { id: "CUS", email: "c@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" },
+      ],
+      auditLogs: [{ id: "AUD-1", userId: "marketing@example.com", action: "Promotion created" }],
+      archivedAuditLogs: [{ id: "AUD-2", userId: "marketing@example.com", action: "Reward definition updated", archived: true }],
+      reviews: [{ id: "REV-1", rating: 5, customer: "Customer" }],
+      promos: [{ id: "PRO-1", status: "active" }],
+      quoteRequests: [{ id: "QR-1" }],
+      expenses: [{ id: "EXP-1", amount: 500 }],
+      commissions: [{ id: "COM-1", worker: "Senior One", earned: 50 }],
+      rewards: [{ id: "RWD-1", active: true }],
+      customerRewards: [{ id: "CR-1", customerEmail: "c@example.com" }],
+      alerts: [{ title: "Low stock" }],
+      financialReport: {
+        totals: { revenue: 1000 },
+        payments: [{ id: "PAY-MKT" }],
+        expenses: [{ id: "EXP-1" }],
+        commissions: [{ id: "COM-1" }],
+      },
+      summary: { paidRevenue: 1000 },
+      settings: { requiredDownPaymentAmount: 300 },
+    }, marketing);
+
+    expect(canAccessModule(marketing, MODULE_KEYS.analytics)).toBe(true);
+    expect(canAccessModule(marketing, MODULE_KEYS.services)).toBe(true);
+    expect(canAccessModule(marketing, MODULE_KEYS.engagement)).toBe(true);
+    expect(canPerformAction(marketing, ACTION_KEYS.engagementManage)).toBe(true);
+    expect(canAccessModule(marketing, MODULE_KEYS.bookings)).toBe(false);
+    expect(canAccessModule(marketing, MODULE_KEYS.paymentTracking)).toBe(false);
+    expect(canAccessModule(marketing, MODULE_KEYS.auditLogs)).toBe(false);
+    expect(scoped.bookings).toHaveLength(1);
+    expect(scoped.bookings[0]).toEqual(expect.objectContaining({ id: "B-MKT", service: "Coating", status: "Completed", date: "2026-08-01" }));
+    expect(scoped.bookings[0]).not.toHaveProperty("customerEmail");
+    expect(scoped.bookings[0]).not.toHaveProperty("plate");
+    expect(scoped.payments).toHaveLength(1);
+    expect(scoped.payments[0]).toEqual(expect.objectContaining({ id: "PAY-MKT", bookingId: "B-MKT", totalAmount: 1000, finalPaymentStatus: "Paid" }));
+    expect(scoped.payments[0]).not.toHaveProperty("customerEmail");
+    expect(scoped.payments[0]).not.toHaveProperty("finalPaymentReference");
+    expect(scoped.users.map((user) => user.email)).toEqual(["marketing@example.com"]);
+    expect(scoped.services).toEqual([{ id: "SVC-1", name: "Coating" }]);
+    expect(scoped.reviews).toHaveLength(1);
+    expect(scoped.promos).toHaveLength(1);
+    expect(scoped.quoteRequests).toHaveLength(1);
+    expect(scoped.rewards).toHaveLength(1);
+    expect(scoped.customerRewards).toEqual([]);
+    expect(scoped.auditLogs).toEqual([]);
+    expect(scoped.archivedAuditLogs).toEqual([]);
+    expect(scoped.stockMonitoring).toEqual([]);
+    expect(scoped.alerts).toEqual([]);
+    expect(scoped.expenses).toEqual([]);
+    expect(scoped.commissions).toEqual([]);
+    expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
+    expect(scoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
+  });
+
   test("scopes Inventory Clerk to Bookings data, stock, and operational audit logs", () => {
     const inventoryClerk = { id: "INV-CLERK", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk" };
     const scoped = filterBootstrapDataForRole({

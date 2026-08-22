@@ -65,6 +65,14 @@ const inventoryClerk = {
   role: "Inventory Clerk",
 };
 
+const marketing = {
+  id: "STF-MKT",
+  email: "marketing@example.com",
+  name: "Marketing",
+  userType: "Staff",
+  role: "Marketing",
+};
+
 const baseData = {
   bookings: [
     {
@@ -436,6 +444,37 @@ describe("Sales Associate authorization foundation shell", () => {
     expect(screen.queryByRole("dialog", { name: "Service Tracking Details" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View Only" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
+  });
+});
+
+describe("Marketing authorization foundation shell", () => {
+  test("shows exactly the approved Marketing navigation modules", () => {
+    setContext({ currentUser: marketing });
+    renderStaffMain(marketing);
+
+    for (const label of [
+      "Dashboard",
+      "Analytics",
+      "Services",
+      "Engagement",
+      "Profile",
+    ]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+
+    for (const label of [
+      "Audit Logs",
+      "Bookings",
+      "Service Tracking",
+      "Stock Monitoring",
+      "Payment Tracking",
+      "Financial Tracker",
+      "User Management",
+      "Detailer Management",
+      "My Work",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
   });
 });
 

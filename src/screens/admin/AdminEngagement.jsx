@@ -4,7 +4,7 @@ import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { getRewardStatus } from "../../utils/rewards";
-import { ACTION_KEYS } from "../../utils/rbac";
+import { ACTION_KEYS, normalizeUserType } from "../../utils/rbac";
 import {
   REWARD_UI_CATEGORIES,
   canonicalRewardTypeToUiCategory,
@@ -145,6 +145,7 @@ function markAllRewardFieldsTouched() {
 
 export default function AdminEngagement() {
   const { reviews, promos, rewards, customerRewards, currentUser, users, createPromo, updatePromo, updateReview, createReward, updateReward, updateRewardStatus, deleteReward } = useAdminData();
+  const canViewRewardHistory = normalizeUserType(currentUser) === "admin";
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState(false);
   const [promoError, setPromoError] = useState("");
@@ -581,7 +582,7 @@ export default function AdminEngagement() {
         </div>
       </div>
 
-      <div className="engCard engRewardHistoryCard">
+      {canViewRewardHistory && <div className="engCard engRewardHistoryCard">
         <div className="engRewardHistory">
           <div className="engRewardHistoryHead">
             <div>
@@ -626,7 +627,7 @@ export default function AdminEngagement() {
           })}
           {filteredCustomerRewards.length === 0 && <div className="engEmpty">No generated rewards matched the filters.</div>}
         </div>
-      </div>
+      </div>}
 
       {isPromoModalOpen && (
         <div className="engModalOverlay" onMouseDown={(event) => {
