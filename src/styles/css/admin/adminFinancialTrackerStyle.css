@@ -1027,6 +1027,20 @@ input.finModalInput[type="number"]::-webkit-inner-spin-button {
   border-color: #eadfbe;
 }
 
+.finReadOnlyValue {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 16px;
+  border: 1px solid #d8dee8;
+  background: #f8fafc;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .finModalError {
   margin-top: 16px;
   border-radius: 14px;

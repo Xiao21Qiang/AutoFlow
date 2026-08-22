@@ -20,6 +20,11 @@ function peso(value) {
   return `P${Number(value || 0).toLocaleString("en-PH")}`;
 }
 
+function displayValue(value) {
+  const normalized = String(value ?? "").trim();
+  return normalized || "-";
+}
+
 function percentOf(value, max) {
   const safeValue = Number(value || 0);
   const safeMax = Number(max || 0);
@@ -69,6 +74,7 @@ export default function AdminFinancialTracker() {
   const aiGeneratingRef = useRef(false);
   const [showArchivedExpenses, setShowArchivedExpenses] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState("");
+  const [selectedExpense, setSelectedExpense] = useState(null);
   const canCreateExpense = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
   const activeExpenses = useMemo(() => expenses.filter((item) => item.archived !== true), [expenses]);
   const visibleExpenseSource = showArchivedExpenses ? expenses : activeExpenses;
@@ -309,10 +315,17 @@ export default function AdminFinancialTracker() {
     setModal("expense");
   };
 
+  const openReadOnlyExpenseModal = (expense) => {
+    setSelectedExpense(expense);
+    setFormError("");
+    setModal("expense-details");
+  };
+
   const closeModal = () => {
     if (saving) return;
     setModal(null);
     setFormError("");
+    setSelectedExpense(null);
   };
 
   const exportPdf = () =>
@@ -430,7 +443,7 @@ export default function AdminFinancialTracker() {
                             )}
                           </>
                         ) : (
-                          <button className="finTinyEdit" type="button" disabled>Read only</button>
+                          <button className="finTinyEdit" type="button" onClick={() => openReadOnlyExpenseModal(item)}>Read only</button>
                         )}
                       </div>
                     </td>
@@ -599,6 +612,58 @@ export default function AdminFinancialTracker() {
               <button className="finPrimaryBtn" type="button" onClick={handleExpenseSave} disabled={saving}>
                 {saving ? "Saving..." : editingExpenseId ? "Update Expense" : "Save Expense"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {!canCreateExpense && modal === "expense-details" && selectedExpense && (
+        <div className="finModalOverlay" onClick={closeModal}>
+          <div className="finModalCard" role="dialog" aria-modal="true" aria-labelledby="expense-details-title" onClick={(e) => e.stopPropagation()}>
+            <button className="finModalClose" type="button" onClick={closeModal} aria-label="Close expense details">x</button>
+            <div className="finModalHeader">
+              <div className="finModalTitle" id="expense-details-title">Expense Details</div>
+              <div className="finModalSub">Read-only expense information from the financial tracker.</div>
+            </div>
+
+            <div className="finModalGrid">
+              <div className="finModalField">
+                <span>Date</span>
+                <div className="finReadOnlyValue">{displayValue(selectedExpense.date)}</div>
+              </div>
+              <div className="finModalField">
+                <span>Paid By</span>
+                <div className="finReadOnlyValue">{displayValue(selectedExpense.paidBy)}</div>
+              </div>
+              <div className="finModalField finModalFieldWide">
+                <span>Description</span>
+                <div className="finReadOnlyValue">{displayValue(selectedExpense.description)}</div>
+              </div>
+              <div className="finModalField">
+                <span>Category</span>
+                <div className="finReadOnlyValue">{displayValue(selectedExpense.category)}</div>
+              </div>
+              <div className="finModalField">
+                <span>Amount</span>
+                <div className="finReadOnlyValue">{peso(selectedExpense.amount)}</div>
+              </div>
+              {selectedExpense.note ? (
+                <div className="finModalField finModalFieldWide">
+                  <span>Note</span>
+                  <div className="finReadOnlyValue">{selectedExpense.note}</div>
+                </div>
+              ) : null}
+              {selectedExpense.archived ? (
+                <div className="finModalField finModalFieldWide">
+                  <span>Archive Status</span>
+                  <div className="finReadOnlyValue">
+                    Archived{selectedExpense.archivedAt ? ` on ${selectedExpense.archivedAt}` : ""}{selectedExpense.archivedBy ? ` by ${selectedExpense.archivedBy}` : ""}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="finModalActions">
+              <button className="finGhostBtn" type="button" onClick={closeModal}>Close</button>
             </div>
           </div>
         </div>

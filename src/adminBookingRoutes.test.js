@@ -70,6 +70,7 @@ const basePayload = {
 let bookings;
 let payments;
 let auditLogs;
+let expenseCreateMock;
 const originals = [];
 
 function clone(value) {
@@ -524,7 +525,8 @@ beforeAll(async () => {
   stub(__testModels.StockMonitoringItem, "find", () => chain([]));
   stub(__testModels.StockMonitoringItem, "updateOne", async () => ({}));
   stub(__testModels.Expense, "findOne", async () => null);
-  stub(__testModels.Expense, "create", async (payload) => clone(payload));
+  expenseCreateMock = jest.fn(async (payload) => clone(payload));
+  stub(__testModels.Expense, "create", expenseCreateMock);
   stub(__testModels.AuditLog, "create", async (payload) => {
     auditLogs.push(clone(payload));
     return clone(payload);
@@ -559,6 +561,27 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetData();
+  expenseCreateMock.mockClear();
+});
+
+describe("Expense mutation route authorization", () => {
+  test("General Manager direct expense creation remains denied before mutation", async () => {
+    const response = await request("/api/admin/expenses", {
+      method: "POST",
+      token: auth(generalManagerUser),
+      body: {
+        date: "2099-12-01",
+        description: "Unauthorized staff expense",
+        category: "Supplies",
+        amount: 500,
+        paidBy: "General Manager",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toMatch(/Admin access required/);
+    expect(expenseCreateMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("Admin booking creation route validation", () => {

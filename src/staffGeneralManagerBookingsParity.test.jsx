@@ -136,6 +136,11 @@ const baseData = {
   createBooking: jest.fn(),
   updateBooking: jest.fn(),
   deleteBooking: jest.fn(),
+  createExpense: jest.fn(),
+  updateExpense: jest.fn(),
+  archiveExpense: jest.fn(),
+  restoreExpense: jest.fn(),
+  generateFinancialInterpretation: jest.fn(),
   updatePayment: jest.fn(),
   loadPaymentProof: jest.fn().mockResolvedValue({}),
   loading: false,
@@ -637,6 +642,92 @@ describe("Sales Manager Service Tracking view-only shell", () => {
 
     expect(screen.queryByRole("dialog", { name: "Service Tracking Details" })).not.toBeInTheDocument();
     expect(updateBooking).not.toHaveBeenCalled();
+  });
+});
+
+describe("General Manager Financial Tracker expense details shell", () => {
+  test("opens selected read-only expense details without mutation controls or expense mutations", () => {
+    const createExpense = jest.fn();
+    const updateExpense = jest.fn();
+    const archiveExpense = jest.fn();
+    const restoreExpense = jest.fn();
+    setContext({
+      createExpense,
+      updateExpense,
+      archiveExpense,
+      restoreExpense,
+      expenses: [
+        {
+          id: "EXP-A",
+          date: "2099-12-01",
+          description: "Microfiber towels",
+          category: "Supplies",
+          amount: 1250,
+          paidBy: "Petty Cash",
+          note: "Restock for weekend jobs",
+        },
+        {
+          id: "EXP-B",
+          date: "2099-12-02",
+          description: "Electric bill",
+          category: "Utilities",
+          amount: 2400,
+          paidBy: "Admin",
+          note: "Bay lighting and office",
+        },
+      ],
+    });
+    renderStaffMain();
+
+    fireEvent.click(screen.getByText("Financial Tracker"));
+
+    const readOnlyButtons = screen.getAllByRole("button", { name: "Read only" });
+    expect(readOnlyButtons).toHaveLength(2);
+    expect(readOnlyButtons[0]).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+
+    fireEvent.click(readOnlyButtons[0]);
+
+    let dialog = screen.getByRole("dialog", { name: "Expense Details" });
+    expect(within(dialog).getByText("2099-12-01")).toBeInTheDocument();
+    expect(within(dialog).getByText("Microfiber towels")).toBeInTheDocument();
+    expect(within(dialog).getByText("Supplies")).toBeInTheDocument();
+    expect(within(dialog).getByText("P1,250")).toBeInTheDocument();
+    expect(within(dialog).getByText("Petty Cash")).toBeInTheDocument();
+    expect(within(dialog).getByText("Restock for weekend jobs")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /edit|save|update|delete|archive|restore/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "Expense Details" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Read only" })[1]);
+    dialog = screen.getByRole("dialog", { name: "Expense Details" });
+    expect(within(dialog).getByText("2099-12-02")).toBeInTheDocument();
+    expect(within(dialog).getByText("Electric bill")).toBeInTheDocument();
+    expect(within(dialog).getByText("Utilities")).toBeInTheDocument();
+    expect(within(dialog).getByText("P2,400")).toBeInTheDocument();
+    expect(within(dialog).getByText("Admin")).toBeInTheDocument();
+    expect(within(dialog).getByText("Bay lighting and office")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Microfiber towels")).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(createExpense).not.toHaveBeenCalled();
+    expect(updateExpense).not.toHaveBeenCalled();
+    expect(archiveExpense).not.toHaveBeenCalled();
+    expect(restoreExpense).not.toHaveBeenCalled();
+  });
+
+  test("does not expose Financial Tracker to other Staff roles", () => {
+    setContext({ currentUser: salesManager });
+    renderStaffMain(salesManager);
+
+    expect(screen.queryByText("Financial Tracker")).not.toBeInTheDocument();
   });
 });
 

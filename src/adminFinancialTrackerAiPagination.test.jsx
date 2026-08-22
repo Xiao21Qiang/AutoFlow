@@ -183,3 +183,21 @@ describe("Financial Tracker commission log pagination", () => {
     expect(screen.getByLabelText("Next commission page")).toBeDisabled();
   });
 });
+
+describe("Financial Tracker admin expense controls", () => {
+  test("keeps Admin expense management actions available", () => {
+    renderTracker();
+
+    expect(screen.queryByRole("button", { name: "Read only" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.getByText("Edit Expense")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("2099-12-01")).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue("Supplies").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("Admin")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update Expense" })).toBeInTheDocument();
+  });
+});
