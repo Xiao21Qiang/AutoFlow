@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import StaffMain from "./screens/staff/StaffMain";
 import { validateSpecialCredential } from "./utils/reauth";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/downloadExport";
@@ -31,6 +31,14 @@ const generalManager = {
   name: "General Manager",
   userType: "Staff",
   role: "General Manager",
+};
+
+const salesManager = {
+  id: "STF-SM",
+  email: "sales-manager@example.com",
+  name: "Sales Manager",
+  userType: "Staff",
+  role: "Sales Manager",
 };
 
 const seniorDetailer = {
@@ -418,7 +426,72 @@ describe("General Manager Service Tracking parity shell", () => {
     fireEvent.click(screen.getByText("Service Tracking"));
 
     expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
-    expect(screen.getByText("View only")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Only" })).toBeInTheDocument();
+  });
+});
+
+describe("Sales Manager Service Tracking view-only shell", () => {
+  test("opens selected tracking details without mutation controls", () => {
+    const updateBooking = jest.fn();
+    setContext({
+      currentUser: salesManager,
+      updateBooking,
+      bookings: [{
+        ...baseData.bookings[0],
+        id: "B-SM-TRACK-1",
+        status: "In Progress",
+        assigned: "Detailer One",
+        issueNote: "Paint blemish documented before service.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: "Paint blemish" }],
+        warrantyCoveragePackage: "Standard Warranty",
+        warrantyChecklist: "Customer advised on aftercare.",
+        warrantyChecklistItems: [{ id: "client-inspection", label: "Final inspection with client", done: true, doneBy: "Detailer One", notes: "Checked" }],
+        warrantyAcknowledgement: {
+          dateLocation: "2099-12-31 / QC",
+          carModelYearColor: "Civic 2024 Blue",
+          plateCsNumber: "ABC123",
+          serviceAvailed: "Ceramic Coating",
+          clientName: "Customer One",
+          clientSignature: "Customer One",
+        },
+        warrantyReleased: false,
+      }],
+    });
+    renderStaffMain(salesManager);
+
+    fireEvent.click(screen.getByText("Service Tracking"));
+
+    const viewButton = screen.getByRole("button", { name: "View Only" });
+    expect(viewButton).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
+
+    fireEvent.click(viewButton);
+
+    const dialog = screen.getByRole("dialog", { name: "Service Tracking Details" });
+    expect(within(dialog).getByText("B-SM-TRACK-1")).toBeInTheDocument();
+    expect(within(dialog).getByText("In Progress")).toBeInTheDocument();
+    expect(within(dialog).getByText("Detailer One")).toBeInTheDocument();
+    expect(within(dialog).getByText("Paint blemish documented before service.")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Marker 1: Paint blemish at 42%, 58%/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Standard Warranty")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Final inspection with client: Done by Detailer One - Checked/)).toBeInTheDocument();
+    expect(within(dialog).getByText("2099-12-31 / QC")).toBeInTheDocument();
+
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /generate suggestion/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /add marker/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /remove/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("dialog", { name: "Service Tracking Details" })).not.toBeInTheDocument();
+    expect(updateBooking).not.toHaveBeenCalled();
   });
 });
 

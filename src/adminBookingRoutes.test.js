@@ -19,6 +19,7 @@ jest.setTimeout(15000);
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
+const salesManagerUser = { id: "SM-1", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
 const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
 const customerUser = {
   id: "CUS-1",
@@ -49,7 +50,7 @@ const carWashService = {
   allowedArrivalTimes: ["10:00", "13:00"],
 };
 const serviceFixtures = [service, carWashService];
-const testUsers = [adminUser, generalManagerUser, marketingUser, salesAssociateUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
+const testUsers = [adminUser, generalManagerUser, marketingUser, salesManagerUser, salesAssociateUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -844,6 +845,79 @@ describe("Sales Associate Service Tracking route parity", () => {
     expect(response.status).toBe(400);
     expect(response.body.message).toBe("Booking status cannot transition from In Progress to Scheduled.");
     expect(bookings[0]).toEqual(originalBooking);
+  });
+});
+
+describe("Sales Manager Service Tracking view-only route enforcement", () => {
+  test("Sales Manager can receive authorized tracking data", async () => {
+    seedInProgressTrackingBooking();
+
+    const response = await request("/api/tracking/B-TRACKING", {
+      token: auth(salesManagerUser),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: "B-TRACKING",
+      status: "In Progress",
+      issueNote: "Paint blemish documented before service.",
+      issueTypes: ["Paint blemish"],
+      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
+    });
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Sales Manager cannot use forged Admin role data or Staff PIN to start tracking", async () => {
+    seedScheduledBooking({ finalPaymentStatus: "For Verification", status: "For Verification" });
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(salesManagerUser),
+      body: {
+        ...bookings[0],
+        status: "In Progress",
+        assigned: "Detailer Two",
+        issueNote: "Paint blemish documented before service.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
+        specialPin: "654321",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Manager has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status", "assigned", "issueNote", "issueTypes", "issueMarkers"]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Sales Manager cannot complete or release tracking with valid Staff PIN", async () => {
+    seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(salesManagerUser),
+      body: {
+        ...bookings[0],
+        status: "Completed",
+        warrantyReleased: true,
+        warrantyReleasedAt: "2099-12-31T08:00:00.000Z",
+        specialPin: "654321",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Manager has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status", "warrantyReleased", "warrantyReleasedAt"]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
   });
 });
 

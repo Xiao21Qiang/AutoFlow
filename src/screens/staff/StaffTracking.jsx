@@ -92,6 +92,48 @@ function getMarkerTone(index) {
   return tones[index % tones.length];
 }
 
+function formatDisplayValue(value, fallback = "Not recorded") {
+  if (Array.isArray(value)) {
+    const items = value.map((item) => String(item || "").trim()).filter(Boolean);
+    return items.length ? items.join(", ") : fallback;
+  }
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function ReadOnlyField({ label, value, className = "" }) {
+  return (
+    <div className={`stTrackReadOnlyField${className ? ` ${className}` : ""}`}>
+      <span>{label}</span>
+      <strong>{formatDisplayValue(value)}</strong>
+    </div>
+  );
+}
+
+function ReadOnlyIssueMap({ markers }) {
+  const safeMarkers = Array.isArray(markers) ? markers : [];
+  return (
+    <div className="stIssueMapShell stIssueMapShellReadOnly">
+      <div className="stIssueMap stIssueMapImg" style={{ backgroundImage: `url(${carDiagram})` }}>
+        <img src={carDiagram} alt="Car diagram" className="stCarDiagramImg" draggable={false} />
+        {safeMarkers.map((marker, index) => {
+          const tone = getMarkerTone(index);
+          return (
+            <span
+              key={marker.id || index}
+              className="stIssueMarker stIssueMarkerReadOnly"
+              style={{ left: `${Number(marker.x || 50)}%`, top: `${Number(marker.y || 50)}%`, background: tone.fill, boxShadow: `0 4px 12px ${tone.shadow}` }}
+              title={marker.issueType ? `Marker ${marker.id || index + 1}: ${marker.issueType}` : `Marker ${marker.id || index + 1}`}
+            >
+              {marker.id || index + 1}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker, disabled = false }) {
   return (
     <div className="stIssueMapShell">
@@ -180,6 +222,38 @@ export default function StaffTracking() {
       customerSummary: "",
       model: "",
     });
+  };
+
+  const openEditModal = (row) => {
+    setSelectedRow(row);
+    setEditForm(createEditForm(row));
+    setIssueNoteAi({
+      status: "idle",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
+    setIssueNoteMessage("");
+    setWarrantyMessage("");
+    setModal("edit");
+  };
+
+  const openViewModal = (row) => {
+    setSelectedRow(row);
+    setEditForm(createEditForm(row));
+    setIssueNoteAi({
+      status: "idle",
+      message: "",
+      suggestion: "",
+      nextAction: "",
+      customerSummary: "",
+      model: "",
+    });
+    setIssueNoteMessage("");
+    setWarrantyMessage("");
+    setModal("view");
   };
 
   useEffect(() => {
@@ -504,24 +578,14 @@ export default function StaffTracking() {
                       {canEditTracking && isAssignedToCurrentUser(r, currentUser) ? <button
                         className="stTrackMiniBtn"
                         type="button"
-                        onClick={() => {
-                          setSelectedRow(r);
-                          setEditForm(createEditForm(r));
-                          setIssueNoteAi({
-                            status: "idle",
-                            message: "",
-                            suggestion: "",
-                            nextAction: "",
-                            customerSummary: "",
-                            model: "",
-                          });
-                          setIssueNoteMessage("");
-                          setWarrantyMessage("");
-                          setModal("edit");
-                        }}
+                        onClick={() => openEditModal(r)}
                       >
                         Edit
-                      </button> : <span>View only</span>}
+                      </button> : (
+                        <button className="stTrackMiniBtn" type="button" onClick={() => openViewModal(r)}>
+                          View Only
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -731,6 +795,103 @@ export default function StaffTracking() {
                 <button className="stTrackMiniBtn" type="submit">Save</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {modal === "view" && selectedRow && (
+        <div className="stTrackModalOverlay" onClick={closeModal}>
+          <div className="stTrackModalCard" role="dialog" aria-modal="true" aria-labelledby="stTrackViewTitle" onClick={(e) => e.stopPropagation()}>
+            <button className="stTrackModalClose" type="button" onClick={closeModal}>
+              x
+            </button>
+
+            <div className="stTrackModalTitle" id="stTrackViewTitle">Service Tracking Details</div>
+            <div className="stTrackReadOnlyGrid">
+              <ReadOnlyField label="Booking ID" value={selectedRow.id} />
+              <ReadOnlyField label="Booking Date" value={selectedRow.date} />
+              <ReadOnlyField label="Customer Name" value={selectedRow.customer} />
+              <ReadOnlyField label="Customer Email" value={selectedRow.customerEmail} />
+              <ReadOnlyField label="Vehicle Model" value={selectedRow.vehicle} />
+              <ReadOnlyField label="Plate Number" value={selectedRow.plate} />
+              <ReadOnlyField label="Service" value={selectedRow.service} />
+              <ReadOnlyField label="Assigned To" value={selectedRow.assigned} />
+              <ReadOnlyField label="Status" value={selectedRow.status} />
+              <ReadOnlyField label="Time" value={selectedRow.time} />
+              <ReadOnlyField label="Place Slot" value={selectedRow.placeSlot ? `Slot ${selectedRow.placeSlot}` : ""} />
+            </div>
+
+            <div className="stIssueSection">
+              <div className="stIssueSectionHead">
+                <div className="stIssueTitle">Problem Location</div>
+                <div className="stIssueSub">Tracking details are available for inspection only.</div>
+              </div>
+              <div className="stIssueLayout">
+                <div className="stIssueMapPanel">
+                  <ReadOnlyIssueMap markers={editForm.issueMarkers.filter((marker) => marker.issueType || marker.x || marker.y)} />
+                </div>
+                <div className="stIssueRightPanel">
+                  <ReadOnlyField label="Issue Types" value={selectedRow.issueTypes} />
+                  <ReadOnlyField label="Issue Notes" value={selectedRow.issueNote} className="stTrackReadOnlyFieldWide" />
+                  <div className="stTrackReadOnlyField stTrackReadOnlyFieldWide">
+                    <span>Markers</span>
+                    {Array.isArray(selectedRow.issueMarkers) && selectedRow.issueMarkers.length ? (
+                      <ul className="stTrackReadOnlyList">
+                        {selectedRow.issueMarkers.map((marker, index) => (
+                          <li key={marker.id || index}>
+                            Marker {marker.id || index + 1}: {formatDisplayValue(marker.issueType, "No issue type")} at {Number(marker.x || 0).toFixed(0)}%, {Number(marker.y || 0).toFixed(0)}%
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <strong>Not recorded</strong>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="stIssueSection">
+              <div className="stIssueSectionHead">
+                <div className="stIssueTitle">Warranty Document</div>
+                <div className="stIssueSub">Warranty and acknowledgement details are read-only.</div>
+              </div>
+              <div className="stTrackReadOnlyGrid">
+                <ReadOnlyField label="Warranty Coverage" value={selectedRow.warrantyCoveragePackage} />
+                <ReadOnlyField label="Warranty Notes" value={selectedRow.warrantyChecklist} />
+                <ReadOnlyField label="Warranty QR Release" value={selectedRow.warrantyReleased ? "Released" : "Hold"} />
+                <ReadOnlyField label="Warranty Released At" value={selectedRow.warrantyReleasedAt} />
+              </div>
+              <div className="stTrackReadOnlyField stTrackReadOnlyFieldWide">
+                <span>Checklist</span>
+                {editForm.warrantyChecklistItems.length ? (
+                  <ul className="stTrackReadOnlyList">
+                    {editForm.warrantyChecklistItems.map((item) => (
+                      <li key={item.id}>
+                        {item.label}: {item.done ? "Done" : "Not done"}{item.doneBy ? ` by ${item.doneBy}` : ""}{item.notes ? ` - ${item.notes}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <strong>Not recorded</strong>
+                )}
+              </div>
+              <div className="stTrackReadOnlyGrid">
+                {[
+                  ["dateLocation", "Date / Location"],
+                  ["carModelYearColor", "Car Model / Year / Color"],
+                  ["plateCsNumber", "Plate / CS Number"],
+                  ["serviceAvailed", "Service Availed"],
+                  ["clientName", "Client Name"],
+                  ["clientSignature", "Client Signature"],
+                ].map(([key, label]) => (
+                  <ReadOnlyField key={key} label={label} value={editForm.warrantyAcknowledgement[key]} />
+                ))}
+              </div>
+            </div>
+
+            <div className="stTrackModalActions">
+              <button className="stTrackMiniBtn" type="button" onClick={closeModal}>Close</button>
+            </div>
           </div>
         </div>
       )}

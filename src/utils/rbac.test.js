@@ -63,6 +63,18 @@ describe("Phase 1 permission matrix", () => {
     expect(canPerformAction(customer, ACTION_KEYS.paymentVerify)).toBe(false);
   });
 
+  test("keeps Sales Manager Service Tracking view-only at the capability layer", () => {
+    expect(normalizeRole({ role: "  Sales   Manager  " })).toBe("sales manager");
+    expect(normalizeUserType({ userType: "Staff", role: "Sales Manager" })).toBe("staff");
+    expect(isStaff(salesManager)).toBe(true);
+    expect(isAdmin(salesManager)).toBe(false);
+    expect(canAccessModule(salesManager, MODULE_KEYS.serviceTracking)).toBe(true);
+    expect(canPerformAction(salesManager, ACTION_KEYS.trackingView)).toBe(true);
+    expect(canPerformAction(salesManager, ACTION_KEYS.trackingUpdateIssueNotes)).toBe(false);
+    expect(canPerformAction(salesManager, ACTION_KEYS.trackingUpdateWarranty)).toBe(false);
+    expect(canPerformAction(salesManager, ACTION_KEYS.trackingComplete)).toBe(false);
+  });
+
   test("recognizes Sales Associate as Staff using the canonical normalized role", () => {
     expect(normalizeRole({ role: "  Sales   Associate  " })).toBe("sales associate");
     expect(normalizeUserType({ userType: "Staff", role: "Sales Associate" })).toBe("staff");

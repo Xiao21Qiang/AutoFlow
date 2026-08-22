@@ -476,6 +476,54 @@
   gap: 10px;
 }
 
+.stTrackReadOnlyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stTrackReadOnlyField {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stTrackReadOnlyFieldWide {
+  grid-column: 1 / -1;
+  margin-bottom: 12px;
+}
+
+.stTrackReadOnlyField span {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.stTrackReadOnlyField strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stTrackReadOnlyList {
+  margin: 0;
+  padding-left: 18px;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
 .stTrackModalActions {
   display: flex;
   justify-content: flex-end;
@@ -593,6 +641,16 @@
 .stIssueMarker:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.stIssueMapShellReadOnly .stIssueMap {
+  pointer-events: none;
+}
+
+.stIssueMarkerReadOnly {
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
 }
 
 .stTrackIssueHelper {

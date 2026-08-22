@@ -4645,6 +4645,49 @@ function hasWarrantyFieldChanges(previousBooking = {}, nextBody = {}) {
   return false;
 }
 
+const SALES_MANAGER_TRACKING_READ_ONLY_FIELDS = [
+  "assigned",
+  "issueNote",
+  "issueTypes",
+  "issueMarkers",
+  "warrantyChecklist",
+  "warrantyChecklistItems",
+  "warrantyCoveragePackage",
+  "warrantyAcknowledgement",
+  "warrantyReleased",
+  "warrantyReleasedAt",
+  "warrantyQrCode",
+];
+
+function hasChangedBodyField(previousBooking = {}, nextBody = {}, field) {
+  if (!Object.prototype.hasOwnProperty.call(nextBody, field)) return false;
+  if (field === "warrantyReleased") {
+    return Boolean(nextBody[field]) !== Boolean(previousBooking[field]);
+  }
+  return stableStringify(nextBody[field]) !== stableStringify(previousBooking[field]);
+}
+
+function isTrackingLifecycleStatusChange(previousBooking = {}, nextBody = {}) {
+  if (!Object.prototype.hasOwnProperty.call(nextBody, "status")) return false;
+  const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
+  const nextStatus = normalizeWorkflowStatus(nextBody.status || previousBooking.status, previousStatus);
+  if (previousStatus === nextStatus) return false;
+  return [previousStatus, nextStatus].some((status) => status === "In Progress" || status === "Completed");
+}
+
+function getSalesManagerTrackingMutationFields(previousBooking = {}, nextBody = {}) {
+  const changedFields = [];
+  if (isTrackingLifecycleStatusChange(previousBooking, nextBody)) {
+    changedFields.push("status");
+  }
+  for (const field of SALES_MANAGER_TRACKING_READ_ONLY_FIELDS) {
+    if (hasChangedBodyField(previousBooking, nextBody, field)) {
+      changedFields.push(field);
+    }
+  }
+  return changedFields;
+}
+
 function hasRequiredWarrantyDetails(booking = {}) {
   if (isWarrantyExemptService(booking.service)) return true;
 
@@ -7505,20 +7548,14 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       denyForbidden(res);
       return;
     } else if (staffRoleForBookingUpdate === "sales manager") {
-      [
-        "issueNote",
-        "issueTypes",
-        "issueMarkers",
-        "warrantyChecklist",
-        "warrantyChecklistItems",
-        "warrantyCoveragePackage",
-        "warrantyAcknowledgement",
-        "warrantyReleased",
-        "warrantyReleasedAt",
-        "warrantyQrCode",
-      ].forEach((field) => {
-        delete req.body[field];
-      });
+      const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
+      if (trackingMutationFields.length) {
+        res.status(403).json({
+          message: "Sales Manager has view-only access to Service Tracking.",
+          fields: trackingMutationFields,
+        });
+        return;
+      }
     }
 
     if (isCancelledStatus(existingBooking.status)) {
