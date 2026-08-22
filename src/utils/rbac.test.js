@@ -86,7 +86,7 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
-  test("gives Inventory Clerk Bookings, audit read, tracking view, and stock manage without stock create", () => {
+  test("gives Inventory Clerk Bookings, audit read, tracking view, and full stock monitoring actions", () => {
     for (const actionKey of [
       ACTION_KEYS.bookingView,
       ACTION_KEYS.bookingCreate,
@@ -94,6 +94,7 @@ describe("Phase 1 permission matrix", () => {
       ACTION_KEYS.bookingUpdateStatus,
       ACTION_KEYS.trackingView,
       ACTION_KEYS.stockView,
+      ACTION_KEYS.stockCreate,
       ACTION_KEYS.stockManage,
       ACTION_KEYS.auditViewOperational,
     ]) {
@@ -101,7 +102,6 @@ describe("Phase 1 permission matrix", () => {
     }
 
     for (const actionKey of [
-      ACTION_KEYS.stockCreate,
       ACTION_KEYS.trackingUpdateIssueNotes,
       ACTION_KEYS.trackingUpdateWarranty,
       ACTION_KEYS.trackingComplete,

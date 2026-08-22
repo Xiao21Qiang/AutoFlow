@@ -17,6 +17,8 @@ const STOCK_LEGEND = [
   { tone: "warning", label: "Low", range: "At or below reorder level", note: "Watch usage level" },
   { tone: "healthy", label: "Healthy", range: "Above reorder level", note: "Stock level is good" },
 ];
+const EMPTY_ADD_STOCK_FORM = { name: "", category: "Coating", currentStock: "0", maxStock: "0", reorderLevel: "0", pricePerUnit: "0" };
+const ADD_STOCK_FIELDS = ["name", "category", "currentStock", "maxStock", "reorderLevel", "pricePerUnit"];
 
 function clampNumber(value) {
   const n = Number(value);
@@ -66,6 +68,51 @@ function validateStockLimit({ currentStock, maxStock, reorderLevel = null, qtyTo
   }
 
   return "";
+}
+
+function parseRequiredNonNegativeNumber(value, label) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return { value: 0, error: `${label} is required.` };
+  const number = Number(rawValue);
+  if (!Number.isFinite(number)) return { value: 0, error: `${label} must be a valid number.` };
+  if (number < 0) return { value: number, error: `${label} cannot be negative.` };
+  return { value: number, error: "" };
+}
+
+function getAddStockFieldErrors(form = {}) {
+  const errors = {};
+  if (!String(form.name || "").trim()) {
+    errors.name = "Item name is required.";
+  }
+  if (!CATEGORY_OPTIONS.includes(String(form.category || "").trim())) {
+    errors.category = "Please select a valid category.";
+  }
+
+  const currentStock = parseRequiredNonNegativeNumber(form.currentStock, "Current stock quantity");
+  const maxStock = parseRequiredNonNegativeNumber(form.maxStock, "Max stock quantity");
+  const reorderLevel = parseRequiredNonNegativeNumber(form.reorderLevel, "Reorder level");
+  const pricePerUnit = parseRequiredNonNegativeNumber(form.pricePerUnit, "Price per unit");
+
+  if (currentStock.error) errors.currentStock = currentStock.error;
+  if (maxStock.error) errors.maxStock = maxStock.error;
+  if (reorderLevel.error) errors.reorderLevel = reorderLevel.error;
+  if (pricePerUnit.error) errors.pricePerUnit = pricePerUnit.error;
+
+  if (!currentStock.error && !maxStock.error && !reorderLevel.error) {
+    const stockLimitError = validateStockLimit({
+      currentStock: currentStock.value,
+      maxStock: maxStock.value,
+      reorderLevel: reorderLevel.value,
+    });
+    if (stockLimitError) {
+      if (stockLimitError.includes("Current stock")) errors.currentStock = stockLimitError;
+      else if (stockLimitError.includes("Max stock")) errors.maxStock = stockLimitError;
+      else if (stockLimitError.includes("Reorder level")) errors.reorderLevel = stockLimitError;
+      else errors.currentStock = stockLimitError;
+    }
+  }
+
+  return errors;
 }
 
 function getStockPercent(item) {
@@ -126,14 +173,10 @@ export default function StaffStockMonitoring() {
   const [restockTouchedFields, setRestockTouchedFields] = useState({});
   const [restockSubmitAttempted, setRestockSubmitAttempted] = useState(false);
   const [isRestockSubmitting, setIsRestockSubmitting] = useState(false);
-  const [addForm, setAddForm] = useState({
-    name: "",
-    category: "Coating",
-    currentStock: "0",
-    maxStock: "0",
-    reorderLevel: "0",
-    pricePerUnit: "0",
-  });
+  const [addForm, setAddForm] = useState(EMPTY_ADD_STOCK_FORM);
+  const [addTouchedFields, setAddTouchedFields] = useState({});
+  const [addSubmitAttempted, setAddSubmitAttempted] = useState(false);
+  const [isAddSubmitting, setIsAddSubmitting] = useState(false);
 
   const selectedItem = useMemo(
     () => stockMonitoring.find((item) => item.id === selectedItemId) || null,
@@ -171,6 +214,9 @@ export default function StaffStockMonitoring() {
     setRestockTouchedFields({});
     setRestockSubmitAttempted(false);
     setIsRestockSubmitting(false);
+    setAddTouchedFields({});
+    setAddSubmitAttempted(false);
+    setIsAddSubmitting(false);
   };
 
   const openEditModal = (item) => {
@@ -211,14 +257,10 @@ export default function StaffStockMonitoring() {
 
   const openAddModal = () => {
     setSelectedItemId(null);
-    setAddForm({
-      name: "",
-      category: "Coating",
-      currentStock: "0",
-      maxStock: "0",
-      reorderLevel: "0",
-      pricePerUnit: "0",
-    });
+    setAddForm(EMPTY_ADD_STOCK_FORM);
+    setAddTouchedFields({});
+    setAddSubmitAttempted(false);
+    setIsAddSubmitting(false);
     setModal("add");
   };
 
@@ -236,6 +278,13 @@ export default function StaffStockMonitoring() {
   const restockQuantityError = restockTouchedFields.qtyToAdd || restockSubmitAttempted ? restockFieldErrors.qtyToAdd : "";
   const restockUnitCostError = restockTouchedFields.costPerUnit || restockSubmitAttempted ? restockFieldErrors.costPerUnit : "";
   const isSaveRestockDisabled = isRestockSubmitting || !isRestockFormReady(restockForm);
+  const addFieldErrors = getAddStockFieldErrors(addForm);
+  const getAddFieldError = (field) => (
+    addTouchedFields[field] || addSubmitAttempted ? addFieldErrors[field] || "" : ""
+  );
+  const markAddFieldTouched = (field) => {
+    setAddTouchedFields((prev) => ({ ...prev, [field]: true }));
+  };
 
   const handleEditSubmit = async (event) => {
     event.preventDefault();
@@ -268,18 +317,16 @@ export default function StaffStockMonitoring() {
 
   const handleAddSubmit = async (event) => {
     event.preventDefault();
+    setAddSubmitAttempted(true);
+    setAddTouchedFields(Object.fromEntries(ADD_STOCK_FIELDS.map((field) => [field, true])));
+    if (isAddSubmitting) return;
+    if (Object.keys(addFieldErrors).length > 0) {
+      return;
+    }
     try {
-      const validationMessage = validateStockLimit({
-        currentStock: addForm.currentStock,
-        maxStock: addForm.maxStock,
-        reorderLevel: addForm.reorderLevel,
-      });
-      if (validationMessage) {
-        showToast("error", validationMessage);
-        return;
-      }
+      setIsAddSubmitting(true);
       await createStockMonitoringItem({
-        name: addForm.name.trim(),
+        name: addForm.name.trim().replace(/\s+/g, " "),
         category: addForm.category,
         currentStock: clampNumber(addForm.currentStock),
         maxStock: clampNumber(addForm.maxStock),
@@ -294,6 +341,8 @@ export default function StaffStockMonitoring() {
       closeModal();
     } catch (error) {
       showToast("error", getErrorMessage(error, "Could not add stock item."));
+    } finally {
+      setIsAddSubmitting(false);
     }
   };
 
@@ -617,9 +666,13 @@ export default function StaffStockMonitoring() {
                   <input
                     value={addForm.name}
                     onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
+                    onBlur={() => markAddFieldTouched("name")}
                     placeholder="e.g. Ceramic Coating 1L"
+                    aria-invalid={getAddFieldError("name") ? "true" : undefined}
+                    aria-describedby={getAddFieldError("name") ? "staff-add-stock-name-error" : undefined}
                     required
                   />
+                  {getAddFieldError("name") ? <div className="stInvFieldError" id="staff-add-stock-name-error">{getAddFieldError("name")}</div> : null}
                 </label>
 
                 <label className="stInvField">
@@ -627,6 +680,9 @@ export default function StaffStockMonitoring() {
                   <select
                     value={addForm.category}
                     onChange={(e) => setAddForm((prev) => ({ ...prev, category: e.target.value }))}
+                    onBlur={() => markAddFieldTouched("category")}
+                    aria-invalid={getAddFieldError("category") ? "true" : undefined}
+                    aria-describedby={getAddFieldError("category") ? "staff-add-stock-category-error" : undefined}
                     required
                   >
                     {CATEGORY_OPTIONS.map((option) => (
@@ -635,6 +691,7 @@ export default function StaffStockMonitoring() {
                       </option>
                     ))}
                   </select>
+                  {getAddFieldError("category") ? <div className="stInvFieldError" id="staff-add-stock-category-error">{getAddFieldError("category")}</div> : null}
                 </label>
 
                 <div className="stInvFieldGrid">
@@ -647,8 +704,12 @@ export default function StaffStockMonitoring() {
                       onChange={(e) =>
                         setAddForm((prev) => ({ ...prev, currentStock: e.target.value }))
                       }
+                      onBlur={() => markAddFieldTouched("currentStock")}
+                      aria-invalid={getAddFieldError("currentStock") ? "true" : undefined}
+                      aria-describedby={getAddFieldError("currentStock") ? "staff-add-stock-current-error" : undefined}
                       required
                     />
+                    {getAddFieldError("currentStock") ? <div className="stInvFieldError" id="staff-add-stock-current-error">{getAddFieldError("currentStock")}</div> : null}
                   </label>
 
                   <label className="stInvField">
@@ -658,8 +719,12 @@ export default function StaffStockMonitoring() {
                       min="0"
                       value={addForm.maxStock}
                       onChange={(e) => setAddForm((prev) => ({ ...prev, maxStock: e.target.value }))}
+                      onBlur={() => markAddFieldTouched("maxStock")}
+                      aria-invalid={getAddFieldError("maxStock") ? "true" : undefined}
+                      aria-describedby={getAddFieldError("maxStock") ? "staff-add-stock-max-error" : undefined}
                       required
                     />
+                    {getAddFieldError("maxStock") ? <div className="stInvFieldError" id="staff-add-stock-max-error">{getAddFieldError("maxStock")}</div> : null}
                   </label>
 
                   <label className="stInvField">
@@ -669,8 +734,12 @@ export default function StaffStockMonitoring() {
                       min="0"
                       value={addForm.reorderLevel}
                       onChange={(e) => setAddForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
+                      onBlur={() => markAddFieldTouched("reorderLevel")}
+                      aria-invalid={getAddFieldError("reorderLevel") ? "true" : undefined}
+                      aria-describedby={getAddFieldError("reorderLevel") ? "staff-add-stock-reorder-error" : undefined}
                       required
                     />
+                    {getAddFieldError("reorderLevel") ? <div className="stInvFieldError" id="staff-add-stock-reorder-error">{getAddFieldError("reorderLevel")}</div> : null}
                   </label>
                 </div>
 
@@ -683,16 +752,20 @@ export default function StaffStockMonitoring() {
                     onChange={(e) =>
                       setAddForm((prev) => ({ ...prev, pricePerUnit: e.target.value }))
                     }
+                    onBlur={() => markAddFieldTouched("pricePerUnit")}
+                    aria-invalid={getAddFieldError("pricePerUnit") ? "true" : undefined}
+                    aria-describedby={getAddFieldError("pricePerUnit") ? "staff-add-stock-price-error" : undefined}
                     required
                   />
+                  {getAddFieldError("pricePerUnit") ? <div className="stInvFieldError" id="staff-add-stock-price-error">{getAddFieldError("pricePerUnit")}</div> : null}
                 </label>
 
                 <div className="stInvModalActions stInvModalActionsAdd">
                   <button className="stInvTextBtn" type="button" onClick={closeModal}>
                     Cancel
                   </button>
-                  <button className="stInvPrimaryBtn" type="submit">
-                    Save Item
+                  <button className="stInvPrimaryBtn" type="submit" disabled={isAddSubmitting}>
+                    {isAddSubmitting ? "Saving..." : "Save Item"}
                   </button>
                 </div>
               </form>

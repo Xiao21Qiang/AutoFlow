@@ -56,6 +56,23 @@ function renderAdminAddStock(overrides = {}) {
   return { createStockMonitoringItem };
 }
 
+function renderStaffAddStock(overrides = {}) {
+  const createStockMonitoringItem = jest.fn(async (payload) => ({ id: "INV-2", ...payload }));
+  useAdminData.mockReturnValue({
+    stockMonitoring: [stockItem],
+    currentUser: { email: "inventory@example.com", userType: "Staff", role: "Inventory Clerk" },
+    createStockMonitoringItem,
+    updateStockMonitoringItem: jest.fn(),
+    restockStockMonitoringItem: jest.fn(),
+    deleteStockMonitoringItem: jest.fn(),
+    ...overrides,
+  });
+
+  render(<StaffStockMonitoring />);
+  fireEvent.click(screen.getByRole("button", { name: "Add New Item" }));
+  return { createStockMonitoringItem };
+}
+
 function addStockControls() {
   return {
     name: screen.getByLabelText(/^Item Name/i),
@@ -64,7 +81,7 @@ function addStockControls() {
     maxStock: screen.getByLabelText(/^Max Stock \(Qty\)/i),
     reorderLevel: screen.getByLabelText(/^Reorder Level/i),
     pricePerUnit: screen.getByLabelText(/^Price Per Unit \(P\)/i),
-    add: screen.getByRole("button", { name: /Add Item|Adding/i }),
+    add: screen.getByRole("button", { name: /Add Item|Adding|Save Item|Saving/i }),
   };
 }
 
@@ -267,5 +284,64 @@ describe("Admin Add Stock Item quick action validation", () => {
     expect(createStockMonitoringItem).toHaveBeenCalledTimes(1);
     resolveCreate({});
     await waitFor(() => expect(screen.queryByRole("button", { name: /Adding/i })).not.toBeInTheDocument());
+  });
+});
+
+describe("Inventory Clerk Add Stock Item validation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("shows Add New Item and opens the shared create form", () => {
+    renderStaffAddStock();
+    expect(screen.getByText("Add Stock Monitoring Item")).toBeInTheDocument();
+    expect(addStockControls().add).toHaveTextContent("Save Item");
+  });
+
+  test("blank item name blocks Inventory Clerk stock creation", () => {
+    const { createStockMonitoringItem } = renderStaffAddStock();
+    fillValidAddStock({ name: "   " });
+    fireEvent.submit(addStockControls().add.closest("form"));
+    expect(screen.getByText("Item name is required.")).toBeInTheDocument();
+    expect(createStockMonitoringItem).not.toHaveBeenCalled();
+  });
+
+  test("stock limit validation blocks invalid Inventory Clerk create input", () => {
+    const { createStockMonitoringItem } = renderStaffAddStock();
+    fillValidAddStock({ currentStock: "11", maxStock: "10", reorderLevel: "5" });
+    fireEvent.submit(addStockControls().add.closest("form"));
+    expect(screen.getByText("Current stock quantity cannot exceed the max stock quantity of 10.")).toBeInTheDocument();
+    expect(createStockMonitoringItem).not.toHaveBeenCalled();
+  });
+
+  test("valid Inventory Clerk create submits canonical numeric stock payload", async () => {
+    const { createStockMonitoringItem } = renderStaffAddStock();
+    fillValidAddStock({ name: "  Microfiber Towels  " });
+    fireEvent.click(addStockControls().add);
+    await waitFor(() => expect(createStockMonitoringItem).toHaveBeenCalledTimes(1));
+    expect(createStockMonitoringItem).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Microfiber Towels",
+      category: "Coating",
+      currentStock: 10,
+      maxStock: 100,
+      reorderLevel: 20,
+      pricePerUnit: 30,
+    }));
+  });
+
+  test("duplicate Inventory Clerk create submit while saving is guarded", async () => {
+    let resolveCreate;
+    const createStockMonitoringItem = jest.fn(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    renderStaffAddStock({ createStockMonitoringItem });
+    fillValidAddStock();
+    const add = addStockControls().add;
+    fireEvent.click(add);
+    fireEvent.click(add);
+    expect(createStockMonitoringItem).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Saving..." })).not.toBeInTheDocument());
   });
 });

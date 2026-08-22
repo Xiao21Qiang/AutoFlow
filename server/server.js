@@ -2320,6 +2320,7 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.stockView,
+    ACTION_KEYS.stockCreate,
     ACTION_KEYS.stockManage,
     ACTION_KEYS.auditViewOperational,
   ],

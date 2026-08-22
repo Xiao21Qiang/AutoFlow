@@ -251,7 +251,7 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingUpdate)).toBe(true);
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.trackingView)).toBe(true);
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockManage)).toBe(true);
-    expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockCreate)).toBe(false);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockCreate)).toBe(true);
     expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-IC"]);
     expect(scoped.services).toEqual([{ id: "SVC-1", name: "Coating" }]);
     expect(scoped.stockMonitoring.map((item) => item.id)).toEqual(["STK-1"]);

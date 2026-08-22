@@ -101,6 +101,22 @@ describe("stock restock route unit cost validation", () => {
     role: "General Manager",
     status: "active",
   };
+  const salesManager = {
+    id: "SM-1",
+    email: "sales-manager@example.com",
+    name: "Sales Manager",
+    userType: "Staff",
+    role: "Sales Manager",
+    status: "active",
+  };
+  const salesAssociate = {
+    id: "SA-1",
+    email: "sales@example.com",
+    name: "Sales Associate",
+    userType: "Staff",
+    role: "Sales Associate",
+    status: "active",
+  };
   let item;
   let stockFindOneMock;
   let createdStockItems;
@@ -114,7 +130,7 @@ describe("stock restock route unit cost validation", () => {
 
   beforeAll(() => {
     stub(__testModels.User, "findOne", (query = {}) => {
-      const user = [admin, inventoryClerk, generalManager].find((candidate) => candidate.id === query.id || candidate.email === query.email) || admin;
+      const user = [admin, inventoryClerk, generalManager, salesManager, salesAssociate].find((candidate) => candidate.id === query.id || candidate.email === query.email) || admin;
       return { lean: async () => user };
     });
     stub(__testModels.AuditLog, "create", jest.fn(async (payload) => payload));
@@ -563,7 +579,7 @@ describe("stock restock route unit cost validation", () => {
       expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
     });
 
-    test("denies Inventory Clerk direct stock creation even with forged admin fields", async () => {
+    test("allows Inventory Clerk direct stock creation with canonical audit despite forged admin fields", async () => {
       const response = await request("/api/admin/stock-monitoring", {
         token: auth(inventoryClerk),
         body: {
@@ -581,11 +597,97 @@ describe("stock restock route unit cost validation", () => {
         },
       });
 
+      expect(response.status).toBe(201);
+      expect(createdStockItems).toHaveLength(1);
+      expect(createdStockItems[0]).toEqual(expect.objectContaining({
+        name: "Microfiber Towels",
+        category: "Cleaning",
+        currentStock: 10,
+        maxStock: 100,
+        reorderLevel: 20,
+        pricePerUnit: 30,
+      }));
+      expect(__testModels.StockMonitoringItem.create).toHaveBeenCalledTimes(1);
+      expect(__testModels.Expense.create).toHaveBeenCalledTimes(1);
+      expect(__testModels.AuditLog.create).toHaveBeenCalledTimes(1);
+      expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+        userId: inventoryClerk.email,
+        action: "Created stock monitoring item",
+        targetId: expect.stringMatching(/^INV-/),
+        meta: expect.objectContaining({
+          actorUserId: inventoryClerk.id,
+          actorRole: "inventory clerk",
+          actorUserType: "staff",
+          targetType: "StockMonitoringItem",
+          operation: "create",
+          name: "Microfiber Towels",
+        }),
+      }));
+
+      const scoped = filterBootstrapDataForRole({
+        bookings: [],
+        services: [],
+        stockMonitoring: [],
+        payments: [],
+        users: [admin, inventoryClerk],
+        auditLogs: auditPayloads(),
+        archivedAuditLogs: [],
+        reviews: [],
+        promos: [],
+        quoteRequests: [],
+        expenses: [],
+        commissions: [],
+        rewards: [],
+        customerRewards: [],
+        alerts: [],
+        settings: {},
+        financialReport: {},
+      }, inventoryClerk);
+      expect(scoped.auditLogs.map((log) => log.action)).toEqual(["Created stock monitoring item"]);
+    });
+
+    test("General Manager stock creation remains allowed", async () => {
+      const response = await request("/api/admin/stock-monitoring", {
+        token: auth(generalManager),
+        body: {
+          name: "Glass Cleaner",
+          category: "Cleaning",
+          currentStock: 5,
+          maxStock: 40,
+          reorderLevel: 8,
+          pricePerUnit: 12,
+        },
+      });
+
+      expect(response.status).toBe(201);
+      expect(__testModels.StockMonitoringItem.create).toHaveBeenCalledTimes(1);
+      expect(__testModels.AuditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+        userId: generalManager.email,
+        action: "Created stock monitoring item",
+      }));
+    });
+
+    test.each([
+      ["Sales Manager", salesManager],
+      ["Sales Associate", salesAssociate],
+    ])("%s cannot create stock items", async (_label, actor) => {
+      const response = await request("/api/admin/stock-monitoring", {
+        token: auth(actor),
+        body: {
+          name: "Unauthorized Cleaner",
+          category: "Cleaning",
+          currentStock: 5,
+          maxStock: 40,
+          reorderLevel: 8,
+          pricePerUnit: 12,
+          role: "Admin",
+          userType: "admin",
+        },
+      });
+
       expect(response.status).toBe(403);
       expect(response.body.message).toBe("You do not have permission to perform this action.");
-      expect(createdStockItems).toHaveLength(0);
       expect(__testModels.StockMonitoringItem.create).not.toHaveBeenCalled();
-      expect(__testModels.Expense.create).not.toHaveBeenCalled();
       expect(__testModels.AuditLog.create).not.toHaveBeenCalled();
     });
   });

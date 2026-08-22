@@ -482,7 +482,7 @@ describe("Inventory Clerk authorization foundation shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByText("Stock Monitoring"));
-    expect(screen.queryByRole("button", { name: "Add New Item" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add New Item" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restock" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
