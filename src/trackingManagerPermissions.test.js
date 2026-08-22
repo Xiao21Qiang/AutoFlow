@@ -53,7 +53,7 @@ describe("Service Tracking manager permissions", () => {
     })).toBe(true);
   });
 
-  test("keeps Sales Associate issue note access view-only like Sales Manager", () => {
+  test("does not grant Sales Associate issue note edit access", () => {
     expect(canEditIssueNotes({
       booking: scheduledBooking,
       currentUser: salesAssociate,
@@ -73,7 +73,7 @@ describe("Service Tracking manager permissions", () => {
     expect(canEditWarranty(inProgressBooking, paidPayment, generalManager, { allowAdmin: true })).toBe(true);
   });
 
-  test("keeps Sales Associate warranty access view-only like Sales Manager", () => {
+  test("does not grant Sales Associate warranty edit access", () => {
     expect(canEditWarranty(inProgressBooking, paidPayment, salesAssociate, { allowAdmin: true })).toBe(false);
   });
 

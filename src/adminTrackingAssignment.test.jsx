@@ -216,7 +216,7 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
-  test("keeps Sales Associate issue note controls read-only inside the shared Admin Tracking flow", () => {
+  test("denies Sales Associate issue note controls if Admin Tracking is mounted outside routing", () => {
     mockCurrentUser = salesAssociateUser;
     seedBookings({
       assigned: "Detailer One",
@@ -232,7 +232,7 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
-  test("keeps Sales Associate warranty controls read-only when lifecycle gates pass", () => {
+  test("denies Sales Associate warranty controls if Admin Tracking is mounted outside routing", () => {
     mockCurrentUser = salesAssociateUser;
     seedBookings({
       status: "In Progress",

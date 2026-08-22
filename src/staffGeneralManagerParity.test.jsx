@@ -235,19 +235,20 @@ describe("Staff General Manager dashboard parity", () => {
 });
 
 describe("Sales Associate dashboard parity", () => {
-  test("renders the canonical GM dashboard content while withholding unauthorized stock shortcuts", () => {
+  test("renders authorized dashboard content while withholding Tracking and stock shortcuts", () => {
     const goTo = jest.fn();
     render(<StaffDashboard session={salesAssociate} goTo={goTo} />);
 
     expect(screen.getByText("Recent Quote Requests")).toBeInTheDocument();
     expect(screen.getByText("Upcoming Bookings")).toBeInTheDocument();
     expect(screen.getByText("Bookings today")).toBeInTheDocument();
-    expect(screen.getByText("In Progress")).toBeInTheDocument();
     expect(screen.getByText("Paid Revenue")).toBeInTheDocument();
     expect(screen.getByText("Create Booking")).toBeInTheDocument();
     expect(screen.getByText("View Services")).toBeInTheDocument();
     expect(screen.getByText("Customer Reviews")).toBeInTheDocument();
 
+    expect(screen.queryByText("In Progress")).not.toBeInTheDocument();
+    expect(screen.queryByText("Jobs in progress")).not.toBeInTheDocument();
     expect(screen.queryByText("Critical Stock")).not.toBeInTheDocument();
     expect(screen.queryByText("Low Stock")).not.toBeInTheDocument();
     expect(screen.queryByText("Healthy Stock")).not.toBeInTheDocument();
@@ -257,7 +258,6 @@ describe("Sales Associate dashboard parity", () => {
     expect(screen.queryByText("Audit Logs")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Bookings today").closest("button"));
-    fireEvent.click(screen.getByText("In Progress").closest("button"));
     fireEvent.click(screen.getByText("Paid Revenue").closest("button"));
     fireEvent.click(screen.getByText("Create Booking").closest(".stQuickCard"));
     fireEvent.click(screen.getByText("View Services").closest(".stQuickCard"));
@@ -265,7 +265,7 @@ describe("Sales Associate dashboard parity", () => {
 
     expect(goTo).toHaveBeenCalledWith("bookings");
     expect(goTo).toHaveBeenCalledWith("bookings", { action: "open-add-booking" });
-    expect(goTo).toHaveBeenCalledWith("tracking");
+    expect(goTo).not.toHaveBeenCalledWith("tracking");
     expect(goTo).toHaveBeenCalledWith("payments");
     expect(goTo).toHaveBeenCalledWith("services");
     expect(goTo).toHaveBeenCalledWith("engagement");

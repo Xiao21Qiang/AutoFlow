@@ -934,42 +934,28 @@ describe("Cancelled booking immutability", () => {
   });
 });
 
-describe("Sales Associate Service Tracking view-only route enforcement", () => {
-  test("Sales Associate can receive authorized read-only tracking details", async () => {
+describe("Sales Associate Service Tracking denial route enforcement", () => {
+  test("Sales Associate cannot receive tracking details even with forged Admin query data", async () => {
     seedInProgressTrackingBooking();
 
-    const response = await request("/api/tracking/B-TRACKING", {
+    const response = await request("/api/tracking/B-TRACKING?role=Admin&userType=admin&employeeRole=General%20Manager&scope=admin&auditUser=Admin", {
       token: auth(salesAssociateUser),
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      id: "B-TRACKING",
-      vehicle: "Civic",
-      service: "Ceramic Coating",
-      status: "In Progress",
-      assigned: "Detailer One",
-      issueNote: "Paint blemish documented before service.",
-      issueTypes: ["Paint blemish"],
-      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
-    });
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to view this tracking record.");
     expect(auditLogs).toEqual([]);
   });
 
-  test("Sales Associate can read authorized warranty release status without mutation access", async () => {
+  test("Sales Associate cannot read warranty tracking details without Service Tracking access", async () => {
     seedInProgressTrackingBooking();
 
-    const response = await request("/api/tracking/B-TRACKING/warranty", {
+    const response = await request("/api/tracking/B-TRACKING/warranty?role=Admin&userType=admin&employeeRole=General%20Manager&scope=admin&auditUser=Admin", {
       token: auth(salesAssociateUser),
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      id: "B-TRACKING",
-      status: "In Progress",
-      warrantyReleased: false,
-      message: "Warranty document will be available once released by staff/admin.",
-    });
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to view this warranty record.");
     expect(auditLogs).toEqual([]);
   });
 
@@ -992,7 +978,7 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status", "issueNote", "issueTypes", "issueMarkers"]));
     expect(bookings[0]).toEqual(originalBooking);
     expect(payments[0].finalPaymentStatus).toBe("For Verification");
@@ -1016,14 +1002,14 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
     expect(payments[0].finalPaymentStatus).toBe("Paid");
     expect(auditLogs).toEqual([]);
   });
 
-  test("Sales Associate completion is rejected by view-only tracking scope before payment review gates", async () => {
+  test("Sales Associate completion is rejected by missing Tracking access before payment review gates", async () => {
     seedInProgressTrackingBooking({ finalPaymentStatus: "For Verification", status: "For Verification", finalPaymentVerifiedAt: "" });
     const originalBooking = clone(bookings[0]);
     const response = await request("/api/admin/bookings/B-TRACKING", {
@@ -1039,7 +1025,7 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
   });
@@ -1061,7 +1047,7 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
   });
@@ -1091,7 +1077,7 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining([
       "warrantyChecklist",
       "warrantyChecklistItems",
@@ -1637,7 +1623,7 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.message).toBe("Sales Associate does not have access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["assigned"]));
     expect(bookings[0]).toEqual(originalBooking);
     expect(auditLogs).toEqual([]);

@@ -2238,7 +2238,6 @@ const ROLE_MODULES = {
     MODULE_KEYS.dashboard,
     MODULE_KEYS.bookings,
     MODULE_KEYS.services,
-    MODULE_KEYS.serviceTracking,
     MODULE_KEYS.paymentTracking,
     MODULE_KEYS.engagement,
     MODULE_KEYS.profile,
@@ -2308,7 +2307,6 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingCreate,
     ACTION_KEYS.bookingUpdate,
     ACTION_KEYS.bookingUpdateStatus,
-    ACTION_KEYS.trackingView,
     ACTION_KEYS.paymentView,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.engagementView,
@@ -6910,7 +6908,7 @@ app.get("/api/tracking/:id/warranty", authenticateApi, async (req, res, next) =>
     }
 
     const users = await User.find().lean();
-    if (!canViewBooking(req.authUser, booking, users)) {
+    if (!canPerformAction(req.authUser, ACTION_KEYS.trackingView) || !canViewBooking(req.authUser, booking, users)) {
       res.status(403).json({ message: "You do not have permission to view this warranty record." });
       return;
     }
@@ -6931,7 +6929,7 @@ app.get("/api/tracking/:id", authenticateApi, async (req, res, next) => {
     }
 
     const users = await User.find().lean();
-    if (!canViewBooking(req.authUser, booking, users)) {
+    if (!canPerformAction(req.authUser, ACTION_KEYS.trackingView) || !canViewBooking(req.authUser, booking, users)) {
       res.status(403).json({ message: "You do not have permission to view this tracking record." });
       return;
     }
@@ -7549,7 +7547,9 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
       if (trackingMutationFields.length) {
         res.status(403).json({
-          message: `${staffRoleForBookingUpdate === "sales associate" ? "Sales Associate" : "Sales Manager"} has view-only access to Service Tracking.`,
+          message: staffRoleForBookingUpdate === "sales associate"
+            ? "Sales Associate does not have access to Service Tracking."
+            : "Sales Manager has view-only access to Service Tracking.",
           fields: trackingMutationFields,
         });
         return;

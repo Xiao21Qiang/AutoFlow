@@ -83,12 +83,11 @@ describe("Phase 1 permission matrix", () => {
     expect(isAdmin(salesAssociate)).toBe(false);
   });
 
-  test("limits Sales Associate modules to the approved seven-module set without Analytics", () => {
+  test("limits Sales Associate modules to the approved six-module set without Analytics or Service Tracking", () => {
     expect(getAllowedModules(salesAssociate)).toEqual([
       MODULE_KEYS.dashboard,
       MODULE_KEYS.bookings,
       MODULE_KEYS.services,
-      MODULE_KEYS.serviceTracking,
       MODULE_KEYS.paymentTracking,
       MODULE_KEYS.engagement,
       MODULE_KEYS.profile,
@@ -101,6 +100,7 @@ describe("Phase 1 permission matrix", () => {
       MODULE_KEYS.financialTracker,
       MODULE_KEYS.auditLogs,
       MODULE_KEYS.analytics,
+      MODULE_KEYS.serviceTracking,
       MODULE_KEYS.settings,
       MODULE_KEYS.myWork,
     ]) {
@@ -108,13 +108,12 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
-  test("gives Sales Associate Sales Manager-equivalent module actions while preserving explicit denials", () => {
+  test("gives Sales Associate approved booking, payment, and engagement actions while denying Tracking", () => {
     for (const actionKey of [
       ACTION_KEYS.bookingView,
       ACTION_KEYS.bookingCreate,
       ACTION_KEYS.bookingUpdate,
       ACTION_KEYS.bookingUpdateStatus,
-      ACTION_KEYS.trackingView,
       ACTION_KEYS.paymentView,
       ACTION_KEYS.paymentVerify,
       ACTION_KEYS.engagementView,
@@ -126,6 +125,7 @@ describe("Phase 1 permission matrix", () => {
       ACTION_KEYS.bookingDelete,
       ACTION_KEYS.bookingReassignDetailer,
       ACTION_KEYS.detailerReassign,
+      ACTION_KEYS.trackingView,
       ACTION_KEYS.trackingUpdateIssueNotes,
       ACTION_KEYS.trackingUpdateWarranty,
       ACTION_KEYS.trackingComplete,

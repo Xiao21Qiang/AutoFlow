@@ -234,7 +234,6 @@ describe("Sales Associate authorization foundation shell", () => {
       "Dashboard",
       "Bookings",
       "Services",
-      "Service Tracking",
       "Payment Tracking",
       "Engagement",
       "Profile",
@@ -249,6 +248,7 @@ describe("Sales Associate authorization foundation shell", () => {
       "Financial Tracker",
       "Audit Logs",
       "Analytics",
+      "Service Tracking",
       "My Work",
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
@@ -341,7 +341,6 @@ describe("Sales Associate authorization foundation shell", () => {
       "Dashboard",
       "Bookings",
       "Services",
-      "Service Tracking",
       "Payment Tracking",
       "Engagement",
       "Profile",
@@ -355,6 +354,7 @@ describe("Sales Associate authorization foundation shell", () => {
       "Financial Tracker",
       "Audit Logs",
       "Analytics",
+      "Service Tracking",
       "My Work",
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
@@ -387,7 +387,7 @@ describe("Sales Associate authorization foundation shell", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Bookings report export started."));
   });
 
-  test("uses Sales Manager view-only Service Tracking", () => {
+  test("does not expose Service Tracking navigation or actions to Sales Associate", () => {
     setContext({
       currentUser: salesAssociate,
       bookings: [{
@@ -403,14 +403,13 @@ describe("Sales Associate authorization foundation shell", () => {
     });
     renderStaffMain(salesAssociate);
 
-    fireEvent.click(screen.getByText("Service Tracking"));
-
+    expect(screen.queryByText("Service Tracking")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View Only" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Only" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  test("opens Sales Associate Service Tracking details without mutation controls", () => {
+  test("does not render Sales Associate Service Tracking details from booking-like data", () => {
     setContext({
       currentUser: salesAssociate,
       bookings: [{
@@ -425,13 +424,9 @@ describe("Sales Associate authorization foundation shell", () => {
     });
     renderStaffMain(salesAssociate);
 
-    fireEvent.click(screen.getByText("Service Tracking"));
-    fireEvent.click(screen.getByRole("button", { name: "View Only" }));
-
-    const dialog = screen.getByRole("dialog", { name: "Service Tracking Details" });
-    expect(within(dialog).getByText("B-SA-TRACK-2")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Service Tracking")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Service Tracking Details" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Only" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
   });
 });

@@ -131,7 +131,10 @@ describe("Phase 5 export helpers", () => {
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "my-work")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "commissions")).toBe(true);
     expect(canExportReport({ userType: "Admin", role: "Admin" }, "reward-history")).toBe(true);
-    expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "tracking")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "General Manager" }, "tracking")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Sales Manager" }, "tracking")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Junior Detailer" }, "tracking")).toBe(true);
+    expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "tracking")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "payments")).toBe(true);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "analytics")).toBe(false);
     expect(canExportReport({ userType: "Staff", role: "Sales Associate" }, "financial")).toBe(false);
@@ -278,20 +281,20 @@ describe("Phase 5 export routes", () => {
     expect(text).toContain('"\'@command"');
   });
 
-  test("allows Sales Associate to export Tracking report and audits the authenticated actor", async () => {
+  test("denies Sales Associate Tracking export even with forged Admin query data", async () => {
     auditEvents.length = 0;
     const token = signJwt({ sub: "USR-SA", email: "sales@example.com", userType: "Staff", role: "Sales Associate" });
-    const response = await invokeApp("/api/admin/reports/tracking/pdf", {
+    const response = await invokeApp("/api/admin/reports/tracking/pdf?role=Admin&userType=admin&employeeRole=General%20Manager&scope=admin&auditUser=Admin", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    expect(response.status).toBe(200);
-    expect(String(response.headers["content-type"])).toContain("application/pdf");
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body.toString("utf8")).message).toBe("You do not have permission to export this report.");
     expect(auditEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         userId: "sales@example.com",
-        action: "Report exported",
-        meta: expect.objectContaining({ reportType: "tracking" }),
+        action: "Report export denied",
+        meta: expect.objectContaining({ reportType: "tracking", result: "denied" }),
       }),
     ]));
   });

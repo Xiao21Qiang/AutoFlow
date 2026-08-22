@@ -191,10 +191,18 @@ describe("tracking issue note AI route", () => {
     expect(JSON.stringify(audit)).not.toContain("test-groq-key");
   });
 
-  test("denies Sales Associate because Service Tracking is view-only", async () => {
+  test("denies Sales Associate because Service Tracking is not authorized", async () => {
     const response = await request("/api/ai/tracking/issue-note", {
       token: auth(salesAssociateUser),
-      body: aiBody({ auditUser: "admin@example.com", actorRole: "Admin", actorUserType: "Admin" }),
+      body: aiBody({
+        auditUser: "Admin",
+        actorRole: "Admin",
+        actorUserType: "Admin",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+      }),
     });
 
     expect(response.status).toBe(403);
