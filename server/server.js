@@ -6048,6 +6048,12 @@ function buildAuditActorTypeLookup(users = []) {
 
 function getAuditActorType(log, actorTypeLookup) {
   const actor = normalizeAuditIdentity(log?.userId);
+  if (log?.meta?.actorUserType || log?.meta?.actorRole) {
+    const metaActorType = normalizeUserType(log?.meta?.actorUserType, log?.meta?.actorRole);
+    if (metaActorType === "admin" || metaActorType === "staff" || metaActorType === "customer") {
+      return metaActorType;
+    }
+  }
   if (!actor) return "";
   if (actor === "system") return "system";
   return actorTypeLookup.get(actor) || "";
@@ -8410,6 +8416,24 @@ function validateStockQuantityLimit({ currentStock, maxStock, reorderLevel, qtyT
   return stockDomain.validateStockPayload({ currentStock, maxStock, reorderLevel, qtyToAdd });
 }
 
+function buildStockAuditMeta(item = {}, operation, extra = {}) {
+  const source = item?.toObject ? item.toObject() : { ...(item || {}) };
+  const status = stockDomain.getStockStatus(source);
+  return {
+    targetType: "StockMonitoringItem",
+    operation,
+    stockItemId: source.id || "",
+    name: source.name || "",
+    category: source.category || "",
+    currentStock: Number(source.currentStock || 0),
+    maxStock: Number(source.maxStock || 0),
+    reorderLevel: status.reorderLevel,
+    stockStatus: status.label,
+    stockStatusKey: status.key,
+    ...extra,
+  };
+}
+
 app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.stockCreate), async (req, res, next) => {
   try {
     validateStockCreatePayload(req.body);
@@ -8434,7 +8458,7 @@ app.post("/api/admin/stock-monitoring", requireRoles("admin", "staff"), requireA
       });
     }
 
-    await recordSafeAudit(req, "Created stock monitoring item", item.id, { name: item.name });
+    await recordSafeAudit(req, "Created stock monitoring item", item.id, buildStockAuditMeta(item, "create"));
     res.status(201).json(item);
   } catch (error) {
     next(error);
@@ -8461,7 +8485,13 @@ app.put("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), requi
     const nextPayload = stockDomain.normalizeStockPayload(req.body, existingItem);
 
     const item = await StockMonitoringItem.findOneAndUpdate({ id: req.params.id }, nextPayload, { new: true });
-    await recordSafeAudit(req, "Updated stock monitoring item", req.params.id);
+    await recordSafeAudit(req, "Updated stock monitoring item", req.params.id, buildStockAuditMeta(item || nextPayload, "update", {
+      previousName: existingItem.name || "",
+      previousCategory: existingItem.category || "",
+      previousCurrentStock: Number(existingItem.currentStock || 0),
+      previousMaxStock: Number(existingItem.maxStock || 0),
+      previousReorderLevel: stockDomain.getStockStatus(existingItem).reorderLevel,
+    }));
     res.json(item);
   } catch (error) {
     next(error);
@@ -8522,7 +8552,7 @@ app.post("/api/admin/stock-monitoring/:id/restock", requireRoles("admin", "staff
       });
     }
 
-    await recordSafeAudit(req, "Restocked stock monitoring item", req.params.id, { qtyToAdd });
+    await recordSafeAudit(req, "Restocked stock monitoring item", req.params.id, buildStockAuditMeta(item, "restock", { qtyToAdd }));
     res.json(item);
   } catch (error) {
     next(error);
@@ -8541,7 +8571,7 @@ app.delete("/api/admin/stock-monitoring/:id", requireRoles("admin", "staff"), as
       res.status(404).json({ message: "Stock monitoring item not found." });
       return;
     }
-    await recordSafeAudit(req, "Deleted stock monitoring item", req.params.id);
+    await recordSafeAudit(req, "Deleted stock monitoring item", req.params.id, buildStockAuditMeta(deletedItem, "delete"));
     res.status(204).end();
   } catch (error) {
     next(error);
