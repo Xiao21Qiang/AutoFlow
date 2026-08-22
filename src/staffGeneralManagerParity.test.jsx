@@ -259,10 +259,12 @@ describe("Sales Associate dashboard parity", () => {
     fireEvent.click(screen.getByText("Bookings today").closest("button"));
     fireEvent.click(screen.getByText("In Progress").closest("button"));
     fireEvent.click(screen.getByText("Paid Revenue").closest("button"));
+    fireEvent.click(screen.getByText("Create Booking").closest(".stQuickCard"));
     fireEvent.click(screen.getByText("View Services").closest(".stQuickCard"));
     fireEvent.click(screen.getByText("Customer Reviews").closest(".stQuickCard"));
 
     expect(goTo).toHaveBeenCalledWith("bookings");
+    expect(goTo).toHaveBeenCalledWith("bookings", { action: "open-add-booking" });
     expect(goTo).toHaveBeenCalledWith("tracking");
     expect(goTo).toHaveBeenCalledWith("payments");
     expect(goTo).toHaveBeenCalledWith("services");

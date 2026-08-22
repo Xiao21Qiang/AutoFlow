@@ -91,6 +91,7 @@ function StaffMainContent({ session, onLogout }) {
   } = useAdminData();
 
   const [screen, setScreen] = useState(() => getDefaultModule(session));
+  const [pendingScreenAction, setPendingScreenAction] = useState(null);
   const [q, setQ] = useState("");
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -105,9 +106,11 @@ function StaffMainContent({ session, onLogout }) {
     return keys;
   }, [session]);
 
-  const goTo = (key) => {
+  const goTo = (key, options = {}) => {
     const nextKey = String(key || "").trim().toLowerCase();
-    setScreen(allowedScreenKeys.has(nextKey) ? nextKey : getDefaultModule(session));
+    const isAllowed = allowedScreenKeys.has(nextKey);
+    setScreen(isAllowed ? nextKey : getDefaultModule(session));
+    setPendingScreenAction(isAllowed ? options?.action || null : null);
   };
 
   useEffect(() => {
@@ -124,6 +127,7 @@ function StaffMainContent({ session, onLogout }) {
   useEffect(() => {
     if (!allowedScreenKeys.has(screen)) {
       setScreen(getDefaultModule(session));
+      setPendingScreenAction(null);
     }
   }, [allowedScreenKeys, screen, session]);
 
@@ -277,7 +281,13 @@ function StaffMainContent({ session, onLogout }) {
             {screen === "dashboard" && <StaffDashboard session={session} goTo={goTo} />}
             {screen === "analytics" && <AdminAnalytics />}
             {screen === "audit" && <AdminAuditLogs />}
-            {screen === "bookings" && (usesAdminBookingsModule ? <AdminBookings allowDelete={false} /> : <StaffBookings />)}
+            {screen === "bookings" && (usesAdminBookingsModule ? (
+              <AdminBookings
+                allowDelete={false}
+                initialAction={pendingScreenAction}
+                onActionHandled={() => setPendingScreenAction(null)}
+              />
+            ) : <StaffBookings />)}
             {screen === "tracking" && (usesAdminTrackingModule ? <AdminTracking /> : <StaffTracking session={session} />)}
             {screen === "payments" && (usesAdminPaymentsModule ? <AdminPayments /> : <StaffPayments session={session} />)}
             {screen === "financial-tracker" && <AdminFinancialTracker />}

@@ -175,7 +175,7 @@ export default function StaffDashboard({ session, goTo }) {
           <div className="stDashTitle">Quick actions</div>
           <div className="stDashSub">Common tasks you do often.</div>
           <div className="stQuickGrid">
-            {canOpenBookings && canCreateBooking && <div className="stQuickCard" onClick={() => goTo?.("bookings")}><div className="stQuickTitle">Create Booking</div><div className="stQuickDesc">Add a new appointment</div></div>}
+            {canOpenBookings && canCreateBooking && <div className="stQuickCard" onClick={() => goTo?.("bookings", { action: "open-add-booking" })}><div className="stQuickTitle">Create Booking</div><div className="stQuickDesc">Add a new appointment</div></div>}
             {canOpenStockMonitoring && <div className="stQuickCard" onClick={() => goTo?.("stock-monitoring")}><div className="stQuickTitle">Restock item</div><div className="stQuickDesc">Update stocks and supplies</div></div>}
             {canOpenServices && <div className="stQuickCard" onClick={() => goTo?.("services")}><div className="stQuickTitle">{canManageServices ? "Add Service" : "View Services"}</div><div className="stQuickDesc">{canManageServices ? "Manage service list" : "Inspect the service list"}</div></div>}
             {canOpenEngagement && <div className="stQuickCard" onClick={() => goTo?.("engagement")}><div className="stQuickTitle">Customer Reviews</div><div className="stQuickDesc">Read recent feedback</div></div>}

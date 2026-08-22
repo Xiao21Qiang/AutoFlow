@@ -48,6 +48,15 @@ const salesManagerUser = {
   status: "active",
 };
 
+const salesAssociateUser = {
+  id: "SA-1",
+  name: "Sales Associate",
+  email: "sales@example.com",
+  userType: "Staff",
+  role: "Sales Associate",
+  status: "active",
+};
+
 let mockData = {};
 
 jest.mock("./context/AdminDataContext", () => ({
@@ -710,6 +719,62 @@ describe("Sales Manager Add New Booking validation", () => {
       resolveCreate = resolve;
     }));
     openSalesManagerModal();
+    await fillValidForm();
+
+    const form = screen.getByRole("button", { name: "Save Booking" }).closest("form");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(mockCreateBooking).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByText("New Booking")).not.toBeInTheDocument());
+  });
+});
+
+describe("Sales Associate Add New Booking validation", () => {
+  function openSalesAssociateModal() {
+    mockData = { currentUser: salesAssociateUser };
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+  }
+
+  test("a fully valid Sales Associate booking form enables Save Booking", async () => {
+    openSalesAssociateModal();
+    await fillValidForm();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test.each([
+    ["customer", "Customer Name", "Please select a registered customer from the list."],
+    ["vehicle", "Vehicle", "Vehicle is required."],
+    ["plate", "Plate Number", "Plate number is required."],
+    ["service", "Service", "Please select a service."],
+    ["carSize", "Car Size", "Please select a car size."],
+    ["assigned", "Assigned Detailer", "Please select an assigned detailer."],
+    ["date", "Date", "Booking date is required."],
+    ["time", "Time", "Please select a time."],
+    ["placeSlot", "Place Slot", "Please select a place slot."],
+  ])("missing %s blocks Sales Associate booking creation with the canonical inline validation", async (field, _label, message) => {
+    openSalesAssociateModal();
+    const skip = field === "placeSlot" ? ["placeSlot"] : [field, "placeSlot"];
+    await fillValidForm({ skip });
+
+    fireEvent.submit(screen.getByRole("button", { name: "Save Booking" }).closest("form"));
+
+    expect(screen.getAllByText(message).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+  });
+
+  test("duplicate Sales Associate create submits are ignored while the first create is in flight", async () => {
+    let resolveCreate;
+    mockCreateBooking.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    openSalesAssociateModal();
     await fillValidForm();
 
     const form = screen.getByRole("button", { name: "Save Booking" }).closest("form");

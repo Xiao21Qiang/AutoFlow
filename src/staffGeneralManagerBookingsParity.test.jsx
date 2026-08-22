@@ -268,6 +268,18 @@ describe("Sales Associate authorization foundation shell", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
+  test("Dashboard Create Booking opens the shared Sales Associate New Booking modal", () => {
+    setContext({ currentUser: salesAssociate });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Create Booking").closest(".stQuickCard"));
+
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.getByText("New Booking")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
   test("matches Sales Manager cancelled booking restrictions without exposing Delete", () => {
     setContext({ currentUser: salesAssociate, payments: [paidCancelledBookingPayment()] });
     renderStaffMain(salesAssociate);
