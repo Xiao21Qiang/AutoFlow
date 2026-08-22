@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import AdminAuditLogs, { formatAuditTimestamp } from "./screens/admin/AdminAuditLogs";
+import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/downloadExport";
 
 let mockAdminData;
 const mockArchiveAuditLogs = jest.fn();
@@ -9,6 +10,11 @@ const mockGetArchivedAuditLogIds = jest.fn();
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: () => mockAdminData,
+}));
+
+jest.mock("./utils/downloadExport", () => ({
+  buildReportDownloadPath: jest.fn(() => "/api/admin/reports/audit-logs/pdf"),
+  downloadAuthenticatedFile: jest.fn(),
 }));
 
 function buildLogs(count, prefix = "AUD", action = "Viewed dashboard") {
@@ -47,6 +53,10 @@ beforeEach(() => {
   mockGetActiveAuditLogIds.mockResolvedValue({ ids: buildLogs(80).map((log) => log.id) });
   mockGetArchivedAuditLogIds.mockReset();
   mockGetArchivedAuditLogIds.mockResolvedValue({ ids: buildLogs(42, "AUD-ARCH").map((log) => log.id) });
+  buildReportDownloadPath.mockClear();
+  buildReportDownloadPath.mockReturnValue("/api/admin/reports/audit-logs/pdf");
+  downloadAuthenticatedFile.mockReset();
+  downloadAuthenticatedFile.mockResolvedValue(undefined);
 });
 
 describe("AdminAuditLogs selection", () => {
@@ -190,6 +200,97 @@ describe("AdminAuditLogs selection", () => {
 
     expect(screen.getByText("Select logs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restore" })).toBeDisabled();
+  });
+
+  test("Inventory Clerk can select active and archived logs for export without archive controls", async () => {
+    renderAuditLogs({
+      currentUser: { userType: "Staff", role: "Inventory Clerk" },
+      auditLogs: [{ id: "AUD-STOCK-1", userId: "admin@example.com", action: "Restocked stock monitoring item", ts: "2026-08-01T02:00:00.000Z" }],
+      archivedAuditLogs: [{ id: "AUD-STOCK-ARCH-1", userId: "gm@example.com", action: "Deleted stock monitoring item", ts: "2026-08-02T02:00:00.000Z" }],
+    });
+
+    expect(screen.getByRole("button", { name: "Archived" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select All" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive Logs" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-STOCK-1"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Export as PDF" }));
+    });
+    expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
+      "/api/admin/reports/audit-logs/pdf",
+      "autoflow-audit-log-report.pdf"
+    );
+    expect(buildReportDownloadPath).toHaveBeenLastCalledWith("audit-logs", "pdf", {
+      archived: false,
+      auditLogIds: ["AUD-STOCK-1"],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    fireEvent.click(screen.getByLabelText("Select audit log AUD-STOCK-ARCH-1"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Export as PDF" }));
+    });
+    expect(buildReportDownloadPath).toHaveBeenLastCalledWith("audit-logs", "pdf", {
+      archived: true,
+      auditLogIds: ["AUD-STOCK-ARCH-1"],
+    });
+  });
+
+  test("Inventory Clerk search, filters, table columns, and pagination operate on Stock Monitoring logs", () => {
+    const stockLogs = Array.from({ length: 12 }, (_value, index) => ({
+      id: `AUD-STOCK-${index + 1}`,
+      userId: index === 10 ? "gm@example.com" : "admin@example.com",
+      action: index === 10 ? "Updated stock monitoring item" : "Restocked stock monitoring item",
+      ts: `2026-08-${String(index + 1).padStart(2, "0")}T02:00:00.000Z`,
+      meta: {
+        targetType: "StockMonitoringItem",
+        operation: index === 10 ? "update" : "restock",
+        name: index === 2 ? "Foam Shampoo" : `Stock Item ${index + 1}`,
+        category: index === 10 ? "Coating" : "Cleaning",
+        stockStatus: index === 2 ? "Low Stock" : "Healthy",
+      },
+    }));
+
+    renderAuditLogs({
+      currentUser: { userType: "Staff", role: "Inventory Clerk" },
+      auditLogs: stockLogs,
+      archivedAuditLogs: [],
+    });
+
+    expect(screen.getByText("ID")).toBeInTheDocument();
+    expect(screen.getByText("User ID")).toBeInTheDocument();
+    expect(screen.getByText("Action")).toBeInTheDocument();
+    expect(screen.getByText("Timestamp")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select all visible logs")).toBeInTheDocument();
+    expect(screen.getByText("AUD-STOCK-1")).toBeInTheDocument();
+    expect(screen.queryByText("AUD-STOCK-11")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("›"));
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("AUD-STOCK-11")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("‹"));
+    expect(screen.getByText("1")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search Logs..."), { target: { value: "Foam Shampoo" } });
+    expect(screen.getByText("AUD-STOCK-3")).toBeInTheDocument();
+    expect(screen.getByText("Foam Shampoo / Cleaning / Low Stock")).toBeInTheDocument();
+    expect(screen.queryByText("AUD-STOCK-1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("User"), { target: { value: "gm@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.queryByText("AUD-STOCK-3")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search Logs..."), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "Updated stock monitoring item" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.getByText("AUD-STOCK-11")).toBeInTheDocument();
+    expect(screen.queryByText("AUD-STOCK-1")).not.toBeInTheDocument();
   });
 });
 

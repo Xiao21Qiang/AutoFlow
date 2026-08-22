@@ -62,6 +62,11 @@ export function buildReportDownloadPath(reportType, format = "pdf", filters = {}
   const params = new URLSearchParams();
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.archived) params.set("archived", "true");
+  const auditLogIds = Array.isArray(filters.auditLogIds) ? filters.auditLogIds : [];
+  if (auditLogIds.length) {
+    params.set("auditLogIds", auditLogIds.map((id) => String(id || "").trim()).filter(Boolean).join(","));
+  }
   const query = params.toString();
   return `/api/admin/reports/${encodeURIComponent(reportType)}/${encodeURIComponent(format)}${query ? `?${query}` : ""}`;
 }

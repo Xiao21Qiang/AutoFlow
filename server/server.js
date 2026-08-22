@@ -6133,6 +6133,24 @@ function isAdminVisibleAuditLog(log, actorTypeLookup) {
   return false;
 }
 
+const STOCK_MONITORING_AUDIT_ACTIONS = new Set([
+  "created stock monitoring item",
+  "updated stock monitoring item",
+  "restocked stock monitoring item",
+  "deleted stock monitoring item",
+]);
+
+const STOCK_MONITORING_AUDIT_OPERATIONS = new Set(["create", "update", "restock", "delete"]);
+
+function isStockMonitoringAuditLog(log = {}) {
+  const action = String(log.action || "").trim().toLowerCase();
+  if (STOCK_MONITORING_AUDIT_ACTIONS.has(action)) return true;
+
+  const targetType = String(log.meta?.targetType || "").trim().toLowerCase();
+  const operation = String(log.meta?.operation || "").trim().toLowerCase();
+  return targetType === "stockmonitoringitem" && STOCK_MONITORING_AUDIT_OPERATIONS.has(operation);
+}
+
 function filterBootstrapDataForRole(data, authUser = {}) {
   const userType = normalizeUserType(authUser.userType, authUser.role);
   const email = String(authUser.email || "").trim().toLowerCase();
@@ -6211,10 +6229,15 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       if (!hasModule(MODULE_KEYS.auditLogs)) return false;
       const action = String(log.action || "").trim().toLowerCase();
       const userId = String(log.userId || "").trim().toLowerCase();
-      if (staffRole === "inventory clerk") return action.includes("stock") || action.includes("inventory") || action.includes("consumable");
+      if (staffRole === "inventory clerk") return isStockMonitoringAuditLog(log);
       if (staffRole === "marketing") return action.includes("promo") || action.includes("reward") || action.includes("review") || action.includes("engagement");
       if (staffRole === "sales associate") return userId === email;
       if (staffRole === "junior detailer" || staffRole === "senior detailer") return userId === email || action.includes("commission");
+      return false;
+    });
+    const scopedArchivedAuditLogs = data.archivedAuditLogs.filter((log) => {
+      if (!hasModule(MODULE_KEYS.auditLogs)) return false;
+      if (staffRole === "inventory clerk") return isStockMonitoringAuditLog(log);
       return false;
     });
     const scopedUsers = data.users.filter((user) => {
@@ -6243,7 +6266,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
         : [],
       users: scopedUsers,
       auditLogs: scopedAuditLogs,
-      archivedAuditLogs: [],
+      archivedAuditLogs: scopedArchivedAuditLogs,
       reviews: canSeeEngagement || staffRole === "marketing" ? data.reviews : [],
       promos: canSeeEngagement ? data.promos : [],
       quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
@@ -6312,7 +6335,21 @@ function parseExportFilters(query = {}) {
     error.statusCode = 400;
     throw error;
   }
-  return { dateFrom, dateTo };
+
+  const rawAuditLogIds = query.auditLogIds ?? query.ids ?? "";
+  const auditLogIds = (Array.isArray(rawAuditLogIds) ? rawAuditLogIds : String(rawAuditLogIds || "").split(","))
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const uniqueAuditLogIds = [...new Set(auditLogIds)];
+  if (uniqueAuditLogIds.some((id) => id.length > 120 || !/^AUD-[A-Za-z0-9_-]+$/.test(id))) {
+    const error = new Error("Selected audit log IDs are invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const archivedValue = String(query.archived || "").trim().toLowerCase();
+  const archived = ["1", "true", "archived"].includes(archivedValue);
+  return { dateFrom, dateTo, auditLogIds: uniqueAuditLogIds, archived };
 }
 
 function canExportReport(user = {}, reportType) {
@@ -6380,6 +6417,37 @@ async function sendReportResponse(req, res, report, format, baseFilename) {
     res.set("Content-Disposition", `attachment; filename="${filenameBase}.pdf"`);
     res.send(pdf);
   }
+}
+
+async function applyAuditLogExportScope(scopedData, filters, authUser) {
+  if (filters.auditLogIds?.length) {
+    const selectedLogs = await AuditLog.find({ id: { $in: filters.auditLogIds } }).sort({ createdAt: -1 }).lean();
+    const selectedScopedData = filterBootstrapDataForRole(
+      {
+        ...scopedData,
+        auditLogs: selectedLogs.filter((log) => log.archived !== true),
+        archivedAuditLogs: selectedLogs.filter((log) => log.archived === true),
+      },
+      authUser
+    );
+    const allowedById = new Map(
+      [...(selectedScopedData.auditLogs || []), ...(selectedScopedData.archivedAuditLogs || [])]
+        .map((log) => [String(log.id || "").trim(), log])
+    );
+    return {
+      ...scopedData,
+      auditLogs: filters.auditLogIds.map((id) => allowedById.get(id)).filter(Boolean),
+    };
+  }
+
+  if (filters.archived) {
+    return {
+      ...scopedData,
+      auditLogs: scopedData.archivedAuditLogs || [],
+    };
+  }
+
+  return scopedData;
 }
 
 function sendHealth(res) {
@@ -6577,7 +6645,10 @@ app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
     }
 
     const filters = parseExportFilters(req.query || {});
-    const scopedData = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+    let scopedData = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+    if (reportType === "audit-logs") {
+      scopedData = await applyAuditLogExportScope(scopedData, filters, req.authUser);
+    }
     const report = exportDomain.buildReport(reportType, scopedData, filters);
     if (!report) {
       res.status(400).json({ message: "Unsupported report export." });
@@ -9832,22 +9903,48 @@ function normalizeSelectedAuditLogIds(payload = {}, action = "archive") {
   return { ids };
 }
 
-async function sendAuditLogIds(res, filter) {
+async function sendAuditLogIds(req, res, filter) {
+  if (!canExportReport(req.authUser, "audit-logs")) {
+    denyForbidden(res);
+    return;
+  }
   const logs = await AuditLog.find(filter, { id: 1, _id: 0 }).sort({ createdAt: -1 }).lean();
-  res.json({ ids: logs.map((log) => String(log.id || "").trim()).filter(Boolean) });
+  const userType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+  const scopedLogs = userType === "admin"
+    ? logs
+    : filterBootstrapDataForRole({
+        bookings: [],
+        services: [],
+        stockMonitoring: [],
+        payments: [],
+        users: [],
+        auditLogs: filter.archived === true ? [] : logs,
+        archivedAuditLogs: filter.archived === true ? logs : [],
+        reviews: [],
+        promos: [],
+        quoteRequests: [],
+        expenses: [],
+        commissions: [],
+        rewards: [],
+        customerRewards: [],
+        alerts: [],
+        settings: {},
+        financialReport: {},
+      }, req.authUser)[filter.archived === true ? "archivedAuditLogs" : "auditLogs"];
+  res.json({ ids: scopedLogs.map((log) => String(log.id || "").trim()).filter(Boolean) });
 }
 
-app.get("/api/admin/audit-logs/active-ids", requireAdminUser, async (_req, res, next) => {
+app.get("/api/admin/audit-logs/active-ids", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    await sendAuditLogIds(res, { archived: { $ne: true } });
+    await sendAuditLogIds(req, res, { archived: { $ne: true } });
   } catch (error) {
     next(error);
   }
 });
 
-app.get("/api/admin/audit-logs/archived-ids", requireAdminUser, async (_req, res, next) => {
+app.get("/api/admin/audit-logs/archived-ids", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
-    await sendAuditLogIds(res, { archived: true });
+    await sendAuditLogIds(req, res, { archived: true });
   } catch (error) {
     next(error);
   }

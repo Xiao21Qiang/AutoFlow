@@ -216,6 +216,29 @@ describe("Audit log archive routes", () => {
     expect(__testModels.AuditLog.find).toHaveBeenCalledWith({ archived: true }, { id: 1, _id: 0 });
   });
 
+  test("Inventory Clerk Select All endpoints return only active and archived Stock Monitoring audit IDs", async () => {
+    installAuditLogStore([
+      { id: "AUD-STOCK-A", userId: "admin@example.com", action: "Restocked stock monitoring item", archived: false },
+      { id: "AUD-BOOK-A", userId: "admin@example.com", action: "Updated booking", archived: false },
+      { id: "AUD-STOCK-ARCH", userId: "gm@example.com", action: "Archived label", archived: true, meta: { targetType: "StockMonitoringItem", operation: "delete" } },
+      { id: "AUD-USER-ARCH", userId: "admin@example.com", action: "Updated user account", archived: true },
+    ]);
+
+    const activeResponse = await request("/api/admin/audit-logs/active-ids", {
+      token: auth(inventoryClerk),
+      method: "GET",
+    });
+    const archivedResponse = await request("/api/admin/audit-logs/archived-ids", {
+      token: auth(inventoryClerk),
+      method: "GET",
+    });
+
+    expect(activeResponse.status).toBe(200);
+    expect(activeResponse.body).toEqual({ ids: ["AUD-STOCK-A"] });
+    expect(archivedResponse.status).toBe(200);
+    expect(archivedResponse.body).toEqual({ ids: ["AUD-STOCK-ARCH"] });
+  });
+
   test("selected archive keeps the newly-created archive action audit record active", async () => {
     const logs = installAuditLogStore([
       { id: "AUD-A", action: "A", archived: false },

@@ -11,6 +11,9 @@ function getAuditDetail(log) {
   const meta = log?.meta || {};
   if (meta.message) return String(meta.message);
   if (meta.proofSubmittedAtDisplay) return `Submitted on ${meta.proofSubmittedAtDisplay}`;
+  if (String(meta.targetType || "").trim().toLowerCase() === "stockmonitoringitem") {
+    return [meta.name, meta.category, meta.stockStatus].map((value) => String(value || "").trim()).filter(Boolean).join(" / ");
+  }
   return "";
 }
 
@@ -49,8 +52,11 @@ export default function AdminAuditLogs() {
   const [selectedLogIds, setSelectedLogIds] = useState([]);
   const [isSelectingAll, setIsSelectingAll] = useState(false);
   const sourceLogs = showArchived ? archivedAuditLogs : auditLogs;
-  const canArchiveLogs = String(currentUser?.userType || "").trim().toLowerCase() === "admin";
-  const canViewArchivedLogs = canArchiveLogs;
+  const normalizedUserType = String(currentUser?.userType || "").trim().toLowerCase();
+  const normalizedRole = String(currentUser?.role || "").trim().toLowerCase();
+  const canArchiveLogs = normalizedUserType === "admin";
+  const canViewArchivedLogs = canArchiveLogs || (normalizedUserType === "staff" && normalizedRole === "inventory clerk");
+  const canSelectLogs = canViewArchivedLogs;
 
   const getLogSelectionKey = (log) => String(log?.id || log?._id || "").trim();
   const sourceLogIds = useMemo(
@@ -134,9 +140,14 @@ export default function AdminAuditLogs() {
     setSelectedLogIds((prev) => prev.filter((id) => !idsToRestore.includes(id)));
   };
 
-  const exportPdf = () =>
-    downloadAuthenticatedFile(buildReportDownloadPath("audit-logs", "pdf"), "autoflow-audit-log-report.pdf")
+  const exportPdf = () => {
+    const auditLogIds = [...new Set(selectedLogIds.map((id) => String(id || "").trim()).filter(Boolean))];
+    return downloadAuthenticatedFile(buildReportDownloadPath("audit-logs", "pdf", {
+      archived: showArchived,
+      auditLogIds,
+    }), "autoflow-audit-log-report.pdf")
       .catch((error) => window.alert(error.message || "Could not download report."));
+  };
 
   return (
     <div className="auditWrap">
@@ -176,10 +187,10 @@ export default function AdminAuditLogs() {
         </button>
 
         <div className="auditBtns">
-          {canArchiveLogs ? <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div> : null}
+          {canSelectLogs ? <div className="auditSelectionMeta">{selectedLogIds.length ? `${selectedLogIds.length} selected` : "Select logs"}</div> : null}
           <button className="auditBtn auditBtnDark" type="button" onClick={exportPdf}>Export as PDF</button>
-          {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllLogs} disabled={isSelectingAll || sourceLogIds.length === 0}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
-          {canArchiveLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={deselectAllLogs} disabled={!selectedLogIds.length || isSelectingAll}>Deselect All</button> : null}
+          {canSelectLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={selectAllLogs} disabled={isSelectingAll || sourceLogIds.length === 0}>{isSelectingAll ? "Selecting..." : "Select All"}</button> : null}
+          {canSelectLogs ? <button className="auditBtn auditBtnLight" type="button" onClick={deselectAllLogs} disabled={!selectedLogIds.length || isSelectingAll}>Deselect All</button> : null}
           {canArchiveLogs && !showArchived ? <button className="auditBtn auditBtnRed" type="button" onClick={archiveSelectedLogs} disabled={!selectedLogIds.length || isSelectingAll}>Archive Logs</button> : null}
           {canArchiveLogs && showArchived ? <button className="auditBtn auditBtnBlue" type="button" onClick={restoreSelectedLogs} disabled={!selectedLogIds.length || isSelectingAll}>Restore</button> : null}
         </div>
@@ -187,7 +198,7 @@ export default function AdminAuditLogs() {
 
       <div className="auditBoard">
         <div className="auditTableHead">
-          {canArchiveLogs ? (
+          {canSelectLogs ? (
             <label className="auditSelectCell auditSelectHead">
               <input type="checkbox" checked={allPagedSelected} onChange={togglePageSelection} aria-label="Select all visible logs" />
             </label>
@@ -209,9 +220,9 @@ export default function AdminAuditLogs() {
                 className={`auditTableRow${isSelected ? " selected" : ""}`}
                 key={selectionKey}
                 type="button"
-                onClick={() => canArchiveLogs && toggleLogSelection(selectionKey)}
+                onClick={() => canSelectLogs && toggleLogSelection(selectionKey)}
               >
-                {canArchiveLogs ? (
+                {canSelectLogs ? (
                   <span className="auditSelectCell">
                     <input
                       type="checkbox"

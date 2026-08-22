@@ -221,9 +221,13 @@ describe("Phase 3 stock and permission regressions", () => {
       ],
       auditLogs: [
         { id: "AUD-STOCK", userId: "admin@example.com", action: "Restocked stock monitoring item" },
+        { id: "AUD-STOCK-META", userId: "gm@example.com", action: "Adjusted item", meta: { targetType: "StockMonitoringItem", operation: "update" } },
         { id: "AUD-BOOK", userId: "admin@example.com", action: "Updated booking" },
       ],
-      archivedAuditLogs: [{ id: "AUD-ARCH", userId: "admin@example.com", action: "Archived audit logs" }],
+      archivedAuditLogs: [
+        { id: "AUD-ARCH-STOCK", userId: "gm@example.com", action: "Deleted stock monitoring item", archived: true },
+        { id: "AUD-ARCH-BOOK", userId: "admin@example.com", action: "Updated booking", archived: true },
+      ],
       reviews: [{ id: "REV-1" }],
       promos: [{ id: "PRO-1", status: "active" }],
       quoteRequests: [{ id: "QR-1" }],
@@ -253,8 +257,8 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.stockMonitoring.map((item) => item.id)).toEqual(["STK-1"]);
     expect(scoped.payments).toEqual([]);
     expect(scoped.users.map((user) => user.email).sort()).toEqual(["c@example.com", "inventory@example.com"]);
-    expect(scoped.auditLogs.map((log) => log.id)).toEqual(["AUD-STOCK"]);
-    expect(scoped.archivedAuditLogs).toEqual([]);
+    expect(scoped.auditLogs.map((log) => log.id)).toEqual(["AUD-STOCK", "AUD-STOCK-META"]);
+    expect(scoped.archivedAuditLogs.map((log) => log.id)).toEqual(["AUD-ARCH-STOCK"]);
     expect(scoped.reviews).toEqual([]);
     expect(scoped.promos).toEqual([]);
     expect(scoped.quoteRequests).toEqual([{ id: "QR-1" }]);

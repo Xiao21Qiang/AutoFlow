@@ -445,6 +445,7 @@ describe("Inventory Clerk authorization foundation shell", () => {
       currentUser: inventoryClerk,
       stockMonitoring: [{ id: "STK-1", name: "Soap", category: "Cleaning", currentStock: 4, maxStock: 20, reorderLevel: 5, pricePerUnit: 30 }],
       auditLogs: [{ id: "AUD-1", userId: "inventory@example.com", action: "Restocked stock monitoring item", ts: "2026-08-22T01:00:00.000Z" }],
+      archivedAuditLogs: [{ id: "AUD-ARCH-1", userId: "admin@example.com", action: "Deleted stock monitoring item", ts: "2026-08-21T01:00:00.000Z", archived: true }],
     });
     renderStaffMain(inventoryClerk);
 
@@ -488,10 +489,14 @@ describe("Inventory Clerk authorization foundation shell", () => {
 
     fireEvent.click(screen.getByText("Audit Logs"));
     expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Select All" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deselect All" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archived" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Select audit log AUD-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Archived" }));
+    expect(screen.getByLabelText("Select audit log AUD-ARCH-1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive Logs" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Archived")).not.toBeInTheDocument();
   });
 });
 

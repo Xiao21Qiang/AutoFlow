@@ -117,7 +117,7 @@ describe("Phase 5 export helpers", () => {
   });
 
   test("validates export filters and report permissions", () => {
-    expect(parseExportFilters({ dateFrom: "2026-07-19", dateTo: "2026-07-20" })).toEqual({ dateFrom: "2026-07-19", dateTo: "2026-07-20" });
+    expect(parseExportFilters({ dateFrom: "2026-07-19", dateTo: "2026-07-20" })).toEqual({ dateFrom: "2026-07-19", dateTo: "2026-07-20", auditLogIds: [], archived: false });
     expect(() => parseExportFilters({ dateFrom: "2026-07-20", dateTo: "2026-07-19" })).toThrow(/Invalid date range/);
     expect(() => parseExportFilters({ dateFrom: "not-a-date" })).toThrow(/Invalid date range/);
 
@@ -205,8 +205,9 @@ describe("Phase 5 export routes", () => {
     const salesAssociateUser = { id: "USR-SA", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
     const generalManagerUser = { id: "USR-GM", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
     const salesManagerUser = { id: "USR-SM", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
+    const inventoryClerkUser = { id: "USR-IC", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
     const customerUser = { id: "USR-CUST", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" };
-    const users = [adminUser, salesAssociateUser, generalManagerUser, salesManagerUser, customerUser];
+    const users = [adminUser, salesAssociateUser, generalManagerUser, salesManagerUser, inventoryClerkUser, customerUser];
 
     stub(__testModels.User, "findOne", (query = {}) => ({
       lean: async () => users.find((user) => user.id === query.id || user.email === query.email) || null,
@@ -284,6 +285,51 @@ describe("Phase 5 export routes", () => {
     expect(String(response.headers["content-type"])).toContain("text/csv");
     expect(String(response.headers["content-disposition"])).toContain("attachment");
     expect(text).toContain('"\'@command"');
+  });
+
+  test("Inventory Clerk audit export filters forged selected IDs to authorized Stock Monitoring records", async () => {
+    auditEvents.length = 0;
+    const selectedAuditLogs = [
+      {
+        id: "AUD-STOCK-A",
+        userId: "admin@example.com",
+        action: "Restocked stock monitoring item",
+        targetId: "INV-1",
+        ts: "2026-08-22T01:00:00.000Z",
+        meta: { targetType: "StockMonitoringItem", operation: "restock" },
+      },
+      {
+        id: "AUD-BOOK-B",
+        userId: "admin@example.com",
+        action: "Updated booking",
+        targetId: "B-1",
+        ts: "2026-08-22T02:00:00.000Z",
+        meta: { targetType: "Booking" },
+      },
+    ];
+    __testModels.AuditLog.find = (query = {}) => {
+      const selectedIds = query.id?.$in || [];
+      return chain(selectedAuditLogs.filter((log) => selectedIds.includes(log.id)));
+    };
+
+    const token = signJwt({ sub: "USR-IC", email: "inventory@example.com", userType: "Staff", role: "Inventory Clerk" });
+    const response = await invokeApp("/api/admin/reports/audit-logs/csv?auditLogIds=AUD-STOCK-A,AUD-BOOK-B&role=Admin&userType=admin", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const text = response.body.toString("utf8");
+
+    expect(response.status).toBe(200);
+    expect(text).toContain("AUD-STOCK-A");
+    expect(text).toContain("Restocked stock monitoring item");
+    expect(text).not.toContain("AUD-BOOK-B");
+    expect(text).not.toContain("Updated booking");
+    expect(auditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "inventory@example.com",
+        action: "Report exported",
+        meta: expect.objectContaining({ reportType: "audit-logs", recordCount: 1, result: "success" }),
+      }),
+    ]));
   });
 
   test("denies Sales Associate Tracking export even with forged Admin query data", async () => {
