@@ -191,24 +191,15 @@ describe("tracking issue note AI route", () => {
     expect(JSON.stringify(audit)).not.toContain("test-groq-key");
   });
 
-  test("allows Sales Associate as Staff and attributes audit to the authenticated Sales Associate", async () => {
+  test("denies Sales Associate because Service Tracking is view-only", async () => {
     const response = await request("/api/ai/tracking/issue-note", {
       token: auth(salesAssociateUser),
       body: aiBody({ auditUser: "admin@example.com", actorRole: "Admin", actorUserType: "Admin" }),
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
-      available: true,
-      technicianFriendlyNote: "Inspect the marked panel for a paint blemish before coating.",
-      suggestedNextAction: "Confirm prep requirements before service.",
-      customerSafeSummary: "A marked area needs inspection before work begins.",
-    });
-    const audit = auditLogs.find((log) => log.targetId === "tracking-issue-note");
-    expect(audit.userId).toBe("sales@example.com");
-    expect(audit.meta.actorRole).toBe("sales associate");
-    expect(audit.meta.actorUserType).toBe("staff");
-    expect(JSON.stringify(audit)).not.toContain("test-groq-key");
+    expect(response.status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(auditLogs).toEqual([]);
   });
 
   test("denies unauthorized Staff, Customer, unauthenticated, and forged actor requests", async () => {

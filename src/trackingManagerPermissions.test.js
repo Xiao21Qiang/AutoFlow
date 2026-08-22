@@ -53,12 +53,12 @@ describe("Service Tracking manager permissions", () => {
     })).toBe(true);
   });
 
-  test("lets Sales Associate edit unassigned issue notes through the admin-parity tracking flow", () => {
+  test("keeps Sales Associate issue note access view-only like Sales Manager", () => {
     expect(canEditIssueNotes({
       booking: scheduledBooking,
       currentUser: salesAssociate,
       allowAdmin: true,
-    })).toBe(true);
+    })).toBe(false);
   });
 
   test("keeps non-manager staff assignment-scoped even inside shared helpers", () => {
@@ -73,8 +73,8 @@ describe("Service Tracking manager permissions", () => {
     expect(canEditWarranty(inProgressBooking, paidPayment, generalManager, { allowAdmin: true })).toBe(true);
   });
 
-  test("lets Sales Associate edit unassigned warranty details when lifecycle gates pass", () => {
-    expect(canEditWarranty(inProgressBooking, paidPayment, salesAssociate, { allowAdmin: true })).toBe(true);
+  test("keeps Sales Associate warranty access view-only like Sales Manager", () => {
+    expect(canEditWarranty(inProgressBooking, paidPayment, salesAssociate, { allowAdmin: true })).toBe(false);
   });
 
   test("keeps non-manager staff warranty edits assignment-scoped", () => {

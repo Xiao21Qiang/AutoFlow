@@ -216,7 +216,7 @@ describe("Admin Service Tracking assignment editing", () => {
     expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
-  test("lets Sales Associate edit unassigned issue notes through the shared Admin Tracking flow", async () => {
+  test("keeps Sales Associate issue note controls read-only inside the shared Admin Tracking flow", () => {
     mockCurrentUser = salesAssociateUser;
     seedBookings({
       assigned: "Detailer One",
@@ -224,22 +224,15 @@ describe("Admin Service Tracking assignment editing", () => {
     });
     openEditModal();
 
-    expect(screen.getByText("Issue notes can be edited while this booking is Scheduled.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add Marker" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Generate Suggestion" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Save Issue Notes" })).toBeEnabled();
-
-    fireEvent.change(screen.getByRole("textbox", { name: /Issue Notes/i }), { target: { value: "Paint blemish near rear panel." } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Issue Notes" }));
-
-    await waitFor(() => expect(mockUpdateBooking).toHaveBeenCalledWith("B-1", expect.objectContaining({
-      status: "Scheduled",
-      issueNote: "Paint blemish near rear panel.",
-      issueTypes: [],
-    })));
+    expect(screen.queryByText("Issue notes can be edited while this booking is Scheduled.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Marker" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Generate Suggestion" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Issue Notes" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /Issue Notes/i })).toBeDisabled();
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
-  test("lets Sales Associate edit unassigned warranty details when GM lifecycle gates pass", async () => {
+  test("keeps Sales Associate warranty controls read-only when lifecycle gates pass", () => {
     mockCurrentUser = salesAssociateUser;
     seedBookings({
       status: "In Progress",
@@ -252,21 +245,11 @@ describe("Admin Service Tracking assignment editing", () => {
     mockPayments = [{ id: "PAY-1", bookingId: "B-1", finalPaymentStatus: "Paid", status: "Paid" }];
     openEditModal();
 
-    expect(screen.getByText("Warranty details can be edited while this service is In Progress and fully paid.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save Warranty Details" })).toBeEnabled();
-
-    fireEvent.click(screen.getAllByRole("checkbox")[0]);
-    fireEvent.change(screen.getByLabelText("Date / Location"), { target: { value: "2099-12-31 / QC" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Warranty Details" }));
-
-    await waitFor(() => expect(mockUpdateBooking).toHaveBeenCalledWith("B-1", expect.objectContaining({
-      status: "In Progress",
-      warrantyCoveragePackage: "Standard Warranty",
-      warrantyAcknowledgement: expect.objectContaining({ dateLocation: "2099-12-31 / QC" }),
-      warrantyChecklistItems: expect.arrayContaining([
-        expect.objectContaining({ done: true }),
-      ]),
-    })));
+    expect(screen.queryByText("Warranty details can be edited while this service is In Progress and fully paid.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Warranty Details" })).toBeDisabled();
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    expect(screen.getByLabelText("Date / Location")).toBeDisabled();
+    expect(mockUpdateBooking).not.toHaveBeenCalled();
   });
 
   test("generates an Admin issue note suggestion once and displays the canonical result", async () => {

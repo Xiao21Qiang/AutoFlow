@@ -108,16 +108,13 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
-  test("gives Sales Associate GM-equivalent allowed-module actions while preserving explicit denials", () => {
+  test("gives Sales Associate Sales Manager-equivalent module actions while preserving explicit denials", () => {
     for (const actionKey of [
       ACTION_KEYS.bookingView,
       ACTION_KEYS.bookingCreate,
       ACTION_KEYS.bookingUpdate,
       ACTION_KEYS.bookingUpdateStatus,
       ACTION_KEYS.trackingView,
-      ACTION_KEYS.trackingUpdateIssueNotes,
-      ACTION_KEYS.trackingUpdateWarranty,
-      ACTION_KEYS.trackingComplete,
       ACTION_KEYS.paymentView,
       ACTION_KEYS.paymentVerify,
       ACTION_KEYS.engagementView,
@@ -127,6 +124,11 @@ describe("Phase 1 permission matrix", () => {
 
     for (const actionKey of [
       ACTION_KEYS.bookingDelete,
+      ACTION_KEYS.bookingReassignDetailer,
+      ACTION_KEYS.detailerReassign,
+      ACTION_KEYS.trackingUpdateIssueNotes,
+      ACTION_KEYS.trackingUpdateWarranty,
+      ACTION_KEYS.trackingComplete,
       ACTION_KEYS.servicesManage,
       ACTION_KEYS.engagementManage,
       ACTION_KEYS.auditViewAll,

@@ -820,7 +820,7 @@ describe("Cancelled booking immutability", () => {
   test.each([
     ["Admin ordinary update", adminUser, { issueNote: "Changed note" }],
     ["General Manager ordinary update", generalManagerUser, { issueNote: "Changed note" }],
-    ["Sales Associate ordinary update", salesAssociateUser, { issueNote: "Changed note" }],
+    ["Sales Associate ordinary update", salesAssociateUser, { amount: 1500 }],
     ["General Manager status rollback", generalManagerUser, { status: "Scheduled" }],
     ["Sales Associate status rollback", salesAssociateUser, { status: "Scheduled" }],
     ["crafted schedule and assignment change", adminUser, { date: "2099-12-30", time: "13:00", placeSlot: 2, assigned: "STF-2", service: "Ceramic Coating", promoId: "FORGED-PROMO" }],
@@ -839,9 +839,10 @@ describe("Cancelled booking immutability", () => {
   });
 });
 
-describe("Sales Associate Service Tracking route parity", () => {
-  test("Sales Associate can move Scheduled tracking to In Progress with issue fields and authenticated audit actor", async () => {
+describe("Sales Associate Service Tracking view-only route enforcement", () => {
+  test("Sales Associate cannot move Scheduled tracking to In Progress with forged Admin role data", async () => {
     seedScheduledBooking({ finalPaymentStatus: "For Verification", status: "For Verification" });
+    const originalBooking = clone(bookings[0]);
     const response = await request("/api/admin/bookings/B-RESCHEDULE", {
       method: "PUT",
       token: auth(salesAssociateUser),
@@ -857,25 +858,17 @@ describe("Sales Associate Service Tracking route parity", () => {
       },
     });
 
-    expect(response.status).toBe(200);
-    expect(bookings[0]).toMatchObject({
-      status: "In Progress",
-      issueNote: "Paint blemish documented before service.",
-      issueTypes: ["Paint blemish"],
-    });
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status", "issueNote", "issueTypes", "issueMarkers"]));
+    expect(bookings[0]).toEqual(originalBooking);
     expect(payments[0].finalPaymentStatus).toBe("For Verification");
-    expect(auditLogs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        userId: "sales@example.com",
-        action: "Updated booking status",
-        targetId: "B-RESCHEDULE",
-        meta: expect.objectContaining({ status: "In Progress" }),
-      }),
-    ]));
+    expect(auditLogs).toEqual([]);
   });
 
-  test("Sales Associate can complete valid In Progress tracking without forging the audit actor", async () => {
+  test("Sales Associate cannot complete valid In Progress tracking even with forged Admin actor data", async () => {
     seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
     const response = await request("/api/admin/bookings/B-TRACKING", {
       method: "PUT",
       token: auth(salesAssociateUser),
@@ -889,20 +882,15 @@ describe("Sales Associate Service Tracking route parity", () => {
       },
     });
 
-    expect(response.status).toBe(200);
-    expect(bookings[0].status).toBe("Completed");
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
+    expect(bookings[0]).toEqual(originalBooking);
     expect(payments[0].finalPaymentStatus).toBe("Paid");
-    expect(auditLogs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        userId: "sales@example.com",
-        action: "Updated booking status",
-        targetId: "B-TRACKING",
-        meta: expect.objectContaining({ status: "Completed" }),
-      }),
-    ]));
+    expect(auditLogs).toEqual([]);
   });
 
-  test("Sales Associate completion is rejected when final payment is still for verification", async () => {
+  test("Sales Associate completion is rejected by view-only tracking scope before payment review gates", async () => {
     seedInProgressTrackingBooking({ finalPaymentStatus: "For Verification", status: "For Verification", finalPaymentVerifiedAt: "" });
     const originalBooking = clone(bookings[0]);
     const response = await request("/api/admin/bookings/B-TRACKING", {
@@ -917,8 +905,9 @@ describe("Sales Associate Service Tracking route parity", () => {
       },
     });
 
-    expect(response.status).toBe(400);
-    expect(response.body.message).toBe("Full payment must be marked as paid before completing this booking.");
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
   });
 
@@ -938,8 +927,9 @@ describe("Sales Associate Service Tracking route parity", () => {
       },
     });
 
-    expect(response.status).toBe(400);
-    expect(response.body.message).toBe("Booking status cannot transition from In Progress to Scheduled.");
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
   });
 });
@@ -1188,7 +1178,7 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     ]));
   });
 
-  test("Sales Associate may reschedule an eligible Cancelled booking with Staff PIN and authenticated audit actor", async () => {
+  test("Sales Associate cannot use the dedicated Cancelled booking reschedule workflow", async () => {
     seedCancelledRescheduleBooking();
     const response = await request(reschedulePath(), {
       method: "PATCH",
@@ -1196,21 +1186,16 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
       body: reschedulePayload("654321", { auditUser: "admin@example.com", userType: "Admin", role: "Admin" }),
     });
 
-    expect(response.status).toBe(200);
-    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled" });
-    expect(auditLogs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        userId: "sales@example.com",
-        action: "Rescheduled booking",
-        targetId: "B-CANCELLED-RESCHEDULE",
-      }),
-    ]));
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to perform this action.");
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1, status: "Cancelled" });
+    expect(auditLogs).toEqual([]);
   });
 
   test.each([
     ["incorrect Staff PIN", "000000"],
     ["Admin PIN supplied by Staff", "123456"],
-  ])("General Manager and Sales Associate reschedule reject %s", async (_label, specialPin) => {
+  ])("General Manager reschedule rejects %s while Sales Associate is denied before credential validation", async (_label, specialPin) => {
     seedCancelledRescheduleBooking();
     const gmResponse = await request(reschedulePath(), {
       method: "PATCH",
@@ -1226,8 +1211,8 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
       token: auth(salesAssociateUser),
       body: reschedulePayload(specialPin),
     });
-    expect(salesResponse.status).toBe(401);
-    expect(salesResponse.body.message).toBe("Incorrect staff special PIN.");
+    expect(salesResponse.status).toBe(403);
+    expect(salesResponse.body.message).toBe("You do not have permission to perform this action.");
     expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1, status: "Cancelled" });
   });
 
@@ -1259,11 +1244,11 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     ["required downpayment not submitted", null, "A linked payment record is required before rescheduling this booking."],
     ["required downpayment For Verification", { downPaymentStatus: "For Verification", downPaymentVerifiedAt: null }, "Down payment must be verified as paid before rescheduling this booking."],
     ["required downpayment rejected", { downPaymentStatus: "Rejected", downPaymentRejectedAt: "2099-12-01T00:10:00.000Z", downPaymentVerifiedAt: null }, "Down payment must be verified as paid before rescheduling this booking."],
-  ])("Sales Associate reschedule with %s is denied", async (_label, paymentPatch, message) => {
+  ])("General Manager reschedule with %s is denied", async (_label, paymentPatch, message) => {
     seedCancelledRescheduleBooking({ paymentPatch });
     const response = await request(reschedulePath(), {
       method: "PATCH",
-      token: auth(salesAssociateUser),
+      token: auth(generalManagerUser),
       body: reschedulePayload("654321"),
     });
 
@@ -1276,7 +1261,7 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     seedCancelledRescheduleBooking({ paymentPatch: null, serviceName: "Car Wash" });
     const response = await request(reschedulePath(), {
       method: "PATCH",
-      token: auth(salesAssociateUser),
+      token: auth(generalManagerUser),
       body: reschedulePayload("654321"),
     });
 
@@ -1385,7 +1370,7 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     bookings.push({ id: "B-ACTIVE", date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled", service: "Ceramic Coating" });
     const response = await request(reschedulePath(), {
       method: "PATCH",
-      token: auth(salesAssociateUser),
+      token: auth(generalManagerUser),
       body: reschedulePayload("654321"),
     });
 
@@ -1424,14 +1409,11 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1, status: "Scheduled" });
   });
 
-  test.each([
-    ["General Manager", generalManagerUser],
-    ["Sales Associate", salesAssociateUser],
-  ])("%s Pending customer booking initial scheduling remains allowed without verified downpayment", async (_label, actor) => {
+  test("General Manager Pending customer booking initial scheduling remains allowed without verified downpayment", async () => {
     seedPendingBooking();
     const response = await request("/api/admin/bookings/B-PENDING", {
       method: "PUT",
-      token: auth(actor),
+      token: auth(generalManagerUser),
       body: {
         ...bookings[0],
         date: "2099-12-31",
@@ -1446,8 +1428,30 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "10:00", placeSlot: 1, status: "Scheduled" });
   });
 
-  test("Sales Associate may perform an eligible ordinary booking assignment edit and audits authenticated actor", async () => {
+  test("Sales Associate cannot change place slot while scheduling a Pending customer booking", async () => {
+    seedPendingBooking();
+    const originalBooking = clone(bookings[0]);
+    const response = await request("/api/admin/bookings/B-PENDING", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "Scheduled",
+        specialPin: "654321",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to update the place slot for this booking.");
+    expect(bookings[0]).toEqual(originalBooking);
+  });
+
+  test("Sales Associate cannot perform ordinary booking assignment edits", async () => {
     seedScheduledBooking();
+    const originalBooking = clone(bookings[0]);
     const response = await request("/api/admin/bookings/B-RESCHEDULE", {
       method: "PUT",
       token: auth(salesAssociateUser),
@@ -1460,14 +1464,11 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
       },
     });
 
-    expect(response.status).toBe(200);
-    expect(bookings[0]).toMatchObject({ assigned: "Detailer Two", status: "Scheduled" });
-    expect(auditLogs).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        userId: "sales@example.com",
-        targetId: "B-RESCHEDULE",
-      }),
-    ]));
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["assigned"]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
   });
 
   test("Sales Associate may cancel an eligible booking with Staff PIN and cannot forge audit actor", async () => {

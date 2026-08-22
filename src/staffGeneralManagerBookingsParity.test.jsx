@@ -268,17 +268,17 @@ describe("Sales Associate authorization foundation shell", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  test("shows the GM-equivalent cancelled reschedule workflow without exposing Delete", () => {
+  test("matches Sales Manager cancelled booking restrictions without exposing Delete", () => {
     setContext({ currentUser: salesAssociate, payments: [paidCancelledBookingPayment()] });
     renderStaffMain(salesAssociate);
 
     fireEvent.click(screen.getByText("Bookings"));
 
-    expect(screen.getByRole("button", { name: "Reschedule" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reschedule" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Reschedule Booking" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reschedule Booking" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
@@ -375,7 +375,7 @@ describe("Sales Associate authorization foundation shell", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Bookings report export started."));
   });
 
-  test("uses Admin Tracking parity for Service Tracking", () => {
+  test("uses Sales Manager view-only Service Tracking", () => {
     setContext({
       currentUser: salesAssociate,
       bookings: [{
@@ -393,31 +393,34 @@ describe("Sales Associate authorization foundation shell", () => {
 
     fireEvent.click(screen.getByText("Service Tracking"));
 
-    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
-    expect(screen.queryByText("View only")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    expect(screen.getByText("Edit Tracking Row")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Only" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  test("blocks duplicate Sales Associate Service Tracking export clicks", async () => {
-    let resolveExport;
-    downloadAuthenticatedFile.mockImplementation(() => new Promise((resolve) => {
-      resolveExport = resolve;
-    }));
-    setContext({ currentUser: salesAssociate });
+  test("opens Sales Associate Service Tracking details without mutation controls", () => {
+    setContext({
+      currentUser: salesAssociate,
+      bookings: [{
+        ...baseData.bookings[0],
+        id: "B-SA-TRACK-2",
+        status: "In Progress",
+        assigned: "Detailer One",
+        issueNote: "Paint blemish documented before service.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: "Paint blemish" }],
+      }],
+    });
     renderStaffMain(salesAssociate);
 
     fireEvent.click(screen.getByText("Service Tracking"));
-    const exportButton = screen.getByRole("button", { name: "Export as PDF" });
-    fireEvent.click(exportButton);
-    fireEvent.click(exportButton);
+    fireEvent.click(screen.getByRole("button", { name: "View Only" }));
 
-    expect(buildReportDownloadPath).toHaveBeenCalledWith("tracking", "pdf");
-    expect(downloadAuthenticatedFile).toHaveBeenCalledTimes(1);
-    expect(downloadAuthenticatedFile).toHaveBeenCalledWith("/api/admin/reports/tracking/pdf", "autoflow-tracking-report.pdf");
-
-    resolveExport();
-    await waitFor(() => expect(downloadAuthenticatedFile).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Service Tracking Details" });
+    expect(within(dialog).getByText("B-SA-TRACK-2")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Special PIN")).not.toBeInTheDocument();
   });
 });
 
@@ -577,7 +580,7 @@ describe("General Manager Payment Tracking parity shell", () => {
 
     fireEvent.click(screen.getByText("Payment Tracking"));
 
-    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
     expect(screen.queryByText("View only")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "✎" }));

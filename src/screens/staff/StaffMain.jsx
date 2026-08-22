@@ -173,8 +173,9 @@ function StaffMainContent({ session, onLogout }) {
 
   const userEmail = session?.email || "staff@allprotec.com";
   const effectiveRole = getEffectiveRole(session);
-  const usesManagerParityModules = effectiveRole === "general manager" || effectiveRole === "sales associate";
-  const usesAdminBookingsModule = usesManagerParityModules || effectiveRole === "sales manager";
+  const usesAdminTrackingModule = effectiveRole === "general manager";
+  const usesAdminPaymentsModule = effectiveRole === "general manager";
+  const usesAdminBookingsModule = usesAdminTrackingModule || effectiveRole === "sales manager" || effectiveRole === "sales associate";
 
   const avatarLetter = useMemo(() => {
     const base = String(session?.first || session?.firstName || session?.email || "S").trim();
@@ -277,8 +278,8 @@ function StaffMainContent({ session, onLogout }) {
             {screen === "analytics" && <AdminAnalytics />}
             {screen === "audit" && <AdminAuditLogs />}
             {screen === "bookings" && (usesAdminBookingsModule ? <AdminBookings allowDelete={false} /> : <StaffBookings />)}
-            {screen === "tracking" && (usesManagerParityModules ? <AdminTracking /> : <StaffTracking session={session} />)}
-            {screen === "payments" && (usesManagerParityModules ? <AdminPayments /> : <StaffPayments session={session} />)}
+            {screen === "tracking" && (usesAdminTrackingModule ? <AdminTracking /> : <StaffTracking session={session} />)}
+            {screen === "payments" && (usesAdminPaymentsModule ? <AdminPayments /> : <StaffPayments session={session} />)}
             {screen === "financial-tracker" && <AdminFinancialTracker />}
             {screen === "services" && <StaffServices />}
             {screen === "stock-monitoring" && <StaffStockMonitoring />}

@@ -390,6 +390,7 @@ describe("admin bootstrap performance structure", () => {
     expect(salesAssociateScoped.customerRewards).toEqual([]);
     expect(salesAssociateScoped.auditLogs).toEqual([]);
     expect(salesAssociateScoped.archivedAuditLogs).toEqual([]);
+    expect(salesAssociateScoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
   });
 
   test("on-demand proof route enforces auth and payment ownership", async () => {

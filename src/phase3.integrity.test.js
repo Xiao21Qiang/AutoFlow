@@ -204,5 +204,6 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.expenses).toEqual([]);
     expect(scoped.commissions).toEqual([]);
     expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
+    expect(scoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
   });
 });

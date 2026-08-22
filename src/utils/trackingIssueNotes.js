@@ -78,7 +78,7 @@ export function canManageTrackingAction(user = {}, actionKey = "") {
   const effectiveRole = getEffectiveRole(user);
   return (
     isAdminUser(user) ||
-    ((effectiveRole === "general manager" || effectiveRole === "sales associate") && canPerformAction(user, actionKey))
+    (effectiveRole === "general manager" && canPerformAction(user, actionKey))
   );
 }
 

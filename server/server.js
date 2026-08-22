@@ -2308,13 +2308,8 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.bookingView,
     ACTION_KEYS.bookingCreate,
     ACTION_KEYS.bookingUpdate,
-    ACTION_KEYS.bookingReassignDetailer,
-    ACTION_KEYS.detailerReassign,
     ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
-    ACTION_KEYS.trackingUpdateIssueNotes,
-    ACTION_KEYS.trackingUpdateWarranty,
-    ACTION_KEYS.trackingComplete,
     ACTION_KEYS.paymentView,
     ACTION_KEYS.paymentVerify,
     ACTION_KEYS.engagementView,
@@ -2524,7 +2519,7 @@ function canReassignDetailer(user) {
 function canUpdatePlaceSlot(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const role = getEffectiveRole(user);
-  if (role === "general manager" || role === "sales associate") return true;
+  if (role === "general manager") return true;
   if (role === "junior detailer" || role === "senior detailer") {
     return canViewDetailerTask(user, booking, users) && isBookingAssignedToUser(booking, user);
   }
@@ -6227,6 +6222,9 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
       return String(user.email || "").trim().toLowerCase() === email;
     });
+    const scopedSettings = staffRole === "sales associate"
+      ? { requiredDownPaymentAmount: DEFAULT_REQUIRED_DOWN_PAYMENT_AMOUNT }
+      : data.settings;
     return {
       ...data,
       bookings: scopedBookings,
@@ -6247,6 +6245,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       customerRewards: [],
       rewards: canSeeEngagement ? data.rewards : data.rewards.filter((reward) => reward.active !== false),
       alerts: canSeeStock ? data.alerts : [],
+      settings: scopedSettings,
     };
   }
 
@@ -7547,11 +7546,11 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     } else if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)) {
       denyForbidden(res);
       return;
-    } else if (staffRoleForBookingUpdate === "sales manager") {
+    } else if (staffRoleForBookingUpdate === "sales manager" || staffRoleForBookingUpdate === "sales associate") {
       const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
       if (trackingMutationFields.length) {
         res.status(403).json({
-          message: "Sales Manager has view-only access to Service Tracking.",
+          message: `${staffRoleForBookingUpdate === "sales associate" ? "Sales Associate" : "Sales Manager"} has view-only access to Service Tracking.`,
           fields: trackingMutationFields,
         });
         return;
@@ -7973,7 +7972,7 @@ app.patch("/api/admin/bookings/:id/reschedule", requireRoles("admin", "staff"), 
     const actorRole = getEffectiveRole(req.authUser);
     const allUsersForScope = await User.find({}).lean();
 
-    if (actorType !== "admin" && actorRole !== "general manager" && actorRole !== "sales associate") {
+    if (actorType !== "admin" && actorRole !== "general manager") {
       denyForbidden(res);
       return;
     }
