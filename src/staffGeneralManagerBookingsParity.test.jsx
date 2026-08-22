@@ -623,6 +623,13 @@ describe("General Manager Payment Tracking parity shell", () => {
         accountName: "Sales Associate",
       })
     ));
+    const payload = updatePayment.mock.calls[0][1];
+    expect(payload).not.toHaveProperty("downPaymentReference");
+    expect(payload).not.toHaveProperty("downPaymentProofSubmittedAt");
+    expect(payload).not.toHaveProperty("downPaymentReferenceCheckStatus");
+    expect(payload).not.toHaveProperty("downPaymentOcrAdvisoryStatus");
+    expect(payload).not.toHaveProperty("proofImage");
+    expect(payload).not.toHaveProperty("proofFileName");
   });
 
   test("blocks duplicate Sales Associate payment review confirmations", async () => {

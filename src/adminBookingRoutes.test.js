@@ -935,6 +935,44 @@ describe("Cancelled booking immutability", () => {
 });
 
 describe("Sales Associate Service Tracking view-only route enforcement", () => {
+  test("Sales Associate can receive authorized read-only tracking details", async () => {
+    seedInProgressTrackingBooking();
+
+    const response = await request("/api/tracking/B-TRACKING", {
+      token: auth(salesAssociateUser),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: "B-TRACKING",
+      vehicle: "Civic",
+      service: "Ceramic Coating",
+      status: "In Progress",
+      assigned: "Detailer One",
+      issueNote: "Paint blemish documented before service.",
+      issueTypes: ["Paint blemish"],
+      issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "Paint blemish" }],
+    });
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Sales Associate can read authorized warranty release status without mutation access", async () => {
+    seedInProgressTrackingBooking();
+
+    const response = await request("/api/tracking/B-TRACKING/warranty", {
+      token: auth(salesAssociateUser),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: "B-TRACKING",
+      status: "In Progress",
+      warrantyReleased: false,
+      message: "Warranty document will be available once released by staff/admin.",
+    });
+    expect(auditLogs).toEqual([]);
+  });
+
   test("Sales Associate cannot move Scheduled tracking to In Progress with forged Admin role data", async () => {
     seedScheduledBooking({ finalPaymentStatus: "For Verification", status: "For Verification" });
     const originalBooking = clone(bookings[0]);
@@ -1026,6 +1064,45 @@ describe("Sales Associate Service Tracking view-only route enforcement", () => {
     expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
     expect(response.body.fields).toEqual(expect.arrayContaining(["status"]));
     expect(bookings[0]).toEqual(originalBooking);
+  });
+
+  test("Sales Associate cannot mutate warranty, acknowledgement, or release fields with forged Admin scope", async () => {
+    seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: {
+        ...bookings[0],
+        warrantyChecklist: "Forged checklist",
+        warrantyChecklistItems: [{ id: "paint", label: "Paint inspection", done: false, doneBy: "Sales Associate", notes: "Forged" }],
+        warrantyCoveragePackage: "Forged Coverage",
+        warrantyAcknowledgement: { dateLocation: "Forged location", clientSignature: "Forged signature" },
+        warrantyReleased: true,
+        warrantyReleasedAt: "2099-12-31T08:00:00.000Z",
+        warrantyQrCode: "FORGED-QR",
+        specialPin: "654321",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Sales Associate has view-only access to Service Tracking.");
+    expect(response.body.fields).toEqual(expect.arrayContaining([
+      "warrantyChecklist",
+      "warrantyChecklistItems",
+      "warrantyCoveragePackage",
+      "warrantyAcknowledgement",
+      "warrantyReleased",
+      "warrantyReleasedAt",
+      "warrantyQrCode",
+    ]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
   });
 });
 

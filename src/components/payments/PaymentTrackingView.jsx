@@ -444,7 +444,6 @@ export default function PaymentTrackingView({ role = "admin" }) {
                       ? form.finalPaymentStatus
                       : selectedPayment.status || "Pending";
                     await updatePayment(selectedPayment.id, {
-                      ...selectedPayment,
                       status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
                       downPaymentStatus: form.downPaymentStatus,
                       downPaymentNotes: form.downPaymentNotes,
