@@ -207,7 +207,7 @@ describe("Phase 3 stock and permission regressions", () => {
     expect(scoped.settings).toEqual({ requiredDownPaymentAmount: 0 });
   });
 
-  test("scopes Inventory Clerk to tracking support data, stock, and operational audit logs", () => {
+  test("scopes Inventory Clerk to Bookings data, stock, and operational audit logs", () => {
     const inventoryClerk = { id: "INV-CLERK", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk" };
     const scoped = filterBootstrapDataForRole({
       bookings: [{ id: "B-IC", assigned: "Senior One", customerEmail: "c@example.com" }],
@@ -241,28 +241,30 @@ describe("Phase 3 stock and permission regressions", () => {
       settings: { requiredDownPaymentAmount: 300 },
     }, inventoryClerk);
 
-    expect(canAccessModule(inventoryClerk, MODULE_KEYS.bookings)).toBe(false);
-    expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingView)).toBe(false);
+    expect(canAccessModule(inventoryClerk, MODULE_KEYS.bookings)).toBe(true);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingView)).toBe(true);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingCreate)).toBe(true);
+    expect(canPerformAction(inventoryClerk, ACTION_KEYS.bookingUpdate)).toBe(true);
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.trackingView)).toBe(true);
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockManage)).toBe(true);
     expect(canPerformAction(inventoryClerk, ACTION_KEYS.stockCreate)).toBe(false);
     expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-IC"]);
-    expect(scoped.services).toEqual([]);
+    expect(scoped.services).toEqual([{ id: "SVC-1", name: "Coating" }]);
     expect(scoped.stockMonitoring.map((item) => item.id)).toEqual(["STK-1"]);
     expect(scoped.payments).toEqual([]);
-    expect(scoped.users.map((user) => user.email)).toEqual(["inventory@example.com"]);
+    expect(scoped.users.map((user) => user.email).sort()).toEqual(["c@example.com", "inventory@example.com"]);
     expect(scoped.auditLogs.map((log) => log.id)).toEqual(["AUD-STOCK"]);
     expect(scoped.archivedAuditLogs).toEqual([]);
     expect(scoped.reviews).toEqual([]);
     expect(scoped.promos).toEqual([]);
-    expect(scoped.quoteRequests).toEqual([]);
+    expect(scoped.quoteRequests).toEqual([{ id: "QR-1" }]);
     expect(scoped.expenses).toEqual([]);
     expect(scoped.commissions).toEqual([]);
     expect(scoped.rewards).toEqual([]);
     expect(scoped.financialReport).toEqual({ totals: {}, payments: [], expenses: [], commissions: [] });
     expect(canExportReport(inventoryClerk, "audit-logs")).toBe(true);
     expect(canExportReport(inventoryClerk, "stock")).toBe(true);
-    expect(canExportReport(inventoryClerk, "bookings")).toBe(false);
+    expect(canExportReport(inventoryClerk, "bookings")).toBe(true);
     expect(canExportReport(inventoryClerk, "tracking")).toBe(true);
     expect(canExportReport(inventoryClerk, "analytics")).toBe(false);
   });

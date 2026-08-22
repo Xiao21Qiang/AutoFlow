@@ -58,12 +58,13 @@ describe("Phase 1 permission matrix", () => {
     expect(canAccessModule(generalManager, MODULE_KEYS.detailerManagement)).toBe(false);
   });
 
-  test("limits Inventory Clerk to the exact five approved modules", () => {
+  test("limits Inventory Clerk to the exact six approved modules", () => {
     expect(normalizeRole({ role: "  Inventory   Clerk  " })).toBe("inventory clerk");
     expect(normalizeUserType(inventoryClerk)).toBe("staff");
     expect(getEffectiveRole(inventoryClerk)).toBe("inventory clerk");
     expect(getAllowedModules(inventoryClerk)).toEqual([
       MODULE_KEYS.dashboard,
+      MODULE_KEYS.bookings,
       MODULE_KEYS.stockMonitoring,
       MODULE_KEYS.serviceTracking,
       MODULE_KEYS.auditLogs,
@@ -72,7 +73,6 @@ describe("Phase 1 permission matrix", () => {
 
     for (const moduleKey of [
       MODULE_KEYS.analytics,
-      MODULE_KEYS.bookings,
       MODULE_KEYS.services,
       MODULE_KEYS.paymentTracking,
       MODULE_KEYS.financialTracker,
@@ -86,8 +86,12 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
-  test("gives Inventory Clerk audit read, tracking view, and stock manage without stock create or booking access", () => {
+  test("gives Inventory Clerk Bookings, audit read, tracking view, and stock manage without stock create", () => {
     for (const actionKey of [
+      ACTION_KEYS.bookingView,
+      ACTION_KEYS.bookingCreate,
+      ACTION_KEYS.bookingUpdate,
+      ACTION_KEYS.bookingUpdateStatus,
       ACTION_KEYS.trackingView,
       ACTION_KEYS.stockView,
       ACTION_KEYS.stockManage,
@@ -97,10 +101,6 @@ describe("Phase 1 permission matrix", () => {
     }
 
     for (const actionKey of [
-      ACTION_KEYS.bookingView,
-      ACTION_KEYS.bookingCreate,
-      ACTION_KEYS.bookingUpdate,
-      ACTION_KEYS.bookingUpdateStatus,
       ACTION_KEYS.stockCreate,
       ACTION_KEYS.trackingUpdateIssueNotes,
       ACTION_KEYS.trackingUpdateWarranty,

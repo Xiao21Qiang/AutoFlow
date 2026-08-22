@@ -2245,6 +2245,7 @@ const ROLE_MODULES = {
   ],
   "inventory clerk": [
     MODULE_KEYS.dashboard,
+    MODULE_KEYS.bookings,
     MODULE_KEYS.stockMonitoring,
     MODULE_KEYS.serviceTracking,
     MODULE_KEYS.auditLogs,
@@ -2313,6 +2314,10 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.engagementView,
   ],
   "inventory clerk": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,
@@ -2484,9 +2489,8 @@ function canViewBooking(user, booking, users = []) {
       (bookingCustomerId && actorId && bookingCustomerId === actorId)
     );
   }
-  const role = getEffectiveRole(user);
-  if (role === "inventory clerk" && canPerformAction(user, ACTION_KEYS.trackingView)) return true;
   if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
+  const role = getEffectiveRole(user);
   if (role === "junior detailer" || role === "senior detailer") return canViewDetailerTask(user, booking, users);
   return true;
 }
@@ -2495,7 +2499,7 @@ function canUpdateBooking(user, booking, users = []) {
   if (isAdmin(user)) return true;
   if (!canViewBooking(user, booking, users) || !canPerformAction(user, ACTION_KEYS.bookingUpdate)) return false;
   const role = getEffectiveRole(user);
-  if (role === "inventory clerk" || role === "marketing") return false;
+  if (role === "marketing") return false;
   return true;
 }
 

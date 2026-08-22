@@ -799,6 +799,108 @@ describe("Sales Associate booking creation route validation", () => {
   });
 });
 
+describe("Inventory Clerk booking route authorization", () => {
+  test("invalid Inventory Clerk booking creation uses canonical validation and does not persist", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(inventoryClerkUser),
+      body: { ...basePayload, customerEmail: "" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("same date, time, and place slot conflict is rejected for Inventory Clerk booking creation", async () => {
+    resetData([{ ...basePayload, id: "B-ACTIVE", status: "Scheduled" }]);
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(inventoryClerkUser),
+      body: { ...basePayload, placeSlot: 1 },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toMatch(/already booked/);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("a valid Inventory Clerk request creates one Scheduled booking and audits the authenticated actor", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(inventoryClerkUser),
+      body: {
+        ...basePayload,
+        auditUser: "admin@example.com",
+        actor: "Admin",
+        userType: "Admin",
+        role: "Admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+    expect(bookings[0]).toMatchObject({
+      status: "Scheduled",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "inventory@example.com",
+        action: "Created booking",
+        targetId: bookings[0].id,
+      }),
+    ]));
+  });
+
+  test("Inventory Clerk can perform approved booking edit without gaining tracking mutation", async () => {
+    resetData([{ ...basePayload, id: "B-IC-EDIT", status: "Scheduled", amount: 1000, originalAmount: 1000 }]);
+    payments.push({ id: "PAY-IC-EDIT", bookingId: "B-IC-EDIT", totalAmount: 1000, finalAmount: 1000 });
+
+    const response = await request("/api/admin/bookings/B-IC-EDIT", {
+      method: "PUT",
+      token: auth(inventoryClerkUser),
+      body: {
+        ...bookings[0],
+        vehicle: "City",
+        plate: "XYZ789",
+        auditUser: "admin@example.com",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      id: "B-IC-EDIT",
+      vehicle: "City",
+      plate: "XYZ789",
+      status: "Scheduled",
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "inventory@example.com",
+        action: "Updated booking",
+        targetId: "B-IC-EDIT",
+      }),
+    ]));
+  });
+});
+
 describe("Admin-only booking deletion route", () => {
   test("Admin may delete a Cancelled booking with the correct Admin special PIN and authenticated audit actor", async () => {
     seedDeletedBooking("Cancelled");
@@ -851,6 +953,7 @@ describe("Admin-only booking deletion route", () => {
     ["General Manager", generalManagerUser],
     ["Sales Manager", salesManagerUser],
     ["Sales Associate", salesAssociateUser],
+    ["Inventory Clerk", inventoryClerkUser],
   ])("%s cannot delete even a Cancelled booking with Staff credential or forged Admin body data", async (_label, actor) => {
     seedDeletedBooking("Cancelled");
     const response = await request("/api/admin/bookings/B-DELETE", {
@@ -1534,6 +1637,24 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
       method: "PATCH",
       token: auth(marketingUser),
       body: reschedulePayload("654321"),
+    });
+
+    expect(response.status).toBe(403);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-30", time: "10:00", placeSlot: 1, status: "Cancelled" });
+  });
+
+  test("Inventory Clerk cannot use the dedicated Cancelled reschedule workflow even with Staff PIN and forged Admin fields", async () => {
+    seedCancelledRescheduleBooking();
+    const response = await request(reschedulePath(), {
+      method: "PATCH",
+      token: auth(inventoryClerkUser),
+      body: reschedulePayload("654321", {
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      }),
     });
 
     expect(response.status).toBe(403);

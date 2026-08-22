@@ -103,6 +103,7 @@ const ROLE_MODULES = {
   ],
   "inventory clerk": [
     MODULE_KEYS.dashboard,
+    MODULE_KEYS.bookings,
     MODULE_KEYS.stockMonitoring,
     MODULE_KEYS.serviceTracking,
     MODULE_KEYS.auditLogs,
@@ -171,6 +172,10 @@ const ROLE_ACTIONS = {
     ACTION_KEYS.engagementView,
   ],
   "inventory clerk": [
+    ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.stockView,
     ACTION_KEYS.stockManage,

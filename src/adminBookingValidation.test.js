@@ -57,6 +57,15 @@ const salesAssociateUser = {
   status: "active",
 };
 
+const inventoryClerkUser = {
+  id: "IC-1",
+  name: "Inventory Clerk",
+  email: "inventory@example.com",
+  userType: "Staff",
+  role: "Inventory Clerk",
+  status: "active",
+};
+
 let mockData = {};
 
 jest.mock("./context/AdminDataContext", () => ({
@@ -775,6 +784,40 @@ describe("Sales Associate Add New Booking validation", () => {
       resolveCreate = resolve;
     }));
     openSalesAssociateModal();
+    await fillValidForm();
+
+    const form = screen.getByRole("button", { name: "Save Booking" }).closest("form");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(mockCreateBooking).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled();
+
+    resolveCreate({});
+    await waitFor(() => expect(screen.queryByText("New Booking")).not.toBeInTheDocument());
+  });
+});
+
+describe("Inventory Clerk Add New Booking validation", () => {
+  function openInventoryClerkModal() {
+    mockData = { currentUser: inventoryClerkUser };
+    openModalWithProps({ allowDelete: false });
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+  }
+
+  test("a fully valid Inventory Clerk booking form enables Save Booking without Delete", async () => {
+    openInventoryClerkModal();
+    await fillValidForm();
+    expect(screen.getByRole("button", { name: "Save Booking" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  test("duplicate Inventory Clerk create submits are ignored while the first create is in flight", async () => {
+    let resolveCreate;
+    mockCreateBooking.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    openInventoryClerkModal();
     await fillValidForm();
 
     const form = screen.getByRole("button", { name: "Save Booking" }).closest("form");

@@ -440,7 +440,7 @@ describe("Sales Associate authorization foundation shell", () => {
 });
 
 describe("Inventory Clerk authorization foundation shell", () => {
-  test("shows exactly the approved Inventory Clerk navigation modules and read-only Audit management", () => {
+  test("shows exactly the approved Inventory Clerk navigation modules, canonical Bookings, and read-only Audit management", () => {
     setContext({
       currentUser: inventoryClerk,
       stockMonitoring: [{ id: "STK-1", name: "Soap", category: "Cleaning", currentStock: 4, maxStock: 20, reorderLevel: 5, pricePerUnit: 30 }],
@@ -451,6 +451,7 @@ describe("Inventory Clerk authorization foundation shell", () => {
     for (const label of [
       "Dashboard",
       "Audit Logs",
+      "Bookings",
       "Service Tracking",
       "Stock Monitoring",
       "Profile",
@@ -460,7 +461,6 @@ describe("Inventory Clerk authorization foundation shell", () => {
 
     for (const label of [
       "Analytics",
-      "Bookings",
       "Services",
       "Payment Tracking",
       "Financial Tracker",
@@ -471,6 +471,14 @@ describe("Inventory Clerk authorization foundation shell", () => {
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
+
+    fireEvent.click(screen.getByText("Bookings"));
+    expect(screen.getByRole("button", { name: "Export as PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add New Booking" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("Edit Booking")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     fireEvent.click(screen.getByText("Stock Monitoring"));
     expect(screen.queryByRole("button", { name: "Add New Item" })).not.toBeInTheDocument();
