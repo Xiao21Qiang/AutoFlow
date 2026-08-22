@@ -154,28 +154,35 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-describe("Sales Associate Analytics parity", () => {
-  test("routes General Manager and Sales Associate to the canonical Analytics implementation", () => {
+describe("Staff Analytics authorization", () => {
+  test("routes General Manager and Sales Manager to the canonical Analytics implementation", () => {
     const { unmount } = openAnalytics(generalManager);
     expect(screen.getByRole("heading", { name: "Total Sales Visual Analytics" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bookings Summary" })).toBeInTheDocument();
 
     unmount();
     localStorage.clear();
-    openAnalytics(salesAssociate);
+    openAnalytics(salesManager);
     expect(screen.getByRole("heading", { name: "Total Sales Visual Analytics" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Bookings Summary" })).toBeInTheDocument();
   });
 
-  test("keeps Analytics hidden from unrelated Staff without module authorization", () => {
+  test("keeps Analytics hidden from Sales Associate and unrelated Staff without module authorization", () => {
+    const { unmount } = renderStaff(salesAssociate);
+
+    expect(screen.queryByText("Analytics")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Total Sales Visual Analytics" })).not.toBeInTheDocument();
+
+    unmount();
+    localStorage.clear();
     renderStaff(seniorDetailer);
 
     expect(screen.queryByText("Analytics")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Total Sales Visual Analytics" })).not.toBeInTheDocument();
   });
 
-  test("renders GM-equivalent Sales Associate metrics, charts, services, and ratings", () => {
-    openAnalytics(salesAssociate);
+  test("renders Sales Manager metrics, charts, services, and ratings", () => {
+    openAnalytics(salesManager);
 
     expect(screen.getByText("All-time verified sales")).toBeInTheDocument();
     expect(screen.getAllByText("Php 1,800").length).toBeGreaterThan(0);
@@ -191,8 +198,8 @@ describe("Sales Associate Analytics parity", () => {
     expect(screen.getAllByTestId("analytics-bar-chart").length).toBeGreaterThan(0);
   });
 
-  test("keeps GM-equivalent range filters functional for Sales Associate", () => {
-    openAnalytics(salesAssociate);
+  test("keeps range filters functional for Sales Manager", () => {
+    openAnalytics(salesManager);
 
     fireEvent.click(screen.getByRole("button", { name: "Monthly" }));
     expect(screen.getByText("Month")).toBeInTheDocument();
@@ -206,12 +213,12 @@ describe("Sales Associate Analytics parity", () => {
     expect(screen.getAllByText("2026").length).toBeGreaterThan(0);
   });
 
-  test("exposes only Analytics export and blocks duplicate export clicks", async () => {
+  test("exposes only Analytics export and blocks duplicate export clicks for Sales Manager", async () => {
     let resolveExport;
     downloadAuthenticatedFile.mockImplementation(() => new Promise((resolve) => {
       resolveExport = resolve;
     }));
-    openAnalytics(salesAssociate);
+    openAnalytics(salesManager);
 
     const button = screen.getByRole("button", { name: "Export as PDF" });
     fireEvent.click(button);
@@ -229,12 +236,12 @@ describe("Sales Associate Analytics parity", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Analytics report export started."));
   });
 
-  test("exposes Analytics AI and blocks duplicate requests for Sales Associate", async () => {
+  test("exposes Analytics AI and blocks duplicate requests for Sales Manager", async () => {
     let resolveAi;
     mockGenerateAnalyticsInterpretation.mockImplementation(() => new Promise((resolve) => {
       resolveAi = resolve;
     }));
-    openAnalytics(salesAssociate);
+    openAnalytics(salesManager);
 
     const section = screen.getByRole("heading", { name: "AI Generated Descriptive Analytics" }).closest("section");
     const button = within(section).getByRole("button", { name: "Generate Descriptive Analysis" });
@@ -249,10 +256,10 @@ describe("Sales Associate Analytics parity", () => {
       available: true,
       analysisType: "descriptive",
       model: "mock-model",
-      items: [{ type: "summary", title: "Summary", text: "Sales Associate analytics AI summary." }],
+      items: [{ type: "summary", title: "Summary", text: "Sales Manager analytics AI summary." }],
     });
 
-    await waitFor(() => expect(within(section).getByText("Sales Associate analytics AI summary.")).toBeInTheDocument());
+    await waitFor(() => expect(within(section).getByText("Sales Manager analytics AI summary.")).toBeInTheDocument());
   });
 
   test("preserves Sales Manager Analytics access without granting unauthorized admin modules", () => {

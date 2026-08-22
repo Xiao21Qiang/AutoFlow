@@ -83,10 +83,9 @@ describe("Phase 1 permission matrix", () => {
     expect(isAdmin(salesAssociate)).toBe(false);
   });
 
-  test("limits Sales Associate modules to the approved eight-module set", () => {
+  test("limits Sales Associate modules to the approved seven-module set without Analytics", () => {
     expect(getAllowedModules(salesAssociate)).toEqual([
       MODULE_KEYS.dashboard,
-      MODULE_KEYS.analytics,
       MODULE_KEYS.bookings,
       MODULE_KEYS.services,
       MODULE_KEYS.serviceTracking,
@@ -101,6 +100,7 @@ describe("Phase 1 permission matrix", () => {
       MODULE_KEYS.stockMonitoring,
       MODULE_KEYS.financialTracker,
       MODULE_KEYS.auditLogs,
+      MODULE_KEYS.analytics,
       MODULE_KEYS.settings,
       MODULE_KEYS.myWork,
     ]) {

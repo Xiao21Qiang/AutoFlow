@@ -2236,7 +2236,6 @@ const ROLE_MODULES = {
   ],
   "sales associate": [
     MODULE_KEYS.dashboard,
-    MODULE_KEYS.analytics,
     MODULE_KEYS.bookings,
     MODULE_KEYS.services,
     MODULE_KEYS.serviceTracking,

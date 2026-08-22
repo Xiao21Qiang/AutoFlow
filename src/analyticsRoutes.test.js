@@ -65,9 +65,11 @@ describe("Sales Associate Analytics backend routes", () => {
   const auditEvents = [];
   const originalFetch = global.fetch;
   const admin = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
+  const generalManager = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+  const salesManager = { id: "SM-1", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
   const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
   const seniorDetailer = { id: "SR-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
-  const users = [admin, salesAssociate, seniorDetailer];
+  const users = [admin, generalManager, salesManager, salesAssociate, seniorDetailer];
 
   const analyticsData = {
     bookings: [
@@ -145,9 +147,13 @@ describe("Sales Associate Analytics backend routes", () => {
     if (global.fetch?.mockClear) global.fetch.mockClear();
   });
 
-  test("allows Sales Associate to export Analytics report and audits the authenticated actor", async () => {
+  test.each([
+    ["Admin", admin],
+    ["General Manager", generalManager],
+    ["Sales Manager", salesManager],
+  ])("allows %s to export Analytics report and audits the authenticated actor", async (_label, actor) => {
     const response = await invoke("/api/admin/reports/analytics/csv", {
-      token: auth(salesAssociate),
+      token: auth(actor),
     });
     const text = response.rawBody.toString("utf8");
 
@@ -159,7 +165,7 @@ describe("Sales Associate Analytics backend routes", () => {
     expect(text).not.toContain("COM-1");
     expect(auditEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        userId: "sales@example.com",
+        userId: actor.email,
         action: "Report exported",
         meta: expect.objectContaining({
           reportType: "analytics",
@@ -169,7 +175,31 @@ describe("Sales Associate Analytics backend routes", () => {
     ]));
   });
 
+  test("denies Sales Associate Analytics report read/export even with forged Admin query data", async () => {
+    const response = await invoke("/api/admin/reports/analytics/csv?role=Admin&userType=admin&employeeRole=General%20Manager&scope=admin&auditUser=Admin", {
+      token: auth(salesAssociate),
+      body: {
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to export this report.");
+    expect(auditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "sales@example.com",
+        action: "Report export denied",
+        meta: expect.objectContaining({ reportType: "analytics", result: "denied" }),
+      }),
+    ]));
+  });
+
   test.each([
+    ["analytics pdf", "/api/admin/reports/analytics/pdf"],
     ["financial", "/api/admin/reports/financial/csv"],
     ["stock", "/api/admin/reports/stock/csv"],
     ["audit logs", "/api/admin/reports/audit-logs/csv"],
@@ -187,10 +217,13 @@ describe("Sales Associate Analytics backend routes", () => {
     ]));
   });
 
-  test("allows Sales Associate Analytics AI using backend-authoritative scoped data", async () => {
+  test.each([
+    ["General Manager", generalManager],
+    ["Sales Manager", salesManager],
+  ])("allows %s Analytics AI using backend-authoritative scoped data", async (_label, actor) => {
     const response = await invoke("/api/ai/analytics/interpret", {
       method: "POST",
-      token: auth(salesAssociate),
+      token: auth(actor),
       body: {
         analysisType: "descriptive",
         totals: {
@@ -213,7 +246,7 @@ describe("Sales Associate Analytics backend routes", () => {
     expect(response.body.summary).not.toContain("999999");
     expect(auditEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        userId: "sales@example.com",
+        userId: actor.email,
         action: "AI request failed",
         targetId: "analytics-descriptive",
         meta: expect.objectContaining({
@@ -224,13 +257,25 @@ describe("Sales Associate Analytics backend routes", () => {
     ]));
   });
 
-  test("denies Analytics AI to Staff without Analytics module access", async () => {
-    const response = await invoke("/api/ai/analytics/interpret", {
+  test.each([
+    ["Sales Associate public AI route", salesAssociate, "/api/ai/analytics/interpret"],
+    ["Sales Associate admin AI route", salesAssociate, "/api/admin/analytics/interpretation"],
+    ["Senior Detailer public AI route", seniorDetailer, "/api/ai/analytics/interpret"],
+  ])("denies Analytics AI to %s without Analytics module access", async (_label, actor, path) => {
+    const response = await invoke(path, {
       method: "POST",
-      token: auth(seniorDetailer),
-      body: { analysisType: "descriptive" },
+      token: auth(actor),
+      body: {
+        analysisType: "descriptive",
+        role: "Admin",
+        userType: "admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+        auditUser: "Admin",
+      },
     });
 
     expect(response.status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

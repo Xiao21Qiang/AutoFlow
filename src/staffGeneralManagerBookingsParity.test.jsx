@@ -232,7 +232,6 @@ describe("Sales Associate authorization foundation shell", () => {
 
     for (const label of [
       "Dashboard",
-      "Analytics",
       "Bookings",
       "Services",
       "Service Tracking",
@@ -249,6 +248,7 @@ describe("Sales Associate authorization foundation shell", () => {
       "Stock Monitoring",
       "Financial Tracker",
       "Audit Logs",
+      "Analytics",
       "My Work",
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
@@ -339,7 +339,6 @@ describe("Sales Associate authorization foundation shell", () => {
 
     for (const label of [
       "Dashboard",
-      "Analytics",
       "Bookings",
       "Services",
       "Service Tracking",
@@ -355,6 +354,7 @@ describe("Sales Associate authorization foundation shell", () => {
       "Stock Monitoring",
       "Financial Tracker",
       "Audit Logs",
+      "Analytics",
       "My Work",
     ]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
