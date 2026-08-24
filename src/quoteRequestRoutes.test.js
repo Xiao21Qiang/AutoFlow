@@ -134,7 +134,7 @@ describe("Dashboard quote request route RBAC", () => {
     }));
   });
 
-  test("Staff without booking-update or Engagement-management authority cannot update Dashboard quote status", async () => {
+  test("Staff without Dashboard or Engagement-management authority cannot update Dashboard quote status", async () => {
     const response = await request("/api/admin/quote-requests/Q-1", {
       token: auth(seniorDetailer),
       body: {

@@ -222,12 +222,20 @@ describe("tracking issue note AI route", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test("denies authorized Staff when bookingId points at an unauthorized tracking record", async () => {
+  test("allows Senior Detailer to use the same tracking issue-note AI authority as General Manager", async () => {
     const response = await request("/api/ai/tracking/issue-note", { token: auth(seniorDetailerUser), body: aiBody() });
 
-    expect(response.status).toBe(403);
-    expect(response.body.message).toBe("You do not have permission to view this tracking record.");
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      available: true,
+      feature: "tracking-issue-note",
+      technicianFriendlyNote: "Inspect the marked panel for a paint blemish before coating.",
+    });
+    const audit = auditLogs.find((log) => log.targetId === "tracking-issue-note");
+    expect(audit.userId).toBe("senior@example.com");
+    expect(audit.meta.actorRole).toBe("senior detailer");
+    expect(audit.meta.actorUserType).toBe("staff");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   test("normalizes provider text fallback into the canonical tracking DTO", async () => {

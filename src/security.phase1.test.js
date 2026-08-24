@@ -119,7 +119,7 @@ describe("Phase 1 private bootstrap visibility", () => {
       { id: "REV-OTHER", customerEmail: "other@example.com", customer: "Other Customer" },
     ],
     promos: [],
-    quoteRequests: [],
+    quoteRequests: [{ id: "QR-1" }],
     expenses: [{ id: "EXP-1", amount: 100 }],
     commissions: [
       { id: "COM-SENIOR", bookingId: "BK-OWN", worker: "Senior One", earned: 1000 },
@@ -150,7 +150,7 @@ describe("Phase 1 private bootstrap visibility", () => {
     expect(scoped.commissions).toEqual([]);
   });
 
-  test("senior detailers can see junior work without junior commission amounts", () => {
+  test("senior detailers receive Bookings and Tracking parity data without junior commission amounts", () => {
     const scoped = filterBootstrapDataForRole(baseData, {
       id: "SENIOR",
       email: "senior@example.com",
@@ -159,7 +159,8 @@ describe("Phase 1 private bootstrap visibility", () => {
       role: "Senior Detailer",
     });
 
-    expect(scoped.bookings.map((item) => item.id)).toEqual(["BK-OWN", "BK-JUNIOR"]);
+    expect(scoped.bookings.map((item) => item.id)).toEqual(["BK-OWN", "BK-OTHER", "BK-JUNIOR"]);
+    expect(scoped.quoteRequests).toEqual([]);
     expect(scoped.commissions.map((item) => item.id)).toEqual(["COM-SENIOR"]);
     expect(scoped.commissions.some((item) => item.id === "COM-JUNIOR" || item.earned === 500)).toBe(false);
   });

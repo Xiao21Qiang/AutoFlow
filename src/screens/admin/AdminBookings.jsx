@@ -262,7 +262,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
     return Boolean(
       isBookingDownPaymentSatisfied(booking, bookingPayment) &&
       canPerformAction(currentUser, ACTION_KEYS.bookingUpdateStatus) &&
-      (currentUserRole === "admin" || currentUserRole === "general manager")
+      (currentUserRole === "admin" || currentUserRole === "general manager" || currentUserRole === "senior detailer")
     );
   }, [currentUser, currentUserRole, payments]);
   const canUseCancelledRescheduleWorkflow = Boolean(selectedBooking && canRescheduleCancelledBooking(selectedBooking));

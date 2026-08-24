@@ -195,6 +195,11 @@ const ROLE_ACTIONS = {
   ],
   "senior detailer": [
     ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
+    ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.trackingUpdateIssueNotes,
     ACTION_KEYS.trackingUpdateWarranty,

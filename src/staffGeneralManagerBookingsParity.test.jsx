@@ -49,6 +49,14 @@ const seniorDetailer = {
   role: "Senior Detailer",
 };
 
+const juniorDetailer = {
+  id: "STF-JR",
+  email: "junior@example.com",
+  name: "Junior Detailer",
+  userType: "Staff",
+  role: "Junior Detailer",
+};
+
 const salesAssociate = {
   id: "STF-SA",
   email: "sales@example.com",
@@ -196,8 +204,12 @@ function paidCancelledBookingPayment() {
 }
 
 describe("General Manager Bookings parity shell", () => {
-  test("uses canonical Admin Bookings features but does not render Delete", () => {
-    renderStaffMain();
+  test.each([
+    ["General Manager", generalManager],
+    ["Senior Detailer", seniorDetailer],
+  ])("%s uses canonical Admin Bookings features but does not render Delete", (_label, actor) => {
+    setContext({ currentUser: actor });
+    renderStaffMain(actor);
 
     fireEvent.click(screen.getByText("Bookings"));
 
@@ -209,13 +221,55 @@ describe("General Manager Bookings parity shell", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  test("other Staff roles keep the Staff Bookings implementation", () => {
-    setContext({ currentUser: seniorDetailer });
-    renderStaffMain(seniorDetailer);
+  test("Junior Detailer keeps the Staff Bookings implementation", () => {
+    setContext({ currentUser: juniorDetailer });
+    renderStaffMain(juniorDetailer);
 
     fireEvent.click(screen.getByText("Bookings"));
 
     expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Senior Detailer navigation and My Work compatibility", () => {
+  test("shows exactly the approved four modules while keeping My Work scoped", () => {
+    setContext({
+      currentUser: seniorDetailer,
+      bookings: [
+        { ...baseData.bookings[0], id: "B-SENIOR", customer: "Senior Customer", assigned: "Senior Detailer", status: "Scheduled" },
+        { ...baseData.bookings[0], id: "B-JUNIOR", customer: "Junior Customer", assigned: "Junior Detailer", status: "Scheduled" },
+        { ...baseData.bookings[0], id: "B-OTHER", customer: "Other Customer", assigned: "Other Detailer", status: "Scheduled" },
+      ],
+      users: [
+        ...baseData.users,
+        { id: "STF-JR", name: "Junior Detailer", email: "junior@example.com", userType: "Staff", role: "Junior Detailer", status: "active" },
+        { id: "STF-OTHER", name: "Other Detailer", email: "other-detailer@example.com", userType: "Staff", role: "Senior Detailer", status: "active" },
+      ],
+    });
+    renderStaffMain(seniorDetailer);
+
+    for (const label of ["My Work", "Bookings", "Service Tracking", "Profile"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const label of [
+      "Dashboard",
+      "Analytics",
+      "Audit Logs",
+      "Services",
+      "Stock Monitoring",
+      "Payment Tracking",
+      "Financial Tracker",
+      "Engagement",
+      "User Management",
+      "Detailer Management",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+
+    expect(screen.getByText("B-SENIOR")).toBeInTheDocument();
+    expect(screen.getByText("B-JUNIOR")).toBeInTheDocument();
+    expect(screen.queryByText("B-OTHER")).not.toBeInTheDocument();
+    expect(screen.queryByText("Other Customer")).not.toBeInTheDocument();
   });
 });
 
@@ -545,8 +599,12 @@ describe("Inventory Clerk authorization foundation shell", () => {
 });
 
 describe("General Manager Service Tracking parity shell", () => {
-  test("uses canonical Admin Tracking features for unassigned tracking records", () => {
+  test.each([
+    ["General Manager", generalManager],
+    ["Senior Detailer", seniorDetailer],
+  ])("%s uses canonical Admin Tracking features for unassigned tracking records", (_label, actor) => {
     setContext({
+      currentUser: actor,
       bookings: [{
         ...baseData.bookings[0],
         id: "B-TRACK-1",
@@ -558,7 +616,7 @@ describe("General Manager Service Tracking parity shell", () => {
         warrantyChecklistItems: [],
       }],
     });
-    renderStaffMain();
+    renderStaffMain(actor);
 
     fireEvent.click(screen.getByText("Service Tracking"));
 
@@ -569,9 +627,9 @@ describe("General Manager Service Tracking parity shell", () => {
     expect(screen.getByLabelText("Assigned To")).toBeEnabled();
   });
 
-  test("other Staff roles keep assigned-only Staff Tracking behavior", () => {
-    setContext({ currentUser: seniorDetailer });
-    renderStaffMain(seniorDetailer);
+  test("Junior Detailer keeps assigned-only Staff Tracking behavior", () => {
+    setContext({ currentUser: juniorDetailer });
+    renderStaffMain(juniorDetailer);
 
     fireEvent.click(screen.getByText("Service Tracking"));
 

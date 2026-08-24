@@ -2337,6 +2337,11 @@ const ROLE_ACTIONS = {
   ],
   "senior detailer": [
     ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
+    ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.trackingUpdateIssueNotes,
     ACTION_KEYS.trackingUpdateWarranty,
@@ -2501,7 +2506,7 @@ function canViewBooking(user, booking, users = []) {
   }
   if (!canPerformAction(user, ACTION_KEYS.bookingView)) return false;
   const role = getEffectiveRole(user);
-  if (role === "junior detailer" || role === "senior detailer") return canViewDetailerTask(user, booking, users);
+  if (role === "junior detailer") return canViewDetailerTask(user, booking, users);
   return true;
 }
 
@@ -2525,14 +2530,14 @@ function canManageCommission(user) {
 }
 
 function canReassignDetailer(user) {
-  return isAdmin(user);
+  return canPerformAction(user, ACTION_KEYS.detailerReassign);
 }
 
 function canUpdatePlaceSlot(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const role = getEffectiveRole(user);
-  if (role === "general manager") return true;
-  if (role === "junior detailer" || role === "senior detailer") {
+  if (role === "general manager" || role === "senior detailer") return true;
+  if (role === "junior detailer") {
     return canViewDetailerTask(user, booking, users) && isBookingAssignedToUser(booking, user);
   }
   return false;
@@ -6297,7 +6302,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
         return type === "customer" || isActiveDetailerUser(user) || userEmail === email;
       }
       if (hasModule(MODULE_KEYS.userManagement)) return staffRole === "general manager" ? type === "staff" || type === "customer" : type === "staff";
-      if (staffRole === "junior detailer" || staffRole === "senior detailer") return type === "staff";
+      if (staffRole === "junior detailer") return type === "staff";
       if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
       return String(user.email || "").trim().toLowerCase() === email;
@@ -6312,7 +6317,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       stockMonitoring: canSeeStock ? data.stockMonitoring : [],
       payments: staffRole === "marketing" && canSeeAnalytics
         ? data.payments.map(projectPaymentForAnalytics)
-        : canSeePayments
+        : canSeePayments || staffRole === "senior detailer"
         ? data.payments.filter((payment) => visibleBookingIds.has(String(payment.bookingId || "")) || staffRole === "general manager" || staffRole === "sales manager" || staffRole === "sales associate")
         : [],
       users: scopedUsers,
@@ -6320,7 +6325,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       archivedAuditLogs: scopedArchivedAuditLogs,
       reviews: canSeeEngagement || staffRole === "marketing" ? data.reviews : [],
       promos: canSeeEngagement ? data.promos : [],
-      quoteRequests: canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate) || canSeeEngagement ? data.quoteRequests : [],
+      quoteRequests: (hasModule(MODULE_KEYS.dashboard) && canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate)) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
       commissions: scopedCommissions,
       financialReport: canSeeFinancials ? data.financialReport : { totals: {}, payments: [], expenses: [], commissions: [] },
@@ -6953,9 +6958,12 @@ app.post("/api/public/quotes", async (req, res, next) => {
 
 app.put("/api/admin/quote-requests/:id", requireRoles("admin", "staff"), async (req, res, next) => {
   try {
+    const canManageDashboardQuoteRequests =
+      canAccessModule(req.authUser, MODULE_KEYS.dashboard) &&
+      canPerformAction(req.authUser, ACTION_KEYS.bookingUpdate);
     if (
       normalizeUserType(req.authUser?.userType, req.authUser?.role) === "staff" &&
-      !canPerformAction(req.authUser, ACTION_KEYS.bookingUpdate) &&
+      !canManageDashboardQuoteRequests &&
       !canPerformAction(req.authUser, ACTION_KEYS.engagementManage)
     ) {
       denyForbidden(res);
@@ -7644,12 +7652,8 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     }
     const allUsersForScope = await User.find({}).lean();
     const staffRoleForBookingUpdate = getEffectiveRole(req.authUser);
-    if (staffRoleForBookingUpdate === "junior detailer" || staffRoleForBookingUpdate === "senior detailer") {
+    if (staffRoleForBookingUpdate === "junior detailer") {
       if (!canViewDetailerTask(req.authUser, existingBookingObject, allUsersForScope)) {
-        denyForbidden(res);
-        return;
-      }
-      if (staffRoleForBookingUpdate === "senior detailer" && !isBookingAssignedToUser(existingBookingObject, req.authUser)) {
         denyForbidden(res);
         return;
       }
@@ -7688,7 +7692,6 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
 
     if (
       staffRoleForBookingUpdate !== "junior detailer" &&
-      staffRoleForBookingUpdate !== "senior detailer" &&
       !canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)
     ) {
       denyForbidden(res);
@@ -8110,7 +8113,7 @@ app.patch("/api/admin/bookings/:id/reschedule", requireRoles("admin", "staff"), 
     const actorRole = getEffectiveRole(req.authUser);
     const allUsersForScope = await User.find({}).lean();
 
-    if (actorType !== "admin" && actorRole !== "general manager") {
+    if (actorType !== "admin" && actorRole !== "general manager" && actorRole !== "senior detailer") {
       denyForbidden(res);
       return;
     }

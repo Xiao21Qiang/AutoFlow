@@ -177,7 +177,7 @@ function StaffMainContent({ session, onLogout }) {
 
   const userEmail = session?.email || "staff@allprotec.com";
   const effectiveRole = getEffectiveRole(session);
-  const usesAdminTrackingModule = effectiveRole === "general manager";
+  const usesAdminTrackingModule = effectiveRole === "general manager" || effectiveRole === "senior detailer";
   const usesAdminPaymentsModule = effectiveRole === "general manager";
   const usesAdminBookingsModule = usesAdminTrackingModule || effectiveRole === "sales manager" || effectiveRole === "sales associate" || effectiveRole === "inventory clerk";
 

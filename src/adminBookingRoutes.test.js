@@ -87,7 +87,29 @@ function doc(value) {
     ...value,
     lean: async () => clone(value),
     toObject: () => clone(value),
-    save: async () => value,
+    save: async function save() {
+      Object.assign(value, clone(this));
+      return this;
+    },
+  };
+}
+
+function queryDoc(value) {
+  const wrapped = value
+    ? {
+        ...value,
+        lean: async () => clone(value),
+        toObject: () => clone(value),
+        save: async function save() {
+          Object.assign(value, clone(this));
+          return this;
+        },
+      }
+    : null;
+  return {
+    lean: async () => (value ? clone(value) : null),
+    then: (resolve, reject) => Promise.resolve(wrapped).then(resolve, reject),
+    catch: (reject) => Promise.resolve(wrapped).catch(reject),
   };
 }
 
@@ -517,7 +539,7 @@ beforeAll(async () => {
   stub(__testModels.CustomerReward, "create", async (payload) => clone(payload));
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
   stub(__testModels.Review, "countDocuments", async () => 0);
-  stub(__testModels.Commission, "findOne", () => doc(null));
+  stub(__testModels.Commission, "findOne", () => queryDoc(null));
   stub(__testModels.Commission, "create", async (payload) => clone(payload));
   stub(__testModels.Commission, "countDocuments", async () => 0);
   stub(__testModels.Reward, "find", () => chain([]));
@@ -974,6 +996,7 @@ describe("Admin-only booking deletion route", () => {
 
   test.each([
     ["General Manager", generalManagerUser],
+    ["Senior Detailer", detailerUser],
     ["Sales Manager", salesManagerUser],
     ["Sales Associate", salesAssociateUser],
     ["Inventory Clerk", inventoryClerkUser],
@@ -1002,6 +1025,19 @@ describe("Admin-only booking deletion route", () => {
       method: "DELETE",
       token: auth(generalManagerUser),
       body: { specialPin: "654321" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(bookings).toHaveLength(1);
+    expect(bookings[0].status).toBe("Cancelled");
+  });
+
+  test("Senior Detailer cannot delete a Cancelled booking even with Staff credential and forged Admin body data", async () => {
+    seedCancelledRescheduleBooking();
+    const response = await request("/api/admin/bookings/B-CANCELLED-RESCHEDULE", {
+      method: "DELETE",
+      token: auth(detailerUser),
+      body: { specialPin: "654321", role: "Admin", userType: "Admin", auditUser: "admin@example.com" },
     });
 
     expect(response.status).toBe(403);
@@ -1058,6 +1094,103 @@ describe("Cancelled booking immutability", () => {
     expect(response.status).toBe(400);
     expect(response.body.message).toBe("Cancelled bookings are locked and cannot be edited.");
     expect(bookings[0]).toEqual(original);
+  });
+});
+
+describe("Senior Detailer Bookings and Service Tracking parity route enforcement", () => {
+  test("Senior Detailer can update a booking outside personal assignment under the same route as General Manager", async () => {
+    seedScheduledBooking();
+    bookings[0].assigned = "Detailer Two";
+
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(detailerUser),
+      body: {
+        ...bookings[0],
+        issueNote: "Senior Detailer operational update.",
+        role: "Admin",
+        userType: "Admin",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      id: "B-RESCHEDULE",
+      assigned: "Detailer Two",
+      issueNote: "Senior Detailer operational update.",
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer@example.com",
+        action: "Updated booking",
+        targetId: "B-RESCHEDULE",
+      }),
+    ]));
+  });
+
+  test("Senior Detailer can mutate Service Tracking fields on another detailer's record with canonical validation", async () => {
+    seedInProgressTrackingBooking();
+    bookings[0].assigned = "Detailer Two";
+
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(detailerUser),
+      body: {
+        ...bookings[0],
+        warrantyChecklist: "Senior Detailer warranty note.",
+        warrantyChecklistItems: [{ id: "paint", label: "Paint inspection", done: true, doneBy: "Detailer Two", notes: "Verified" }],
+        warrantyCoveragePackage: "Standard Warranty",
+        warrantyAcknowledgement: { dateLocation: "2099-12-31 / QC", clientName: "Customer One" },
+        role: "Admin",
+        userType: "Admin",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      id: "B-TRACKING",
+      assigned: "Detailer Two",
+      warrantyChecklist: "Senior Detailer warranty note.",
+      warrantyCoveragePackage: "Standard Warranty",
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer@example.com",
+        targetId: "B-TRACKING",
+      }),
+    ]));
+  });
+
+  test("Senior Detailer can reassign detailers through the canonical Staff credential route", async () => {
+    seedScheduledBooking();
+
+    const response = await request("/api/admin/bookings/B-RESCHEDULE/reassign-detailer", {
+      method: "PATCH",
+      token: auth(detailerUser),
+      body: {
+        assigned: "Detailer Two",
+        specialPin: "654321",
+        role: "Admin",
+        userType: "Admin",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.assigned).toBe("Detailer Two");
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer@example.com",
+        action: "Reassigned detailer",
+        targetId: "B-RESCHEDULE",
+        meta: expect.objectContaining({
+          previousAssigned: "Detailer One",
+          assigned: "Detailer Two",
+        }),
+      }),
+    ]));
   });
 });
 
@@ -1522,6 +1655,25 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
           placeSlot: 2,
           status: "Scheduled",
         }),
+      }),
+    ]));
+  });
+
+  test("Senior Detailer may reschedule an eligible Cancelled booking with Staff PIN and authenticated audit actor", async () => {
+    seedCancelledRescheduleBooking();
+    const response = await request(reschedulePath(), {
+      method: "PATCH",
+      token: auth(detailerUser),
+      body: reschedulePayload("654321", { auditUser: "admin@example.com", userType: "Admin", role: "Admin" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled" });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer@example.com",
+        action: "Rescheduled booking",
+        targetId: "B-CANCELLED-RESCHEDULE",
       }),
     ]));
   });
