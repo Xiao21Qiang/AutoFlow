@@ -84,6 +84,7 @@ describe("admin bootstrap performance structure", () => {
   const originals = [];
   const findCalls = {};
   let paymentFindProjection = null;
+  const auditCreates = [];
 
   const safeHash = "$2b$12$abcdefghijklmnopqrstuuabcdefghijklmnopqrstuuabcdefghijklmnopq";
   const securitySetting = {
@@ -203,6 +204,7 @@ describe("admin bootstrap performance structure", () => {
     });
     stubFind(__testModels.User, "users", [
       { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", password: "secret" },
+      { id: "SD-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active", password: "secret" },
       { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Sales Associate", password: "secret" },
       { id: "CUS-1", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", password: "secret" },
       { id: "CUS-2", email: "other@example.com", name: "Other Customer", userType: "Customer", role: "New", password: "secret" },
@@ -210,6 +212,7 @@ describe("admin bootstrap performance structure", () => {
     stub(__testModels.User, "findOne", (query = {}) => {
       const users = [
         { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" },
+        { id: "SD-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" },
         { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Sales Associate", status: "active" },
         { id: "CUS-1", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" },
         { id: "CUS-2", email: "other@example.com", name: "Other Customer", userType: "Customer", role: "New", status: "active" },
@@ -237,6 +240,10 @@ describe("admin bootstrap performance structure", () => {
       findCalls.auditLogs += 1;
       return chain([]);
     });
+    stub(__testModels.AuditLog, "create", async (payload) => {
+      auditCreates.push(clone(payload));
+      return clone(payload);
+    });
     stub(__testModels.SecuritySetting, "findOne", async () => securitySetting);
     stub(__testModels.SecuritySetting, "create", async () => securitySetting);
     originals.push([__testModels.SecuritySetting, "collection", __testModels.SecuritySetting.collection]);
@@ -258,6 +265,7 @@ describe("admin bootstrap performance structure", () => {
     });
     securitySetting.save.mockClear();
     paymentFindProjection = null;
+    auditCreates.length = 0;
   });
 
   test("loads the expected top-level bootstrap shape with bounded collection fanout", async () => {
@@ -372,6 +380,48 @@ describe("admin bootstrap performance structure", () => {
     expect(customerScoped.stockMonitoring).toEqual([]);
     expect(customerScoped.expenses).toEqual([]);
     expect(customerScoped.customerRewards.map((reward) => reward.id)).toEqual(["CR-1"]);
+  });
+
+  test("Senior Detailer bootstrap keeps shared Bookings and Tracking data but redacts unrelated sensitive surfaces", async () => {
+    const seniorToken = auth({ id: "SD-1", email: "senior@example.com", userType: "Staff", role: "Senior Detailer" });
+    const response = await request("/api/admin/bootstrap", { token: seniorToken });
+
+    expect(response.status).toBe(200);
+    expect(response.body.bookings.map((booking) => booking.id)).toEqual(["BK-1", "BK-2"]);
+    expect(response.body.payments.map((payment) => payment.id)).toEqual(["PAY-1", "PAY-2"]);
+    expect(response.body.services.map((service) => service.id)).toEqual(["SVC-1"]);
+    expect(response.body.stockMonitoring).toEqual([]);
+    expect(response.body.auditLogs).toEqual([]);
+    expect(response.body.archivedAuditLogs).toEqual([]);
+    expect(response.body.expenses).toEqual([]);
+    expect(response.body.reviews).toEqual([]);
+    expect(response.body.promos).toEqual([]);
+    expect(response.body.rewards).toEqual([]);
+    expect(response.body.customerRewards).toEqual([]);
+    expect(response.body.alerts).toEqual([]);
+    expect(response.body.users.map((user) => user.id)).toEqual(expect.arrayContaining(["SD-1", "STF-1", "CUS-1", "CUS-2"]));
+    expect(response.body.users.map((user) => user.id)).not.toContain("ADM-1");
+    expect(JSON.stringify(response.body)).not.toMatch(/password|adminSpecial|staffSpecial|\$2b\$12\$|data:image/);
+  });
+
+  test.each([
+    "financial",
+    "analytics",
+    "stock",
+    "payments",
+    "services",
+    "audit-logs",
+    "reviews",
+    "promotions",
+    "rewards",
+    "reward-history",
+    "detailer-management",
+  ])("Senior Detailer cannot export unauthorized %s reports directly", async (reportType) => {
+    const seniorToken = auth({ id: "SD-1", email: "senior@example.com", userType: "Staff", role: "Senior Detailer" });
+    const response = await request(`/api/admin/reports/${reportType}/csv`, { token: seniorToken });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to export this report.");
   });
 
   test("Sales Associate bootstrap includes Engagement read-only data without Reward History", async () => {
