@@ -333,19 +333,19 @@ function buildReport(type, data = {}, filters = {}) {
         sections: [
           {
             title: "Assigned Work",
-            columns: ["Booking ID", "Customer", "Vehicle", "Service", "Date", "Time", "Place Slot", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
-            rows: assignedWork.map((b) => [b.id, b.customer, `${b.vehicle || "-"} / ${b.plate || "-"}`, b.service, b.date, b.time, b.placeSlot || "-", b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
+            columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Time", "Place Slot", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
+            rows: assignedWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.time, b.placeSlot || "-", b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
           },
           {
             title: "Junior Detailer Work View",
-            columns: ["Booking ID", "Customer", "Vehicle", "Service", "Date", "Assigned", "Status", "Issue Notes", "Warranty"],
-            rows: juniorDetailerWork.map((b) => [b.id, b.customer, `${b.vehicle || "-"} / ${b.plate || "-"}`, b.service, b.date, b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released"]),
+            columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
+            rows: juniorDetailerWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
             emptyMessage: "No junior detailer work available.",
           },
           {
             title: "Commission Audit",
-            columns: ["Commission ID", "Booking ID", "Service", "Rate", "Earned", "Status", "Date Paid"],
-            rows: commissionAudit.map((c) => [c.id, c.bookingId || "-", c.service || "-", `${c.rate || 0}%`, formatPeso(c.earned || 0), c.status || "Pending", c.datePaid || "-"]),
+            columns: ["Commission ID", "Booking ID", "Date", "Service", "Rate", "Earned", "Status", "Date Paid", "Paid By", "Remarks"],
+            rows: commissionAudit.map((c) => [c.id, c.bookingId || "-", c.date || "-", c.service || "-", `${c.rate || 0}%`, formatPeso(c.earned || 0), c.status || "Pending", c.datePaid || "-", c.paidBy || "-", c.remarks || "-"]),
             emptyMessage: "No commission records available.",
           },
         ],

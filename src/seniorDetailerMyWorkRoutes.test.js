@@ -274,4 +274,22 @@ describe("Senior Detailer authoritative My Work endpoint", () => {
       }),
     ]));
   });
+
+  test("My Work report content includes own payment details without leaking junior or other senior commissions", async () => {
+    const response = await request("/api/admin/reports/my-work/csv?employeeId=SR-B&email=senior-b@example.com");
+
+    expect(response.status).toBe(200);
+    expect(String(response.headers["content-type"])).toContain("text/csv");
+    expect(response.body).toContain("Commission Audit");
+    expect(response.body).toContain("COM-SR-A");
+    expect(response.body).toContain("admin@example.com");
+    expect(response.body).toContain("Junior Detailer Work View");
+    expect(response.body).toContain("B-JR-A");
+    expect(response.body).toContain("N/A");
+    expect(response.body).not.toContain("COM-JR-A");
+    expect(response.body).not.toContain("COM-SR-B");
+    expect(response.body).not.toContain("Other Senior Customer");
+    expect(response.body).not.toContain("P50");
+    expect(response.body).not.toContain("P75");
+  });
 });
