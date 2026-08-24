@@ -204,6 +204,7 @@ function seedDeletedBooking(status = "Cancelled") {
       service: "Ceramic Coating",
       carSize: "Sedan / Small Car",
       assigned: "Detailer One",
+      assignedDetailerId: "STF-1",
       date: "2099-12-31",
       time: "10:00",
       placeSlot: 1,
@@ -1180,6 +1181,7 @@ describe("Senior Detailer Bookings and Service Tracking parity route enforcement
 
     expect(response.status).toBe(200);
     expect(response.body.assigned).toBe("Detailer Two");
+    expect(response.body.assignedDetailerId).toBe("STF-2");
     expect(auditLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
         userId: "detailer@example.com",
@@ -2384,6 +2386,7 @@ describe("Admin booking schedule conflict route protection", () => {
 
     expect(response.status).toBe(200);
     expect(bookings[0].assigned).toBe("Detailer Two");
+    expect(bookings[0].assignedDetailerId).toBe("STF-2");
     expect(auditLogs.some((log) => log.action === "Updated service tracking" && log.meta?.assigned === "Detailer Two")).toBe(true);
   });
 

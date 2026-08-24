@@ -2451,21 +2451,65 @@ function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function isBookingAssignedToUser(booking, user = {}) {
-  const names = getActorDisplayNames(user);
-  const assignedValues = [
+function getStableUserId(user = {}) {
+  return String(user?.id || user?._id || "").trim();
+}
+
+function getDetailerIdentityValues(user = {}) {
+  return [user.id, user._id, user.email, user.name]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isSameStableUser(left = {}, right = {}) {
+  const leftId = getStableUserId(left);
+  const rightId = getStableUserId(right);
+  return Boolean(leftId && rightId && leftId === rightId);
+}
+
+function getBookingAssignedDetailerId(booking = {}) {
+  return String(booking.assignedDetailerId || booking.assignedUserId || booking.assignedStaffId || "").trim();
+}
+
+function getLegacyAssignedValues(booking = {}) {
+  return [
     booking?.assigned,
     booking?.assignedTo,
     booking?.assignedStaff,
     booking?.assignedDetailer,
-    booking?.preferredDetailerName,
-    booking?.preferredDetailerId,
-  ].map((value) => String(value || "").trim().toLowerCase());
-  return assignedValues.some((value) => value && names.has(value));
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function resolveAssignedDetailerFromUsers(booking = {}, users = []) {
+  const assignedId = getBookingAssignedDetailerId(booking);
+  if (assignedId) {
+    const detailer = users.find((user) => getStableUserId(user) === assignedId);
+    return isActiveDetailerUser(detailer) ? detailer : null;
+  }
+
+  const legacyValues = getLegacyAssignedValues(booking);
+  if (!legacyValues.length) return null;
+  const matches = users.filter((user) => {
+    if (!isActiveDetailerUser(user)) return false;
+    const identityValues = getDetailerIdentityValues(user);
+    return legacyValues.some((value) => identityValues.includes(value));
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function isBookingAssignedToUser(booking, user = {}, users = []) {
+  const assignedId = getBookingAssignedDetailerId(booking);
+  const userId = getStableUserId(user);
+  if (assignedId) return Boolean(userId && assignedId === userId);
+  const resolvedDetailer = resolveAssignedDetailerFromUsers(booking, users);
+  if (resolvedDetailer) return isSameStableUser(resolvedDetailer, user);
+  if (users.length && getLegacyAssignedValues(booking).length) return false;
+  const names = getActorDisplayNames(user);
+  return getLegacyAssignedValues(booking).some((value) => value && names.has(value));
 }
 
 function isUserJuniorDetailer(user = {}) {
-  return normalizeUserType(user.userType, user.role) === "staff" && normalizeRoleKey(user.role) === "junior detailer";
+  return normalizeUserType(user?.userType, user?.role) === "staff" && normalizeRoleKey(user?.role) === "junior detailer";
 }
 
 function getJuniorDetailerNames(users = []) {
@@ -2482,11 +2526,13 @@ function canViewDetailerTask(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const role = getEffectiveRole(user);
   if (role === "general manager") return true;
-  if (role === "junior detailer") return isBookingAssignedToUser(booking, user);
+  if (role === "junior detailer") return isBookingAssignedToUser(booking, user, users);
   if (role === "senior detailer") {
-    if (isBookingAssignedToUser(booking, user)) return true;
+    if (isBookingAssignedToUser(booking, user, users)) return true;
+    const detailer = resolveAssignedDetailerFromUsers(booking, users);
+    if (detailer) return isUserJuniorDetailer(detailer);
     const juniorDetailers = getJuniorDetailerNames(users);
-    return juniorDetailers.has(String(booking?.assigned || "").trim().toLowerCase());
+    return getLegacyAssignedValues(booking).some((value) => juniorDetailers.has(value));
   }
   return false;
 }
@@ -2518,9 +2564,29 @@ function canUpdateBooking(user, booking, users = []) {
   return true;
 }
 
-function canViewCommission(user, commission) {
+function resolveCommissionEmployeeFromUsers(commission = {}, users = []) {
+  const employeeId = String(commission.employeeId || commission.userId || commission.staffId || "").trim();
+  if (employeeId) {
+    return users.find((user) => getStableUserId(user) === employeeId) || null;
+  }
+  const worker = String(commission.worker || "").trim().toLowerCase();
+  if (!worker) return null;
+  const matches = users.filter((candidate) => (
+    normalizeUserType(candidate.userType, candidate.role) === "staff" &&
+    getDetailerIdentityValues(candidate).includes(worker)
+  ));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function canViewCommission(user, commission, users = []) {
   if (isAdmin(user) || canPerformAction(user, ACTION_KEYS.commissionViewAll)) return true;
   if (!canPerformAction(user, ACTION_KEYS.commissionViewOwn)) return false;
+  const employeeId = String(commission?.employeeId || "").trim();
+  const userId = getStableUserId(user);
+  if (employeeId) return Boolean(userId && employeeId === userId);
+  const employee = resolveCommissionEmployeeFromUsers(commission, users);
+  if (employee) return isSameStableUser(employee, user);
+  if (users.length && String(commission?.worker || "").trim()) return false;
   const names = getActorDisplayNames(user);
   return names.has(String(commission?.worker || "").trim().toLowerCase());
 }
@@ -3025,6 +3091,112 @@ function buildWarrantyDto(booking = {}) {
   };
 }
 
+function getCommissionStatusForMyWork(commission = null) {
+  return commission?.id ? String(commission.status || "Pending").trim() || "Pending" : "N/A";
+}
+
+function buildMyWorkBookingDto(booking = {}, assignedDetailer = null, commission = null, { exposeCommission = false } = {}) {
+  const assignedName = assignedDetailer
+    ? String(assignedDetailer.name || [assignedDetailer.first, assignedDetailer.last].filter(Boolean).join(" ").trim() || assignedDetailer.email || booking.assigned || "").trim()
+    : String(booking.assigned || "").trim();
+  return {
+    id: booking.id || "",
+    customer: booking.customer || "",
+    service: booking.service || "",
+    vehicle: booking.vehicle || "",
+    plate: booking.plate || "",
+    carSize: booking.carSize || "",
+    date: booking.date || "",
+    time: booking.time || "",
+    placeSlot: Number(booking.placeSlot || 0),
+    status: normalizeWorkflowStatus(booking.status || "Scheduled", "Scheduled"),
+    assigned: assignedName,
+    assignedDetailerId: getStableUserId(assignedDetailer) || getBookingAssignedDetailerId(booking),
+    assignedDetailerRole: assignedDetailer ? toDisplaySubtype(assignedDetailer.userType, assignedDetailer.role) : "",
+    issueNote: booking.issueNote || "",
+    issueTypes: Array.isArray(booking.issueTypes) ? booking.issueTypes : [],
+    issueMarkers: Array.isArray(booking.issueMarkers) ? booking.issueMarkers : [],
+    warrantyChecklist: booking.warrantyChecklist || "",
+    warrantyChecklistItems: Array.isArray(booking.warrantyChecklistItems) ? booking.warrantyChecklistItems : [],
+    warrantyCoveragePackage: booking.warrantyCoveragePackage || "",
+    warrantyAcknowledgement: booking.warrantyAcknowledgement || {},
+    warrantyReleased: Boolean(booking.warrantyReleased),
+    warrantyReleasedAt: booking.warrantyReleasedAt || "",
+    commissionStatus: exposeCommission ? getCommissionStatusForMyWork(commission) : "N/A",
+    updatedAt: booking.updatedAt || "",
+  };
+}
+
+function buildMyWorkCommissionDto(commission = {}) {
+  return {
+    id: commission.id || "",
+    bookingId: commission.bookingId || "",
+    employeeId: commission.employeeId || "",
+    date: commission.date || "",
+    service: commission.service || "",
+    rate: Number(commission.rate || 0),
+    earned: Number(commission.earned || 0),
+    status: String(commission.status || "Pending").trim() || "Pending",
+    datePaid: commission.datePaid || "",
+    paidBy: commission.paidBy || "",
+    remarks: commission.remarks || "",
+    dateCompleted: commission.dateCompleted || "",
+    dateGenerated: commission.dateGenerated || "",
+  };
+}
+
+async function buildMyWorkDtoForUser(authUser = {}) {
+  if (normalizeUserType(authUser.userType, authUser.role) !== "staff" || !canAccessModule(authUser, MODULE_KEYS.myWork)) {
+    const error = new Error("You do not have permission to view My Work.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const [bookings, users, commissions] = await Promise.all([
+    Booking.find({}).sort({ date: -1, createdAt: -1 }).lean(),
+    User.find({}).lean(),
+    Commission.find({}).sort({ date: -1, createdAt: -1 }).lean(),
+  ]);
+  const authId = getStableUserId(authUser);
+  const authEmail = String(authUser.email || "").trim().toLowerCase();
+  const storedUser = users.find((user) => (
+    (authId && getStableUserId(user) === authId) ||
+    (authEmail && String(user.email || "").trim().toLowerCase() === authEmail)
+  ));
+  const scopedUser = storedUser
+    ? { ...authUser, ...storedUser, userType: authUser.userType || storedUser.userType, role: authUser.role || storedUser.role }
+    : authUser;
+  const scopedRole = getEffectiveRole(scopedUser);
+
+  const ownCommissions = commissions.filter((commission) => canViewCommission(scopedUser, commission, users));
+  const ownCommissionByBookingId = new Map(
+    ownCommissions.map((commission) => [String(commission.bookingId || "").trim(), commission])
+  );
+
+  const assignedWork = bookings
+    .filter((booking) => isBookingAssignedToUser(booking, scopedUser, users))
+    .map((booking) => buildMyWorkBookingDto(
+      booking,
+      resolveAssignedDetailerFromUsers(booking, users),
+      ownCommissionByBookingId.get(String(booking.id || "").trim()),
+      { exposeCommission: true }
+    ));
+
+  const juniorDetailerWork = scopedRole === "senior detailer"
+    ? bookings
+        .map((booking) => ({ booking, assignedDetailer: resolveAssignedDetailerFromUsers(booking, users) }))
+        .filter(({ assignedDetailer }) => isUserJuniorDetailer(assignedDetailer))
+        .map(({ booking, assignedDetailer }) => buildMyWorkBookingDto(booking, assignedDetailer, null, { exposeCommission: false }))
+    : [];
+
+  return {
+    assignedWork,
+    juniorDetailerWork,
+    commissionAudit: ownCommissions.map(buildMyWorkCommissionDto),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 function rejectInvalidPublicAccess(res) {
   res.status(404).json({ message: "Public access record not found." });
 }
@@ -3093,7 +3265,10 @@ async function resolveRequiredAssignedDetailer(value = "") {
     throwValidationError("Please choose an active Junior or Senior Detailer.");
   }
 
-  return detailer.name || requestedDetailer;
+  return {
+    assigned: detailer.name || requestedDetailer,
+    assignedDetailerId: getStableUserId(detailer),
+  };
 }
 
 async function validateAdminBookingCreateRequirements(req, { customer = null, service = null } = {}) {
@@ -3122,7 +3297,7 @@ async function validateAdminBookingCreateRequirements(req, { customer = null, se
   }
 
   return {
-    assigned: await resolveRequiredAssignedDetailer(req.body.assigned),
+    ...(await resolveRequiredAssignedDetailer(req.body.assigned)),
     date,
     time,
     placeSlot,
@@ -5101,7 +5276,8 @@ async function migratePaymentMethods() {
 async function ensureBookingCommission(booking, auditUser) {
   const bookingId = String(booking?.id || "").trim();
   const workerName = String(booking?.assigned || "").trim();
-  if (!bookingId || !workerName) return null;
+  const assignedDetailerId = getBookingAssignedDetailerId(booking);
+  if (!bookingId || (!workerName && !assignedDetailerId)) return null;
 
   const existingCommission = await Commission.findOne({
     bookingId,
@@ -5113,13 +5289,9 @@ async function ensureBookingCommission(booking, auditUser) {
     User.find({}).lean(),
     getLinkedPaymentForBooking(booking),
   ]);
-  const worker = workers.find((user) => {
-    const name = String(user.name || "").trim().toLowerCase();
-    const email = String(user.email || "").trim().toLowerCase();
-    const id = String(user.id || user._id || "").trim().toLowerCase();
-    const target = workerName.toLowerCase();
-    return name === target || email === target || id === target;
-  });
+  const worker = assignedDetailerId
+    ? workers.find((user) => getStableUserId(user) === assignedDetailerId)
+    : resolveAssignedDetailerFromUsers(booking, workers);
 
   if (!worker || normalizeUserType(worker.userType, worker.role) !== "staff") {
     return null;
@@ -5136,6 +5308,7 @@ async function ensureBookingCommission(booking, auditUser) {
   const commission = await Commission.create({
     id: createId("C"),
     bookingId,
+    employeeId: getStableUserId(worker),
     date: booking.date || toDateKey(),
     worker: worker.name || workerName,
     role: toDisplaySubtype(worker.userType, worker.role),
@@ -6276,7 +6449,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       canSeeFinancials;
     const scopedCommissions = canSeeCommissions
       ? data.commissions.filter((commission) => {
-          return canViewCommission(scopedUser, commission);
+          return canViewCommission(scopedUser, commission, data.users);
         })
       : [];
     const scopedAuditLogs = data.auditLogs.filter((log) => {
@@ -6671,6 +6844,14 @@ app.get("/api/admin/invoices/:id/pdf", async (req, res, next) => {
   }
 });
 
+app.get("/api/admin/my-work", async (req, res, next) => {
+  try {
+    res.json(await buildMyWorkDtoForUser(req.authUser));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
   const reportType = String(req.params.type || "").trim().toLowerCase();
   const format = normalizeExportFormat(req.params.format);
@@ -6701,7 +6882,9 @@ app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
     }
 
     const filters = parseExportFilters(req.query || {});
-    let scopedData = filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+    let scopedData = reportType === "my-work"
+      ? { myWork: await buildMyWorkDtoForUser(req.authUser) }
+      : filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
     if (reportType === "audit-logs") {
       scopedData = await applyAuditLogExportScope(scopedData, filters, req.authUser);
     }
@@ -7510,6 +7693,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       service: String(req.body.service || "").trim(),
       serviceId: selectedService.id || "",
       assigned: isCustomerRequested ? "" : adminSchedule.assigned,
+      assignedDetailerId: isCustomerRequested ? "" : adminSchedule.assignedDetailerId,
       ...preferredDetailerFields,
       date: bookingDate,
       time: bookingTime,
@@ -7747,11 +7931,14 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       selectedServiceForUpdate = await Service.findOne({ name: String(req.body.service || existingBooking.service || "").trim() }).lean();
     }
 
+    delete req.body.assignedDetailerId;
+    delete req.body.assignedUserId;
+    delete req.body.assignedStaffId;
     if (
       Object.prototype.hasOwnProperty.call(req.body, "assigned") &&
       String(req.body.assigned || "").trim() !== String(existingBooking.assigned || "").trim()
     ) {
-      req.body.assigned = await resolveRequiredAssignedDetailer(req.body.assigned);
+      Object.assign(req.body, await resolveRequiredAssignedDetailer(req.body.assigned));
     }
 
     const bookingDate = String(req.body.date || existingBooking.date || "").trim();
@@ -7929,6 +8116,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
         service: existingBooking.service,
         serviceId: existingBooking.serviceId,
         assigned: existingBooking.assigned,
+        assignedDetailerId: existingBooking.assignedDetailerId,
         date: existingBooking.date,
         time: existingBooking.time,
         placeSlot: existingBooking.placeSlot,
@@ -7971,6 +8159,20 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     });
 
     const booking = await Booking.findOneAndUpdate({ id: req.params.id }, updatePayload, { new: true });
+    const assignmentChanged =
+      String(existingBooking.assigned || "") !== String(booking.assigned || "") ||
+      String(existingBooking.assignedDetailerId || "") !== String(booking.assignedDetailerId || "");
+    if (assignmentChanged && booking.assignedDetailerId) {
+      const commission = await Commission.findOne({ bookingId: booking.id });
+      const commissionStatus = String(commission?.status || "").trim().toLowerCase();
+      if (commission && !["paid", "voided", "cancelled"].includes(commissionStatus)) {
+        const assignedUser = allUsersForScope.find((user) => getStableUserId(user) === booking.assignedDetailerId);
+        commission.worker = booking.assigned || commission.worker || "";
+        commission.employeeId = booking.assignedDetailerId || "";
+        commission.role = toDisplaySubtype(assignedUser?.userType, assignedUser?.role) || commission.role || "";
+        await commission.save();
+      }
+    }
 
     if (previousPromoId && previousPromoId !== booking.promoId) {
       await decrementPromoUsage(previousPromoId);
@@ -8268,12 +8470,14 @@ app.patch("/api/admin/bookings/:id/reassign-detailer", requireRoles("admin", "st
 
     const previousAssigned = String(booking.assigned || "").trim();
     booking.assigned = detailer.name || requestedDetailer;
+    booking.assignedDetailerId = getStableUserId(detailer);
     const savedBooking = await booking.save();
 
     const commission = await Commission.findOne({ bookingId: booking.id });
     const commissionStatus = String(commission?.status || "").trim().toLowerCase();
     if (commission && !["paid", "voided", "cancelled"].includes(commissionStatus)) {
       commission.worker = detailer.name || requestedDetailer;
+      commission.employeeId = getStableUserId(detailer);
       commission.role = toDisplaySubtype(detailer.userType, detailer.role);
       commission.remarks = String(req.body.remarks || req.body.reason || commission.remarks || "").trim();
       await commission.save();

@@ -1,6 +1,6 @@
 import "../../styles/css/staff/staffMyWorkStyle.css";
-import { useMemo, useState } from "react";
-import { useAdminData } from "../../context/AdminDataContext";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiRequest } from "../../services/api";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 
 const STATUS_OPTIONS = ["Pending", "Scheduled", "In Progress", "Completed", "Cancelled"];
@@ -29,41 +29,13 @@ function getWarrantyStatus(booking) {
   return "Pending";
 }
 
-function getCommissionForBooking(commissions, bookingId) {
-  return commissions.find((commission) => String(commission.bookingId || "") === String(bookingId || "")) || {};
+function getCommissionStatus(booking) {
+  return booking?.commissionStatus || "N/A";
 }
 
-function getCommissionStatus(commissions, bookingId) {
-  return getCommissionForBooking(commissions, bookingId).status || "Pending";
-}
-
-function getPersonNames(user = {}) {
-  return [user.name, user.email]
-    .map((value) => normalize(value))
-    .filter(Boolean);
-}
-
-function getAssignedName(booking) {
-  return normalize(booking?.assigned || booking?.assignedTo || booking?.assignedStaff || booking?.assignedDetailer);
-}
-
-function isAssignedToUser(booking, user = {}) {
-  const assignedName = getAssignedName(booking);
-  return Boolean(assignedName && getPersonNames(user).includes(assignedName));
-}
-
-function getDetailerNamesByRole(users, role) {
-  return new Set(
-    users
-      .filter((user) => normalize(user.role) === normalize(role))
-      .flatMap((user) => getPersonNames(user))
-      .filter(Boolean)
-  );
-}
-
-function filterBookings(bookings, filters, commissions) {
+function filterBookings(bookings, filters) {
   return bookings.filter((booking) => {
-    const commissionStatus = getCommissionStatus(commissions, booking.id);
+    const commissionStatus = getCommissionStatus(booking);
     const isCompleted = normalize(booking.status) === "completed";
     const haystack = [
       booking.id,
@@ -86,7 +58,7 @@ function filterBookings(bookings, filters, commissions) {
   });
 }
 
-function WorkTable({ rows, commissions, emptyMessage, showAssigned = false, onView }) {
+function WorkTable({ rows, emptyMessage, showAssigned = false, onView }) {
   return (
     <div className="mwTableWrap">
       <table className="mwTable">
@@ -107,7 +79,7 @@ function WorkTable({ rows, commissions, emptyMessage, showAssigned = false, onVi
         </thead>
         <tbody>
           {rows.length ? rows.map((booking) => {
-            const commissionStatus = getCommissionStatus(commissions, booking.id);
+            const commissionStatus = getCommissionStatus(booking);
             return (
               <tr key={booking.id}>
                 <td className="mwStrong">{booking.id}</td>
@@ -159,6 +131,7 @@ function FilterGrid({ filters, onChange, detailerOptions = [], showDetailerFilte
         <option>Paid</option>
         <option>Cancelled</option>
         <option>Voided</option>
+        <option>N/A</option>
       </select>
       <label className="mwCheck">
         <input
@@ -186,49 +159,99 @@ function createFilters() {
   };
 }
 
+const EMPTY_MY_WORK = {
+  assignedWork: [],
+  juniorDetailerWork: [],
+  commissionAudit: [],
+};
+
 export default function StaffMyWork({ session }) {
-  const { bookings, commissions, users } = useAdminData();
+  const [myWork, setMyWork] = useState(EMPTY_MY_WORK);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [personalFilters, setPersonalFilters] = useState(createFilters);
   const [juniorFilters, setJuniorFilters] = useState(createFilters);
-  const [selectedWork, setSelectedWork] = useState(null);
+  const [selectedWorkId, setSelectedWorkId] = useState("");
 
   const role = normalize(session?.role);
-  const juniorDetailerNames = useMemo(() => getDetailerNamesByRole(users, "Junior Detailer"), [users]);
+  const assignedWork = useMemo(
+    () => (Array.isArray(myWork.assignedWork) ? myWork.assignedWork : []),
+    [myWork.assignedWork]
+  );
+  const juniorDetailerWork = useMemo(
+    () => (Array.isArray(myWork.juniorDetailerWork) ? myWork.juniorDetailerWork : []),
+    [myWork.juniorDetailerWork]
+  );
+  const ownCommissions = useMemo(
+    () => (Array.isArray(myWork.commissionAudit) ? myWork.commissionAudit : []),
+    [myWork.commissionAudit]
+  );
   const juniorDetailerDisplayNames = useMemo(
     () =>
       [...new Set(
-        users
-          .filter((user) => normalize(user.role) === "junior detailer")
-          .map((user) => String(user.name || user.email || "").trim())
+        juniorDetailerWork
+          .map((booking) => String(booking.assigned || "").trim())
           .filter(Boolean)
       )],
-    [users]
+    [juniorDetailerWork]
   );
 
-  const personalBookings = useMemo(
-    () => bookings.filter((booking) => isAssignedToUser(booking, session)),
-    [bookings, session]
-  );
+  const refreshMyWork = useCallback(async () => {
+    setLoadError("");
+    try {
+      const result = await apiRequest("/api/admin/my-work");
+      setMyWork({
+        assignedWork: Array.isArray(result?.assignedWork) ? result.assignedWork : [],
+        juniorDetailerWork: Array.isArray(result?.juniorDetailerWork) ? result.juniorDetailerWork : [],
+        commissionAudit: Array.isArray(result?.commissionAudit) ? result.commissionAudit : [],
+      });
+    } catch (error) {
+      setLoadError(error.message || "Could not load My Work.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const juniorBookings = useMemo(
-    () => bookings.filter((booking) => juniorDetailerNames.has(getAssignedName(booking))),
-    [bookings, juniorDetailerNames]
-  );
+  useEffect(() => {
+    setIsLoading(true);
+    refreshMyWork();
+  }, [refreshMyWork]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      refreshMyWork();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshMyWork();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshMyWork]);
 
   const visiblePersonalBookings = useMemo(
-    () => filterBookings(personalBookings, personalFilters, commissions),
-    [commissions, personalBookings, personalFilters]
+    () => filterBookings(assignedWork, personalFilters),
+    [assignedWork, personalFilters]
   );
 
   const visibleJuniorBookings = useMemo(
-    () => filterBookings(juniorBookings, juniorFilters, commissions),
-    [commissions, juniorBookings, juniorFilters]
+    () => filterBookings(juniorDetailerWork, juniorFilters),
+    [juniorDetailerWork, juniorFilters]
   );
 
-  const ownCommissions = useMemo(() => {
-    const workerNames = new Set(getPersonNames(session));
-    return commissions.filter((commission) => workerNames.has(normalize(commission.worker)));
-  }, [commissions, session]);
+  const selectedWork = useMemo(
+    () => [...assignedWork, ...juniorDetailerWork].find((booking) => String(booking.id || "") === String(selectedWorkId || "")) || null,
+    [assignedWork, juniorDetailerWork, selectedWorkId]
+  );
+
+  useEffect(() => {
+    if (selectedWorkId && !selectedWork && !isLoading) {
+      setSelectedWorkId("");
+    }
+  }, [isLoading, selectedWork, selectedWorkId]);
 
   const updatePersonalFilter = (key, value) => {
     setPersonalFilters((prev) => ({ ...prev, [key]: value }));
@@ -252,6 +275,8 @@ export default function StaffMyWork({ session }) {
         </div>
         <button className="mwExportBtn" type="button" onClick={exportPdf}>Download PDF</button>
       </div>
+      {isLoading && <div className="mwCard">Loading My Work...</div>}
+      {loadError && <div className="mwCard">{loadError}</div>}
 
       <section className="mwCard">
         <div className="mwCardHeader">
@@ -262,7 +287,7 @@ export default function StaffMyWork({ session }) {
           <div className="mwCount">{visiblePersonalBookings.length} shown</div>
         </div>
         <FilterGrid filters={personalFilters} onChange={updatePersonalFilter} />
-        <WorkTable rows={visiblePersonalBookings} commissions={commissions} emptyMessage="No assigned work found." onView={setSelectedWork} />
+        <WorkTable rows={visiblePersonalBookings} emptyMessage="No assigned work found." onView={(booking) => setSelectedWorkId(booking.id)} />
       </section>
 
       {role === "senior detailer" && (
@@ -282,10 +307,9 @@ export default function StaffMyWork({ session }) {
           />
           <WorkTable
             rows={visibleJuniorBookings}
-            commissions={commissions}
             emptyMessage="No junior detailer work found."
             showAssigned
-            onView={setSelectedWork}
+            onView={(booking) => setSelectedWorkId(booking.id)}
           />
         </section>
       )}
@@ -333,9 +357,9 @@ export default function StaffMyWork({ session }) {
       </section>
 
       {selectedWork && (
-        <div className="mwModalOverlay" onClick={() => setSelectedWork(null)}>
+        <div className="mwModalOverlay" onClick={() => setSelectedWorkId("")}>
           <div className="mwModalCard" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-            <button className="mwModalClose" type="button" onClick={() => setSelectedWork(null)}>x</button>
+            <button className="mwModalClose" type="button" onClick={() => setSelectedWorkId("")}>x</button>
             <h3>Work Details</h3>
             <div className="mwDetailGrid">
               <div><span>Booking</span><strong>{selectedWork.id || "-"}</strong></div>
@@ -350,7 +374,7 @@ export default function StaffMyWork({ session }) {
               <div><span>Issue Notes</span><strong>{selectedWork.issueNote || getIssueNotesStatus(selectedWork)}</strong></div>
               <div><span>Warranty</span><strong>{getWarrantyStatus(selectedWork)}</strong></div>
               <div><span>Completion</span><strong>{normalize(selectedWork.status) === "completed" ? "Completed" : "Not completed"}</strong></div>
-              <div><span>Commission Status</span><strong>{getCommissionStatus(commissions, selectedWork.id)}</strong></div>
+              <div><span>Commission Status</span><strong>{getCommissionStatus(selectedWork)}</strong></div>
             </div>
           </div>
         </div>

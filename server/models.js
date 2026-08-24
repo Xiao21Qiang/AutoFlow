@@ -81,6 +81,7 @@ const bookingSchema = new mongoose.Schema(
     service: { type: String, default: "" },
     serviceId: { type: String, default: "" },
     assigned: { type: String, default: "" },
+    assignedDetailerId: { type: String, default: "" },
     preferredDetailer: { type: String, default: "" },
     preferredDetailerName: { type: String, default: "" },
     preferredDetailerId: { type: String, default: "" },
@@ -414,6 +415,7 @@ const commissionSchema = new mongoose.Schema(
   {
     id: { type: String, required: true, unique: true },
     bookingId: { type: String, default: "" },
+    employeeId: { type: String, default: "" },
     date: { type: String, default: "" },
     worker: { type: String, default: "" },
     role: { type: String, default: "" },
@@ -427,6 +429,7 @@ const commissionSchema = new mongoose.Schema(
     dateCompleted: { type: String, default: "" },
     dateGenerated: { type: String, default: "" },
     datePaid: { type: String, default: "" },
+    paidBy: { type: String, default: "" },
     voidReason: { type: String, default: "" },
     voidedAt: { type: String, default: "" },
     voidedBy: { type: String, default: "" },

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import StaffMain from "./screens/staff/StaffMain";
 import { validateSpecialCredential } from "./utils/reauth";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/downloadExport";
+import { apiRequest } from "./services/api";
 
 const mockUseAdminData = jest.fn();
 
@@ -23,6 +24,10 @@ jest.mock("./utils/reauth", () => ({
 jest.mock("./utils/downloadExport", () => ({
   buildReportDownloadPath: jest.fn((reportType, format) => `/api/admin/reports/${reportType}/${format}`),
   downloadAuthenticatedFile: jest.fn(),
+}));
+
+jest.mock("./services/api", () => ({
+  apiRequest: jest.fn(),
 }));
 
 const generalManager = {
@@ -177,6 +182,8 @@ beforeEach(() => {
   buildReportDownloadPath.mockImplementation((reportType, format) => `/api/admin/reports/${reportType}/${format}`);
   downloadAuthenticatedFile.mockReset();
   downloadAuthenticatedFile.mockResolvedValue(undefined);
+  apiRequest.mockReset();
+  apiRequest.mockResolvedValue({ assignedWork: [], juniorDetailerWork: [], commissionAudit: [] });
   setContext();
 });
 
@@ -232,7 +239,16 @@ describe("General Manager Bookings parity shell", () => {
 });
 
 describe("Senior Detailer navigation and My Work compatibility", () => {
-  test("shows exactly the approved four modules while keeping My Work scoped", () => {
+  test("shows exactly the approved four modules while loading My Work from the authoritative scoped DTO", async () => {
+    apiRequest.mockResolvedValue({
+      assignedWork: [
+        { ...baseData.bookings[0], id: "B-SENIOR", customer: "Senior Customer", assigned: "Renamed Senior", status: "Scheduled", commissionStatus: "Earned" },
+      ],
+      juniorDetailerWork: [
+        { ...baseData.bookings[0], id: "B-JUNIOR", customer: "Junior Customer", assigned: "Junior Detailer", status: "Scheduled", commissionStatus: "N/A" },
+      ],
+      commissionAudit: [],
+    });
     setContext({
       currentUser: seniorDetailer,
       bookings: [
@@ -266,10 +282,11 @@ describe("Senior Detailer navigation and My Work compatibility", () => {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
 
-    expect(screen.getByText("B-SENIOR")).toBeInTheDocument();
+    expect(await screen.findByText("B-SENIOR")).toBeInTheDocument();
     expect(screen.getByText("B-JUNIOR")).toBeInTheDocument();
     expect(screen.queryByText("B-OTHER")).not.toBeInTheDocument();
     expect(screen.queryByText("Other Customer")).not.toBeInTheDocument();
+    expect(apiRequest).toHaveBeenCalledWith("/api/admin/my-work");
   });
 });
 
