@@ -3189,7 +3189,6 @@ function buildMyWorkCommissionDto(commission = {}) {
   return {
     id: commission.id || "",
     bookingId: commission.bookingId || "",
-    employeeId: commission.employeeId || "",
     date: commission.date || "",
     service: commission.service || "",
     rate: Number(commission.rate || 0),
@@ -3250,6 +3249,7 @@ async function buildMyWorkDtoForUser(authUser = {}) {
   return {
     assignedWork,
     juniorDetailerWork,
+    includeJuniorDetailerWorkView: scopedRole === "senior detailer",
     commissionAudit: ownCommissions.map(buildMyWorkCommissionDto),
     generatedAt: new Date().toISOString(),
   };

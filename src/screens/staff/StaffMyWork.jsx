@@ -297,12 +297,12 @@ export default function StaffMyWork({ session }) {
   const juniorDateError = getDateRangeError(juniorFilters);
 
   const filteredPersonalBookings = useMemo(
-    () => filterBookings(assignedWork, personalFilters, { applyDateRange: !personalDateError }),
+    () => (personalDateError ? [] : filterBookings(assignedWork, personalFilters)),
     [assignedWork, personalDateError, personalFilters]
   );
 
   const filteredJuniorBookings = useMemo(
-    () => filterBookings(juniorDetailerWork, juniorFilters, { applyDateRange: !juniorDateError }),
+    () => (juniorDateError ? [] : filterBookings(juniorDetailerWork, juniorFilters)),
     [juniorDateError, juniorDetailerWork, juniorFilters]
   );
 

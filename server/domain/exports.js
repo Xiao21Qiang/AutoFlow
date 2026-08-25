@@ -327,28 +327,31 @@ function buildReport(type, data = {}, filters = {}) {
       const assignedWork = myWork.assignedWork || data.bookings || [];
       const juniorDetailerWork = myWork.juniorDetailerWork || [];
       const commissionAudit = myWork.commissionAudit || data.commissions || [];
+      const sections = [
+        {
+          title: "Assigned Work",
+          columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Time", "Place Slot", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
+          rows: assignedWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.time, b.placeSlot || "-", b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
+        },
+      ];
+      if (myWork.includeJuniorDetailerWorkView) {
+        sections.push({
+          title: "Junior Detailer Work View",
+          columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
+          rows: juniorDetailerWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
+          emptyMessage: "No junior detailer work available.",
+        });
+      }
+      sections.push({
+        title: "Commission Audit",
+        columns: ["Commission ID", "Booking ID", "Date", "Service", "Rate", "Earned", "Status", "Date Paid", "Paid By", "Remarks"],
+        rows: commissionAudit.map((c) => [c.id, c.bookingId || "-", c.date || "-", c.service || "-", `${c.rate || 0}%`, formatPeso(c.earned || 0), c.status || "Pending", c.datePaid || "-", c.paidBy || "-", c.remarks || "-"]),
+        emptyMessage: "No commission records available.",
+      });
       return {
         title: "AutoFlow My Work Report",
         subtitle: "Authorized assigned work and own commission audit.",
-        sections: [
-          {
-            title: "Assigned Work",
-            columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Time", "Place Slot", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
-            rows: assignedWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.time, b.placeSlot || "-", b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
-          },
-          {
-            title: "Junior Detailer Work View",
-            columns: ["Booking ID", "Customer", "Service", "Vehicle", "Plate", "Date", "Assigned", "Status", "Issue Notes", "Warranty", "Commission"],
-            rows: juniorDetailerWork.map((b) => [b.id, b.customer, b.service, b.vehicle || "-", b.plate || "-", b.date, b.assigned || "-", normalizeBookingStatus(b.status, "Scheduled"), b.issueNote || "-", b.warrantyReleased ? "Released" : "Not released", b.commissionStatus || "N/A"]),
-            emptyMessage: "No junior detailer work available.",
-          },
-          {
-            title: "Commission Audit",
-            columns: ["Commission ID", "Booking ID", "Date", "Service", "Rate", "Earned", "Status", "Date Paid", "Paid By", "Remarks"],
-            rows: commissionAudit.map((c) => [c.id, c.bookingId || "-", c.date || "-", c.service || "-", `${c.rate || 0}%`, formatPeso(c.earned || 0), c.status || "Pending", c.datePaid || "-", c.paidBy || "-", c.remarks || "-"]),
-            emptyMessage: "No commission records available.",
-          },
-        ],
+        sections,
       };
     },
     "detailer-management": () => ({

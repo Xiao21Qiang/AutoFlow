@@ -262,6 +262,104 @@ describe("Senior Detailer authoritative My Work endpoint", () => {
     expect(JSON.stringify(response.body)).not.toContain("Junior B Customer");
   });
 
+  test("Junior Detailer My Work and Commission Audit are own stable-ID only", async () => {
+    bookings = [
+      {
+        id: "B-JR-A",
+        customer: "Junior A Customer",
+        service: "Interior Detail",
+        vehicle: "City",
+        assigned: "Junior A",
+        assignedDetailerId: "JR-A",
+        date: "2099-12-30",
+        status: "Completed",
+        issueNote: "Junior A note",
+        warrantyReleased: true,
+      },
+      {
+        id: "B-JR-B",
+        customer: "Junior B Customer",
+        service: "Ceramic Coating",
+        vehicle: "Vios",
+        assigned: "Junior B",
+        assignedDetailerId: "JR-B",
+        date: "2099-12-31",
+        status: "Scheduled",
+      },
+      {
+        id: "B-SR-A",
+        customer: "Senior Customer",
+        service: "Paint Protection",
+        assigned: "Senior A",
+        assignedDetailerId: "SR-A",
+        date: "2099-12-29",
+        status: "Scheduled",
+      },
+      {
+        id: "B-UNASSIGNED",
+        customer: "Unassigned Customer",
+        service: "Glass Polish",
+        assigned: "",
+        date: "2099-12-28",
+        status: "Scheduled",
+      },
+    ];
+    commissions = [
+      { id: "COM-JR-A", bookingId: "B-JR-A", employeeId: "JR-A", worker: "Junior A", service: "Interior Detail", rate: 5, earned: 50, status: "Paid", datePaid: "2100-01-01", paidBy: "finance@example.com", remarks: "Own payout" },
+      { id: "COM-JR-B", bookingId: "B-JR-B", employeeId: "JR-B", worker: "Junior B", service: "Ceramic Coating", rate: 5, earned: 80, status: "Earned" },
+      { id: "COM-SR-A", bookingId: "B-SR-A", employeeId: "SR-A", worker: "Senior A", service: "Paint Protection", rate: 5, earned: 120, status: "Paid" },
+    ];
+
+    const response = await request("/api/admin/my-work?employeeId=JR-B&userId=JR-B&email=junior-b@example.com&role=Admin", {
+      token: auth(juniorA),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.assignedWork.map((item) => item.id)).toEqual(["B-JR-A"]);
+    expect(response.body.assignedWork[0]).toMatchObject({
+      customer: "Junior A Customer",
+      status: "Completed",
+      issueNote: "Junior A note",
+      warrantyReleased: true,
+      commissionStatus: "Paid",
+    });
+    expect(response.body.juniorDetailerWork).toEqual([]);
+    expect(response.body.includeJuniorDetailerWorkView).toBe(false);
+    expect(response.body.commissionAudit).toEqual([
+      expect.objectContaining({
+        id: "COM-JR-A",
+        bookingId: "B-JR-A",
+        status: "Paid",
+        paidBy: "finance@example.com",
+        remarks: "Own payout",
+      }),
+    ]);
+    expect(response.body.commissionAudit[0]).not.toHaveProperty("employeeId");
+    expect(JSON.stringify(response.body)).not.toContain("Junior B Customer");
+    expect(JSON.stringify(response.body)).not.toContain("Senior Customer");
+    expect(JSON.stringify(response.body)).not.toContain("Unassigned Customer");
+    expect(JSON.stringify(response.body)).not.toContain("COM-JR-B");
+    expect(JSON.stringify(response.body)).not.toContain("COM-SR-A");
+    expect(JSON.stringify(response.body)).not.toContain("\"earned\":80");
+    expect(JSON.stringify(response.body)).not.toContain("\"earned\":120");
+  });
+
+  test("Junior Detailer commission ownership survives profile rename through Commission.employeeId", async () => {
+    users = users.map((user) => user.id === "JR-A" ? { ...user, name: "Renamed Junior A", email: "junior-a-new@example.com" } : user);
+    commissions = [
+      { id: "COM-JR-A", bookingId: "B-JR-A", employeeId: "JR-A", worker: "Old Junior A", service: "Interior Detail", rate: 5, earned: 50, status: "Earned" },
+      { id: "COM-JR-B", bookingId: "B-JR-B", employeeId: "JR-B", worker: "Junior B", service: "Ceramic Coating", rate: 5, earned: 80, status: "Earned" },
+    ];
+
+    const response = await request("/api/admin/my-work?employeeId=JR-B&email=junior-b@example.com", {
+      token: auth({ ...juniorA, email: "junior-a-new@example.com" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.commissionAudit.map((item) => item.id)).toEqual(["COM-JR-A"]);
+    expect(JSON.stringify(response.body.commissionAudit)).not.toContain("COM-JR-B");
+  });
+
   test("supports unique legacy assignment and excludes ambiguous legacy assignment", async () => {
     bookings = [
       { id: "B-LEGACY", customer: "Legacy Customer", assigned: "Legacy Senior", service: "Coating", status: "Scheduled" },
@@ -330,5 +428,40 @@ describe("Senior Detailer authoritative My Work endpoint", () => {
     expect(response.body).not.toContain("Other Senior Customer");
     expect(response.body).not.toContain("P50");
     expect(response.body).not.toContain("P75");
+  });
+
+  test("Junior My Work report excludes Senior-only Junior Work View and ignores forged PDF identity", async () => {
+    bookings = [
+      { id: "B-JR-A", customer: "Junior A Customer", service: "Interior Detail", vehicle: "City", plate: "JRA123", assigned: "Junior A", assignedDetailerId: "JR-A", date: "2099-12-30", status: "Completed", issueNote: "Own issue note", warrantyReleased: true },
+      { id: "B-JR-B", customer: "Junior B Customer", service: "Ceramic Coating", vehicle: "Vios", plate: "JRB123", assigned: "Junior B", assignedDetailerId: "JR-B", date: "2099-12-31", status: "Scheduled" },
+      { id: "B-SR-A", customer: "Senior Customer", service: "Paint Protection", assigned: "Senior A", assignedDetailerId: "SR-A", date: "2099-12-29", status: "Scheduled" },
+    ];
+    commissions = [
+      { id: "COM-JR-A", bookingId: "B-JR-A", employeeId: "JR-A", worker: "Junior A", service: "Interior Detail", rate: 5, earned: 50, status: "Paid", datePaid: "2100-01-01", paidBy: "finance@example.com", remarks: "Own payout" },
+      { id: "COM-JR-B", bookingId: "B-JR-B", employeeId: "JR-B", worker: "Junior B", service: "Ceramic Coating", rate: 5, earned: 80, status: "Earned" },
+      { id: "COM-SR-A", bookingId: "B-SR-A", employeeId: "SR-A", worker: "Senior A", service: "Paint Protection", rate: 5, earned: 120, status: "Paid" },
+    ];
+
+    const forgedQuery = "employeeId=JR-B&userId=JR-B&email=junior-b@example.com&role=Senior%20Detailer";
+    const csvResponse = await request(`/api/admin/reports/my-work/csv?${forgedQuery}`, { token: auth(juniorA) });
+    const pdfResponse = await request(`/api/admin/reports/my-work/pdf?${forgedQuery}`, { token: auth(juniorA) });
+
+    expect(csvResponse.status).toBe(200);
+    expect(String(csvResponse.headers["content-type"])).toContain("text/csv");
+    expect(csvResponse.body).toContain("Assigned Work");
+    expect(csvResponse.body).toContain("B-JR-A");
+    expect(csvResponse.body).toContain("COM-JR-A");
+    expect(csvResponse.body).toContain("finance@example.com");
+    expect(csvResponse.body).toContain("Own payout");
+    expect(csvResponse.body).not.toContain("Junior Detailer Work View");
+    expect(csvResponse.body).not.toContain("B-JR-B");
+    expect(csvResponse.body).not.toContain("B-SR-A");
+    expect(csvResponse.body).not.toContain("COM-JR-B");
+    expect(csvResponse.body).not.toContain("COM-SR-A");
+    expect(csvResponse.body).not.toContain("P80");
+    expect(csvResponse.body).not.toContain("P120");
+    expect(pdfResponse.status).toBe(200);
+    expect(pdfResponse.headers["content-type"]).toBe("application/pdf");
+    expect(pdfResponse.rawBody.length).toBeGreaterThan(100);
   });
 });

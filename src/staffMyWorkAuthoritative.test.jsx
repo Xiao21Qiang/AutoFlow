@@ -20,6 +20,14 @@ const seniorSession = {
   role: "Senior Detailer",
 };
 
+const juniorSession = {
+  id: "JR-A",
+  email: "junior@example.com",
+  name: "Junior Detailer",
+  userType: "Staff",
+  role: "Junior Detailer",
+};
+
 const assignedWork = {
   id: "B-SENIOR",
   customer: "Senior Customer",
@@ -242,9 +250,10 @@ test("date filtering supports start-only, end-only, inclusive ranges, same-day r
   fireEvent.change(start, { target: { value: "2026-08-20" } });
   fireEvent.change(end, { target: { value: "2026-08-10" } });
   expectInSection(assignedSection, "End Date cannot be earlier than Start Date.");
-  expectInSection(assignedSection, "B-DATE-05");
-  expectInSection(assignedSection, "B-DATE-10");
-  expectInSection(assignedSection, "B-DATE-20");
+  expectInSection(assignedSection, "No assigned work found.");
+  expectNotInSection(assignedSection, "B-DATE-05");
+  expectNotInSection(assignedSection, "B-DATE-10");
+  expectNotInSection(assignedSection, "B-DATE-20");
 
   fireEvent.change(start, { target: { value: "" } });
   fireEvent.change(end, { target: { value: "" } });
@@ -327,6 +336,22 @@ test("commission audit shows only authorized records with payment details and in
 
   const assignedSection = getSection("Assigned Work");
   expect(within(assignedSection).getByRole("button", { name: "Previous" })).toBeDisabled();
+});
+
+test("Junior Detailer My Work hides the Senior-only junior work section while preserving own Commission Audit", async () => {
+  apiRequest.mockResolvedValue(dto({
+    assignedWork: [makeAssigned(1, { id: "B-JR-OWN", customer: "Junior Own Customer" })],
+    juniorDetailerWork: [],
+    commissionAudit: [makeCommission(1, { id: "COM-JR-OWN", bookingId: "B-JR-OWN" })],
+  }));
+
+  render(<StaffMyWork session={juniorSession} />);
+
+  const assignedSection = await screen.findByRole("heading", { name: "Assigned Work" }).then((heading) => heading.closest("section"));
+  expectInSection(assignedSection, "B-JR-OWN");
+  expect(screen.queryByRole("heading", { name: "Junior Detailer Work View" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Commission Audit" })).toBeInTheDocument();
+  expect(screen.getByText("COM-JR-OWN")).toBeInTheDocument();
 });
 
 test("details modal derives the selected record from refreshed DTO data", async () => {
