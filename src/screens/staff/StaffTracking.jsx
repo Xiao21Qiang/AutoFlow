@@ -16,7 +16,7 @@ import {
   getIssueNotesLockedMessage,
   hasMeaningfulIssueNotes,
 } from "../../utils/trackingIssueNotes";
-import { ACTION_KEYS, canPerformAction } from "../../utils/rbac";
+import { ACTION_KEYS, canPerformAction, getEffectiveRole } from "../../utils/rbac";
 import {
   buildWarrantyPayload,
   canEditWarranty,
@@ -34,6 +34,9 @@ function normalizeText(value) {
 }
 
 function isAssignedToCurrentUser(booking, currentUser) {
+  const assignedId = String(booking?.assignedDetailerId || booking?.assignedUserId || booking?.assignedStaffId || "").trim();
+  const userId = String(currentUser?.id || currentUser?._id || "").trim();
+  if (assignedId) return Boolean(userId && assignedId === userId);
   const assigned = normalizeText(booking?.assigned || booking?.assignedTo || booking?.assignedStaff || booking?.assignedDetailer);
   if (!assigned) return false;
   return [currentUser?.name, currentUser?.email]
@@ -278,15 +281,20 @@ export default function StaffTracking() {
     };
   }, [activeMarkerId]);
 
+  const trackingRows = useMemo(() => {
+    if (getEffectiveRole(currentUser) !== "junior detailer") return bookings;
+    return bookings.filter((booking) => isAssignedToCurrentUser(booking, currentUser));
+  }, [bookings, currentUser]);
+
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    return bookings.filter((r) => {
+    return trackingRows.filter((r) => {
       const matchesQuery = !q || `${r.id} ${r.customer} ${r.vehicle} ${r.service} ${r.status} ${r.assigned}`.toLowerCase().includes(q);
       const matchesStatus = !filters.status || r.status === filters.status;
       const matchesAssigned = !filters.assignedTo || r.assigned === filters.assignedTo;
       return matchesQuery && matchesStatus && matchesAssigned;
     });
-  }, [bookings, query, filters]);
+  }, [trackingRows, query, filters]);
 
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -900,7 +908,7 @@ export default function StaffTracking() {
         title="Filter Tracking"
         fields={[
           { key: "status", label: "Status", type: "select", options: STATUS_OPTIONS },
-          { key: "assignedTo", label: "Assigned To", type: "select", options: [...new Set(bookings.map((row) => row.assigned).filter(Boolean))] },
+          { key: "assignedTo", label: "Assigned To", type: "select", options: [...new Set(trackingRows.map((row) => row.assigned).filter(Boolean))] },
         ]}
         values={filters}
         onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}

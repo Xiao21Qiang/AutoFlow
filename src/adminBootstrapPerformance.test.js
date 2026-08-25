@@ -73,7 +73,11 @@ async function request(path, { token, method = "GET" } = {}) {
       if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
       if (typeof callback === "function") callback();
       const text = Buffer.concat(chunks).toString("utf8");
-      resolve({ status: res.statusCode, body: text ? JSON.parse(text) : {} });
+      const contentType = String(res.getHeader("content-type") || "");
+      resolve({
+        status: res.statusCode,
+        body: contentType.includes("application/json") && text ? JSON.parse(text) : text,
+      });
       return res;
     };
     app.handle(req, res, reject);
@@ -112,8 +116,8 @@ describe("admin bootstrap performance structure", () => {
 
   beforeAll(() => {
     const bookings = [
-      { id: "BK-1", customer: "Customer One", customerEmail: "customer@example.com", customerId: "CUS-1", service: "Coating", status: "Completed", finalAmount: 1000 },
-      { id: "BK-2", customer: "Other Customer", customerEmail: "other@example.com", customerId: "CUS-2", service: "Wash", status: "Scheduled", finalAmount: 500 },
+      { id: "BK-1", customer: "Customer One", customerEmail: "customer@example.com", customerId: "CUS-1", service: "Coating", status: "Completed", finalAmount: 1000, assigned: "Junior Detailer", assignedDetailerId: "JR-1" },
+      { id: "BK-2", customer: "Other Customer", customerEmail: "other@example.com", customerId: "CUS-2", service: "Wash", status: "Scheduled", finalAmount: 500, assigned: "Senior Detailer", assignedDetailerId: "SD-1" },
     ];
     const payments = [
       {
@@ -205,6 +209,7 @@ describe("admin bootstrap performance structure", () => {
     stubFind(__testModels.User, "users", [
       { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", password: "secret" },
       { id: "SD-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active", password: "secret" },
+      { id: "JR-1", email: "junior@example.com", name: "Junior Detailer", userType: "Staff", role: "Junior Detailer", status: "active", password: "secret" },
       { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Sales Associate", password: "secret" },
       { id: "CUS-1", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", password: "secret" },
       { id: "CUS-2", email: "other@example.com", name: "Other Customer", userType: "Customer", role: "New", password: "secret" },
@@ -213,6 +218,7 @@ describe("admin bootstrap performance structure", () => {
       const users = [
         { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" },
         { id: "SD-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" },
+        { id: "JR-1", email: "junior@example.com", name: "Junior Detailer", userType: "Staff", role: "Junior Detailer", status: "active" },
         { id: "STF-1", email: "staff@example.com", name: "Staff", userType: "Staff", role: "Sales Associate", status: "active" },
         { id: "CUS-1", email: "customer@example.com", name: "Customer One", userType: "Customer", role: "New", status: "active" },
         { id: "CUS-2", email: "other@example.com", name: "Other Customer", userType: "Customer", role: "New", status: "active" },
@@ -402,6 +408,42 @@ describe("admin bootstrap performance structure", () => {
     expect(response.body.users.map((user) => user.id)).toEqual(expect.arrayContaining(["SD-1", "STF-1", "CUS-1", "CUS-2"]));
     expect(response.body.users.map((user) => user.id)).not.toContain("ADM-1");
     expect(JSON.stringify(response.body)).not.toMatch(/password|adminSpecial|staffSpecial|\$2b\$12\$|data:image/);
+  });
+
+  test("Junior Detailer bootstrap gets Bookings support data without unrelated module data", async () => {
+    const juniorToken = auth({ id: "JR-1", email: "junior@example.com", userType: "Staff", role: "Junior Detailer" });
+    const response = await request("/api/admin/bootstrap", { token: juniorToken });
+
+    expect(response.status).toBe(200);
+    expect(response.body.bookings.map((booking) => booking.id)).toEqual(["BK-1", "BK-2"]);
+    expect(response.body.payments.map((payment) => payment.id)).toEqual(["PAY-1", "PAY-2"]);
+    expect(response.body.services.map((service) => service.id)).toEqual(["SVC-1"]);
+    expect(response.body.promos.map((promo) => promo.id)).toEqual(["PRO-1"]);
+    expect(response.body.users.map((user) => user.id)).toEqual(expect.arrayContaining(["JR-1", "SD-1", "STF-1", "CUS-1", "CUS-2"]));
+    expect(response.body.users.map((user) => user.id)).not.toContain("ADM-1");
+    expect(response.body.stockMonitoring).toEqual([]);
+    expect(response.body.auditLogs).toEqual([]);
+    expect(response.body.archivedAuditLogs).toEqual([]);
+    expect(response.body.expenses).toEqual([]);
+    expect(response.body.reviews).toEqual([]);
+    expect(response.body.rewards).toEqual([]);
+    expect(response.body.customerRewards).toEqual([]);
+    expect(response.body.alerts).toEqual([]);
+    expect(JSON.stringify(response.body)).not.toMatch(/password|adminSpecial|staffSpecial|\$2b\$12\$|data:image/);
+  });
+
+  test("Junior Detailer booking export is broad while tracking export is assignment scoped", async () => {
+    const juniorToken = auth({ id: "JR-1", email: "junior@example.com", userType: "Staff", role: "Junior Detailer" });
+
+    const bookingsExport = await request("/api/admin/reports/bookings/csv", { token: juniorToken });
+    const trackingExport = await request("/api/admin/reports/tracking/csv", { token: juniorToken });
+
+    expect(bookingsExport.status).toBe(200);
+    expect(bookingsExport.body).toContain("BK-1");
+    expect(bookingsExport.body).toContain("BK-2");
+    expect(trackingExport.status).toBe(200);
+    expect(trackingExport.body).toContain("BK-1");
+    expect(trackingExport.body).not.toContain("BK-2");
   });
 
   test.each([

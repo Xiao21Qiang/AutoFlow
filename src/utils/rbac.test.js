@@ -138,6 +138,52 @@ describe("Phase 1 permission matrix", () => {
     }
   });
 
+  test("gives Junior Detailer exactly four modules with Bookings parity and assignment-scoped tracking actions", () => {
+    expect(getAllowedModules(juniorDetailer)).toEqual([
+      MODULE_KEYS.myWork,
+      MODULE_KEYS.bookings,
+      MODULE_KEYS.serviceTracking,
+      MODULE_KEYS.profile,
+    ]);
+
+    for (const actionKey of [
+      ACTION_KEYS.bookingView,
+      ACTION_KEYS.bookingCreate,
+      ACTION_KEYS.bookingUpdate,
+      ACTION_KEYS.bookingReassignDetailer,
+      ACTION_KEYS.detailerReassign,
+      ACTION_KEYS.bookingUpdateStatus,
+      ACTION_KEYS.trackingView,
+      ACTION_KEYS.trackingUpdateIssueNotes,
+      ACTION_KEYS.trackingUpdateWarranty,
+      ACTION_KEYS.trackingComplete,
+      ACTION_KEYS.commissionViewOwn,
+      ACTION_KEYS.commissionPrint,
+      ACTION_KEYS.commissionExport,
+    ]) {
+      expect(canPerformAction(juniorDetailer, actionKey)).toBe(true);
+    }
+
+    for (const actionKey of [
+      ACTION_KEYS.bookingDelete,
+      ACTION_KEYS.paymentView,
+      ACTION_KEYS.paymentVerify,
+      ACTION_KEYS.stockView,
+      ACTION_KEYS.stockCreate,
+      ACTION_KEYS.stockManage,
+      ACTION_KEYS.engagementView,
+      ACTION_KEYS.engagementManage,
+      ACTION_KEYS.commissionViewAll,
+      ACTION_KEYS.commissionMarkPaid,
+      ACTION_KEYS.commissionVoid,
+      ACTION_KEYS.usersManageStaff,
+      ACTION_KEYS.settingsManageSecurity,
+      ACTION_KEYS.settingsManageDownPayment,
+    ]) {
+      expect(canPerformAction(juniorDetailer, actionKey)).toBe(false);
+    }
+  });
+
   test("limits Inventory Clerk to the exact six approved modules", () => {
     expect(normalizeRole({ role: "  Inventory   Clerk  " })).toBe("inventory clerk");
     expect(normalizeUserType(inventoryClerk)).toBe("staff");

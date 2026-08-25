@@ -214,6 +214,7 @@ describe("General Manager Bookings parity shell", () => {
   test.each([
     ["General Manager", generalManager],
     ["Senior Detailer", seniorDetailer],
+    ["Junior Detailer", juniorDetailer],
   ])("%s uses canonical Admin Bookings features but does not render Delete", (_label, actor) => {
     setContext({ currentUser: actor });
     renderStaffMain(actor);
@@ -226,15 +227,6 @@ describe("General Manager Bookings parity shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("Edit Booking")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
-  });
-
-  test("Junior Detailer keeps the Staff Bookings implementation", () => {
-    setContext({ currentUser: juniorDetailer });
-    renderStaffMain(juniorDetailer);
-
-    fireEvent.click(screen.getByText("Bookings"));
-
-    expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
   });
 });
 
@@ -645,13 +637,35 @@ describe("General Manager Service Tracking parity shell", () => {
   });
 
   test("Junior Detailer keeps assigned-only Staff Tracking behavior", () => {
-    setContext({ currentUser: juniorDetailer });
+    setContext({
+      currentUser: juniorDetailer,
+      bookings: [
+        {
+          ...baseData.bookings[0],
+          id: "B-JR-OWN",
+          customer: "Junior Customer",
+          status: "Scheduled",
+          assigned: "Renamed Junior",
+          assignedDetailerId: "STF-JR",
+        },
+        {
+          ...baseData.bookings[0],
+          id: "B-JR-OTHER",
+          customer: "Other Junior Customer",
+          status: "Scheduled",
+          assigned: "Other Junior",
+          assignedDetailerId: "STF-OTHER",
+        },
+      ],
+    });
     renderStaffMain(juniorDetailer);
 
     fireEvent.click(screen.getByText("Service Tracking"));
 
     expect(screen.queryByRole("button", { name: "Export as PDF" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View Only" })).toBeInTheDocument();
+    expect(screen.getByText("B-JR-OWN")).toBeInTheDocument();
+    expect(screen.queryByText("B-JR-OTHER")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 });
 

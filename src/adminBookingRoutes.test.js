@@ -33,6 +33,7 @@ const customerUser = {
 };
 const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer One", userType: "Staff", role: "Senior Detailer", status: "active" };
 const secondDetailerUser = { id: "STF-2", email: "detailer2@example.com", name: "Detailer Two", userType: "Staff", role: "Junior Detailer", status: "active" };
+const thirdDetailerUser = { id: "STF-3", email: "detailer3@example.com", name: "Detailer Three", userType: "Staff", role: "Junior Detailer", status: "active" };
 const deletedDetailerUser = { id: "STF-DEL", email: "deleted-detailer@example.com", name: "Deleted Detailer", userType: "Staff", role: "Senior Detailer", status: "deleted" };
 const service = {
   id: "SVC-1",
@@ -51,7 +52,7 @@ const carWashService = {
   allowedArrivalTimes: ["10:00", "13:00"],
 };
 const serviceFixtures = [service, carWashService];
-const testUsers = [adminUser, generalManagerUser, marketingUser, salesManagerUser, salesAssociateUser, inventoryClerkUser, customerUser, detailerUser, secondDetailerUser, deletedDetailerUser];
+const testUsers = [adminUser, generalManagerUser, marketingUser, salesManagerUser, salesAssociateUser, inventoryClerkUser, customerUser, detailerUser, secondDetailerUser, thirdDetailerUser, deletedDetailerUser];
 
 const basePayload = {
   customer: "Customer One",
@@ -845,6 +846,188 @@ describe("Sales Associate booking creation route validation", () => {
   });
 });
 
+describe("Junior Detailer Bookings parity route enforcement", () => {
+  test.each([
+    ["customer", { customerEmail: "" }],
+    ["vehicle", { vehicle: "   " }],
+    ["plate", { plate: "" }],
+    ["service", { service: "" }],
+    ["carSize", { carSize: "" }],
+    ["assigned", { assigned: "" }],
+    ["date", { date: "" }],
+    ["time", { time: "" }],
+    ["placeSlot", { placeSlot: "" }],
+  ])("direct API creation with missing %s is rejected for Junior Detailer and not persisted", async (_field, patch) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(secondDetailerUser),
+      body: { ...basePayload, ...patch },
+    });
+    expect(response.status).toBe(400);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test.each([
+    ["unregistered customer", { customer: "Ghost Customer", customerEmail: "ghost@example.com", plate: "ZZZ999" }],
+    ["unknown service", { service: "Ghost Service" }],
+    ["inactive detailer", { assigned: "Deleted Detailer" }],
+    ["invalid car size", { carSize: "Spaceship" }],
+    ["past booking date", { date: "2000-01-01" }],
+    ["invalid time", { time: "25:99" }],
+    ["invalid place slot", { placeSlot: 99 }],
+  ])("%s is rejected for Junior Detailer booking creation", async (_label, patch) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(secondDetailerUser),
+      body: { ...basePayload, ...patch },
+    });
+    expect(response.status).toBe(400);
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("same date, time, and place slot conflict is rejected for Junior Detailer booking creation", async () => {
+    resetData([{ ...basePayload, id: "B-ACTIVE", status: "Scheduled" }]);
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(secondDetailerUser),
+      body: { ...basePayload, placeSlot: 1 },
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body.message).toMatch(/already booked/);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("a valid Junior Detailer request creates one Scheduled booking and audits the authenticated actor", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(secondDetailerUser),
+      body: {
+        ...basePayload,
+        auditUser: "admin@example.com",
+        actor: "Admin",
+        userType: "Admin",
+        role: "Admin",
+        employeeRole: "General Manager",
+        scope: "admin",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+    expect(bookings[0]).toMatchObject({
+      status: "Scheduled",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      vehicle: "Civic",
+      plate: "ABC123",
+      carSize: "Sedan / Small Car",
+      assigned: "Detailer One",
+      assignedDetailerId: "STF-1",
+      date: "2099-12-31",
+      time: "10:00",
+      placeSlot: 1,
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer2@example.com",
+        action: "Created booking",
+        targetId: bookings[0].id,
+      }),
+    ]));
+  });
+
+  test("Junior Detailer can update booking-domain assignment outside personal tracking scope", async () => {
+    seedScheduledBooking();
+
+    const response = await request("/api/admin/bookings/B-RESCHEDULE", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        ...bookings[0],
+        assigned: "Detailer Three",
+        auditUser: "admin@example.com",
+        actorRole: "Admin",
+        actorUserType: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      assigned: "Detailer Three",
+      assignedDetailerId: "STF-3",
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer2@example.com",
+        action: "Updated booking",
+        targetId: "B-RESCHEDULE",
+      }),
+    ]));
+  });
+
+  test("Junior Detailer cannot mutate another detailer's tracking fields through the booking update route", async () => {
+    seedInProgressTrackingBooking();
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-TRACKING", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        ...bookings[0],
+        issueNote: "Forged junior issue note.",
+        issueTypes: ["Paint blemish"],
+        issueMarkers: [{ id: 1, x: 40, y: 60, issueType: "Paint blemish" }],
+        warrantyChecklist: "Forged warranty note.",
+        role: "Admin",
+        userType: "Admin",
+        auditUser: "admin@example.com",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Junior Detailer can only edit Service Tracking details for assigned records.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["issueNote", "issueMarkers", "warrantyChecklist"]));
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Junior Detailer can read own tracking record but not another Junior Detailer's tracking record", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-OWN",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "Scheduled",
+      },
+      {
+        ...basePayload,
+        id: "B-JUNIOR-OTHER",
+        assigned: "Detailer Three",
+        assignedDetailerId: "STF-3",
+        status: "Scheduled",
+      },
+    ]);
+
+    const ownResponse = await request("/api/tracking/B-JUNIOR-OWN?role=Admin&userType=Admin", {
+      token: auth(secondDetailerUser),
+    });
+    const otherResponse = await request("/api/tracking/B-JUNIOR-OTHER?role=Admin&userType=Admin", {
+      token: auth(secondDetailerUser),
+    });
+
+    expect(ownResponse.status).toBe(200);
+    expect(ownResponse.body).toMatchObject({ id: "B-JUNIOR-OWN", assigned: "Detailer Two" });
+    expect(otherResponse.status).toBe(403);
+    expect(otherResponse.body.message).toBe("You do not have permission to view this tracking record.");
+  });
+});
+
 describe("Inventory Clerk booking route authorization", () => {
   test("invalid Inventory Clerk booking creation uses canonical validation and does not persist", async () => {
     const response = await request("/api/admin/bookings", {
@@ -998,6 +1181,7 @@ describe("Admin-only booking deletion route", () => {
   test.each([
     ["General Manager", generalManagerUser],
     ["Senior Detailer", detailerUser],
+    ["Junior Detailer", secondDetailerUser],
     ["Sales Manager", salesManagerUser],
     ["Sales Associate", salesAssociateUser],
     ["Inventory Clerk", inventoryClerkUser],
@@ -1674,6 +1858,25 @@ describe("Cancelled booking dedicated reschedule workflow", () => {
     expect(auditLogs).toEqual(expect.arrayContaining([
       expect.objectContaining({
         userId: "detailer@example.com",
+        action: "Rescheduled booking",
+        targetId: "B-CANCELLED-RESCHEDULE",
+      }),
+    ]));
+  });
+
+  test("Junior Detailer may reschedule an eligible Cancelled booking with Staff PIN and authenticated audit actor", async () => {
+    seedCancelledRescheduleBooking();
+    const response = await request(reschedulePath(), {
+      method: "PATCH",
+      token: auth(secondDetailerUser),
+      body: reschedulePayload("654321", { auditUser: "admin@example.com", userType: "Admin", role: "Admin" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ date: "2099-12-31", time: "13:00", placeSlot: 2, status: "Scheduled" });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer2@example.com",
         action: "Rescheduled booking",
         targetId: "B-CANCELLED-RESCHEDULE",
       }),
@@ -2387,7 +2590,7 @@ describe("Admin booking schedule conflict route protection", () => {
     expect(response.status).toBe(200);
     expect(bookings[0].assigned).toBe("Detailer Two");
     expect(bookings[0].assignedDetailerId).toBe("STF-2");
-    expect(auditLogs.some((log) => log.action === "Updated service tracking" && log.meta?.assigned === "Detailer Two")).toBe(true);
+    expect(auditLogs.some((log) => log.action === "Updated booking" && log.meta?.assigned === "Detailer Two")).toBe(true);
   });
 
   test.each([

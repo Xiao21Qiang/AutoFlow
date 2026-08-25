@@ -2326,6 +2326,11 @@ const ROLE_ACTIONS = {
   ],
   "junior detailer": [
     ACTION_KEYS.bookingView,
+    ACTION_KEYS.bookingCreate,
+    ACTION_KEYS.bookingUpdate,
+    ACTION_KEYS.bookingReassignDetailer,
+    ACTION_KEYS.detailerReassign,
+    ACTION_KEYS.bookingUpdateStatus,
     ACTION_KEYS.trackingView,
     ACTION_KEYS.trackingUpdateIssueNotes,
     ACTION_KEYS.trackingUpdateWarranty,
@@ -2556,9 +2561,24 @@ function canViewBooking(user, booking, users = []) {
   return true;
 }
 
+function canViewBookingModuleRecord(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  const userType = normalizeUserType(user?.userType, user?.role);
+  if (userType === "customer") return canViewBooking(user, booking, users);
+  return canPerformAction(user, ACTION_KEYS.bookingView);
+}
+
 function canUpdateBooking(user, booking, users = []) {
   if (isAdmin(user)) return true;
   if (!canViewBooking(user, booking, users) || !canPerformAction(user, ACTION_KEYS.bookingUpdate)) return false;
+  const role = getEffectiveRole(user);
+  if (role === "marketing") return false;
+  return true;
+}
+
+function canUpdateBookingModuleRecord(user, booking, users = []) {
+  if (isAdmin(user)) return true;
+  if (!canViewBookingModuleRecord(user, booking, users) || !canPerformAction(user, ACTION_KEYS.bookingUpdate)) return false;
   const role = getEffectiveRole(user);
   if (role === "marketing") return false;
   return true;
@@ -2602,10 +2622,7 @@ function canReassignDetailer(user) {
 function canUpdatePlaceSlot(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const role = getEffectiveRole(user);
-  if (role === "general manager" || role === "senior detailer") return true;
-  if (role === "junior detailer") {
-    return canViewDetailerTask(user, booking, users) && isBookingAssignedToUser(booking, user);
-  }
+  if (role === "general manager" || role === "senior detailer" || role === "junior detailer") return true;
   return false;
 }
 
@@ -4266,7 +4283,7 @@ function getBookingAuditAction(previousBooking, nextBooking) {
   }
 
   if (nextBooking.assigned !== undefined && previousBooking.assigned !== nextBooking.assigned) {
-    return "Updated service tracking";
+    return "Updated booking";
   }
 
   return "Updated booking";
@@ -4873,6 +4890,12 @@ function getSalesManagerTrackingMutationFields(previousBooking = {}, nextBody = 
     }
   }
   return changedFields;
+}
+
+function getJuniorDetailerOutOfScopeTrackingFields(previousBooking = {}, nextBody = {}) {
+  return SALES_MANAGER_TRACKING_READ_ONLY_FIELDS
+    .filter((field) => field !== "assigned")
+    .filter((field) => hasChangedBodyField(previousBooking, nextBody, field));
 }
 
 function hasRequiredWarrantyDetails(booking = {}) {
@@ -6377,7 +6400,7 @@ function projectPaymentForAnalytics(payment = {}) {
   };
 }
 
-function filterBootstrapDataForRole(data, authUser = {}) {
+function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
   const userType = normalizeUserType(authUser.userType, authUser.role);
   const email = String(authUser.email || "").trim().toLowerCase();
   const ownUser = data.users.find((user) => String(user.email || "").trim().toLowerCase() === email);
@@ -6436,7 +6459,13 @@ function filterBootstrapDataForRole(data, authUser = {}) {
   if (userType === "staff") {
     const staffRole = getEffectiveRole(scopedUser);
     const hasModule = (moduleKey) => canAccessModule(scopedUser, moduleKey);
-    const scopedBookings = data.bookings.filter((booking) => canViewBooking(scopedUser, booking, data.users));
+    const bookingScope = String(options.bookingScope || "module").trim().toLowerCase();
+    const scopedBookings = data.bookings.filter((booking) => {
+      if (staffRole === "junior detailer" && bookingScope === "tracking") {
+        return canViewDetailerTask(scopedUser, booking, data.users);
+      }
+      return canViewBookingModuleRecord(scopedUser, booking, data.users);
+    });
     const visibleBookingIds = new Set(scopedBookings.map((booking) => String(booking.id || "")));
     const canSeePayments = hasModule(MODULE_KEYS.paymentTracking);
     const canSeeFinancials = hasModule(MODULE_KEYS.financialTracker);
@@ -6475,7 +6504,7 @@ function filterBootstrapDataForRole(data, authUser = {}) {
         return type === "customer" || isActiveDetailerUser(user) || userEmail === email;
       }
       if (hasModule(MODULE_KEYS.userManagement)) return staffRole === "general manager" ? type === "staff" || type === "customer" : type === "staff";
-      if (staffRole === "junior detailer") return type === "staff";
+      if (staffRole === "junior detailer") return type === "customer" || type === "staff";
       if (hasModule(MODULE_KEYS.bookings)) return type === "customer" || type === "staff";
       if (hasModule(MODULE_KEYS.myWork) || hasModule(MODULE_KEYS.detailerManagement)) return type === "staff";
       return String(user.email || "").trim().toLowerCase() === email;
@@ -6490,14 +6519,14 @@ function filterBootstrapDataForRole(data, authUser = {}) {
       stockMonitoring: canSeeStock ? data.stockMonitoring : [],
       payments: staffRole === "marketing" && canSeeAnalytics
         ? data.payments.map(projectPaymentForAnalytics)
-        : canSeePayments || staffRole === "senior detailer"
+        : canSeePayments || staffRole === "senior detailer" || staffRole === "junior detailer"
         ? data.payments.filter((payment) => visibleBookingIds.has(String(payment.bookingId || "")) || staffRole === "general manager" || staffRole === "sales manager" || staffRole === "sales associate")
         : [],
       users: scopedUsers,
       auditLogs: scopedAuditLogs,
       archivedAuditLogs: scopedArchivedAuditLogs,
       reviews: canSeeEngagement || staffRole === "marketing" ? data.reviews : [],
-      promos: canSeeEngagement ? data.promos : [],
+      promos: canSeeEngagement ? data.promos : staffRole === "junior detailer" && hasModule(MODULE_KEYS.bookings) ? data.promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active") : [],
       quoteRequests: (hasModule(MODULE_KEYS.dashboard) && canPerformAction(scopedUser, ACTION_KEYS.bookingUpdate)) || canSeeEngagement ? data.quoteRequests : [],
       expenses: canSeeFinancials ? data.expenses : [],
       commissions: scopedCommissions,
@@ -6884,7 +6913,9 @@ app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
     const filters = parseExportFilters(req.query || {});
     let scopedData = reportType === "my-work"
       ? { myWork: await buildMyWorkDtoForUser(req.authUser) }
-      : filterBootstrapDataForRole(await loadBootstrapData(), req.authUser);
+      : filterBootstrapDataForRole(await loadBootstrapData(), req.authUser, {
+          bookingScope: reportType === "tracking" ? "tracking" : "module",
+        });
     if (reportType === "audit-logs") {
       scopedData = await applyAuditLogExportScope(scopedData, filters, req.authUser);
     }
@@ -7837,30 +7868,18 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
     const allUsersForScope = await User.find({}).lean();
     const staffRoleForBookingUpdate = getEffectiveRole(req.authUser);
     if (staffRoleForBookingUpdate === "junior detailer") {
-      if (!canViewDetailerTask(req.authUser, existingBookingObject, allUsersForScope)) {
+      if (!canUpdateBookingModuleRecord(req.authUser, existingBookingObject, allUsersForScope)) {
         denyForbidden(res);
         return;
       }
-      const detailerAllowedFields = new Set([
-        "status",
-        "issueNote",
-        "issueTypes",
-        "issueMarkers",
-        "warrantyChecklist",
-        "warrantyChecklistItems",
-        "warrantyCoveragePackage",
-        "warrantyAcknowledgement",
-        "warrantyReleased",
-        "warrantyReleasedAt",
-        "warrantyQrCode",
-        "placeSlot",
-        "specialPin",
-        "specialCredential",
-        "auditUser",
-      ]);
-      req.body = Object.fromEntries(
-        Object.entries(req.body || {}).filter(([key]) => detailerAllowedFields.has(key))
-      );
+      const trackingMutationFields = getJuniorDetailerOutOfScopeTrackingFields(existingBookingObject, req.body || {});
+      if (trackingMutationFields.length && !canViewDetailerTask(req.authUser, existingBookingObject, allUsersForScope)) {
+        res.status(403).json({
+          message: "Junior Detailer can only edit Service Tracking details for assigned records.",
+          fields: trackingMutationFields,
+        });
+        return;
+      }
     } else if (["sales manager", "sales associate", "inventory clerk"].includes(staffRoleForBookingUpdate)) {
       const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
       if (trackingMutationFields.length) {
@@ -7876,7 +7895,7 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
 
     if (
       staffRoleForBookingUpdate !== "junior detailer" &&
-      !canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope)
+      !canUpdateBookingModuleRecord(req.authUser, existingBookingObject, allUsersForScope)
     ) {
       denyForbidden(res);
       return;
@@ -8315,11 +8334,11 @@ app.patch("/api/admin/bookings/:id/reschedule", requireRoles("admin", "staff"), 
     const actorRole = getEffectiveRole(req.authUser);
     const allUsersForScope = await User.find({}).lean();
 
-    if (actorType !== "admin" && actorRole !== "general manager" && actorRole !== "senior detailer") {
+    if (actorType !== "admin" && actorRole !== "general manager" && actorRole !== "senior detailer" && actorRole !== "junior detailer") {
       denyForbidden(res);
       return;
     }
-    if (!canUpdateBooking(req.authUser, existingBookingObject, allUsersForScope) || !canPerformAction(req.authUser, ACTION_KEYS.bookingUpdateStatus)) {
+    if (!canUpdateBookingModuleRecord(req.authUser, existingBookingObject, allUsersForScope) || !canPerformAction(req.authUser, ACTION_KEYS.bookingUpdateStatus)) {
       denyForbidden(res);
       return;
     }

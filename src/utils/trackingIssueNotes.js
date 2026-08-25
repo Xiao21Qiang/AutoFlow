@@ -49,13 +49,18 @@ export function hasMeaningfulIssueNotes(source = {}) {
 export function isAssignedStaffForBooking(booking = {}, user = {}) {
   const safeBooking = booking || {};
   const safeUser = user || {};
+  const assignedId = String(
+    safeBooking.assignedDetailerId || safeBooking.assignedUserId || safeBooking.assignedStaffId || ""
+  ).trim();
+  const userId = String(safeUser.id || safeUser._id || "").trim();
+  if (assignedId) return Boolean(userId && assignedId === userId);
+
   const bookingAssignedValues = [
     safeBooking.assigned,
     safeBooking.assignedTo,
     safeBooking.assignedStaff,
     safeBooking.assignedStaffName,
     safeBooking.assignedStaffEmail,
-    safeBooking.assignedStaffId,
   ]
     .map(normalizeComparable)
     .filter(Boolean);

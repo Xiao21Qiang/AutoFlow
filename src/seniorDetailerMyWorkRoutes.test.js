@@ -15,6 +15,7 @@ const { __testModels, app, signJwt } = require("../server/server");
 const seniorA = { id: "SR-A", email: "senior-a-new@example.com", name: "Renamed Senior A", userType: "Staff", role: "Senior Detailer", status: "active" };
 const seniorB = { id: "SR-B", email: "senior-b@example.com", name: "Senior B", userType: "Staff", role: "Senior Detailer", status: "active" };
 const juniorA = { id: "JR-A", email: "junior-a@example.com", name: "Junior A", userType: "Staff", role: "Junior Detailer", status: "active" };
+const juniorB = { id: "JR-B", email: "junior-b@example.com", name: "Junior B", userType: "Staff", role: "Junior Detailer", status: "active" };
 const salesAssociate = { id: "SA-1", email: "sales@example.com", name: "Sales", userType: "Staff", role: "Sales Associate", status: "active" };
 const legacySenior = { id: "SR-LEG", email: "legacy@example.com", name: "Legacy Senior", userType: "Staff", role: "Senior Detailer", status: "active" };
 const duplicateOne = { id: "SR-DUP-1", email: "dup1@example.com", name: "Duplicate Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
@@ -95,7 +96,7 @@ async function request(path, { token = auth(seniorA), method = "GET" } = {}) {
 }
 
 function resetData() {
-  users = [seniorA, seniorB, juniorA, salesAssociate, legacySenior, duplicateOne, duplicateTwo];
+  users = [seniorA, seniorB, juniorA, juniorB, salesAssociate, legacySenior, duplicateOne, duplicateTwo];
   bookings = [
     {
       id: "B-SR-A",
@@ -221,6 +222,44 @@ describe("Senior Detailer authoritative My Work endpoint", () => {
         warrantyChecklist: "Updated warranty checklist",
       }),
     ]));
+  });
+
+  test("Junior Detailer My Work remains scoped to authenticated stable assignment after profile rename", async () => {
+    users = users.map((user) => user.id === "JR-A" ? { ...user, name: "Renamed Junior A", email: "junior-a-new@example.com" } : user);
+    bookings = [
+      {
+        id: "B-JR-A",
+        customer: "Junior A Customer",
+        service: "Interior Detail",
+        vehicle: "City",
+        plate: "JRA123",
+        assigned: "Old Junior A",
+        assignedDetailerId: "JR-A",
+        date: "2099-12-30",
+        status: "Scheduled",
+      },
+      {
+        id: "B-JR-B",
+        customer: "Junior B Customer",
+        service: "Ceramic Coating",
+        vehicle: "Vios",
+        plate: "JRB123",
+        assigned: "Junior B",
+        assignedDetailerId: "JR-B",
+        date: "2099-12-31",
+        status: "Scheduled",
+      },
+    ];
+
+    const response = await request("/api/admin/my-work?employeeId=JR-B&role=Admin", { token: auth({ ...juniorA, email: "junior-a-new@example.com" }) });
+
+    expect(response.status).toBe(200);
+    expect(response.body.assignedWork.map((item) => item.id)).toEqual(["B-JR-A"]);
+    expect(response.body.assignedWork[0]).toMatchObject({
+      assignedDetailerId: "JR-A",
+      assigned: "Renamed Junior A",
+    });
+    expect(JSON.stringify(response.body)).not.toContain("Junior B Customer");
   });
 
   test("supports unique legacy assignment and excludes ambiguous legacy assignment", async () => {

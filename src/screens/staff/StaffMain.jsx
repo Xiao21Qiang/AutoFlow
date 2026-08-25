@@ -179,7 +179,7 @@ function StaffMainContent({ session, onLogout }) {
   const effectiveRole = getEffectiveRole(session);
   const usesAdminTrackingModule = effectiveRole === "general manager" || effectiveRole === "senior detailer";
   const usesAdminPaymentsModule = effectiveRole === "general manager";
-  const usesAdminBookingsModule = usesAdminTrackingModule || effectiveRole === "sales manager" || effectiveRole === "sales associate" || effectiveRole === "inventory clerk";
+  const usesAdminBookingsModule = usesAdminTrackingModule || effectiveRole === "junior detailer" || effectiveRole === "sales manager" || effectiveRole === "sales associate" || effectiveRole === "inventory clerk";
 
   const avatarLetter = useMemo(() => {
     const base = String(session?.first || session?.firstName || session?.email || "S").trim();
