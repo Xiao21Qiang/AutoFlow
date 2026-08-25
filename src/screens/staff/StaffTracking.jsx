@@ -33,10 +33,43 @@ function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function isAssignedToCurrentUser(booking, currentUser) {
+function getStableUserId(user) {
+  return String(user?.id || user?._id || "").trim();
+}
+
+function isActiveDetailerUser(user = {}) {
+  const status = normalizeText(user?.status || (user?.deleted ? "deleted" : "active"));
+  const role = normalizeText(user?.role);
+  return !["inactive", "disabled", "deactivated", "deleted"].includes(status) && ["junior detailer", "senior detailer"].includes(role);
+}
+
+function getLegacyAssignedValues(booking = {}) {
+  return [booking?.assigned, booking?.assignedTo, booking?.assignedStaff, booking?.assignedDetailer]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function getDetailerIdentityValues(user = {}) {
+  return [user?.id, user?._id, user?.email, user?.name]
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function isAssignedToCurrentUser(booking, currentUser, users = []) {
   const assignedId = String(booking?.assignedDetailerId || booking?.assignedUserId || booking?.assignedStaffId || "").trim();
-  const userId = String(currentUser?.id || currentUser?._id || "").trim();
+  const userId = getStableUserId(currentUser);
   if (assignedId) return Boolean(userId && assignedId === userId);
+
+  const legacyAssignedValues = getLegacyAssignedValues(booking);
+  if (Array.isArray(users) && users.length && legacyAssignedValues.length) {
+    const matches = users.filter((user) => {
+      if (!isActiveDetailerUser(user)) return false;
+      const identityValues = getDetailerIdentityValues(user);
+      return legacyAssignedValues.some((value) => identityValues.includes(value));
+    });
+    return matches.length === 1 && getStableUserId(matches[0]) === userId;
+  }
+
   const assigned = normalizeText(booking?.assigned || booking?.assignedTo || booking?.assignedStaff || booking?.assignedDetailer);
   if (!assigned) return false;
   return [currentUser?.name, currentUser?.email]
@@ -174,7 +207,7 @@ function IssueMap({ markers, onMarkerPointerDown, onAddMarker, onRemoveMarker, d
 }
 
 export default function StaffTracking() {
-  const { bookings, payments, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
+  const { bookings, payments, users, currentUser, updateBooking, generateTrackingIssueNote } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -199,13 +232,13 @@ export default function StaffTracking() {
   const mapRef = useRef(null);
   const issueNoteAiRequestRef = useRef(false);
   const showToast = (type, message) => setToast({ type, message, id: Date.now() });
-  const issueNotesEditable = canEditIssueNotes({ booking: selectedRow, currentUser, allowAdmin: false });
-  const issueNotesLockedMessage = getIssueNotesLockedMessage({ booking: selectedRow, currentUser, allowAdmin: false });
+  const issueNotesEditable = canEditIssueNotes({ booking: selectedRow, currentUser, allowAdmin: false, users });
+  const issueNotesLockedMessage = getIssueNotesLockedMessage({ booking: selectedRow, currentUser, allowAdmin: false, users });
   const savedIssueNotesPresent = hasMeaningfulIssueNotes(selectedRow || {});
   const linkedPayment = getLinkedPaymentForBooking(selectedRow, payments);
   const warrantyExempt = isWarrantyExemptService(selectedRow || {});
-  const warrantyEditable = canEditWarranty(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false });
-  const warrantyBlockReason = getWarrantyBlockReason(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false });
+  const warrantyEditable = canEditWarranty(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false, users });
+  const warrantyBlockReason = getWarrantyBlockReason(selectedRow || {}, linkedPayment, currentUser, { allowAdmin: false, users });
   const warrantyDraft = { ...(selectedRow || {}), ...editForm };
   const completionDraft = { ...(selectedRow || {}), ...warrantyDraft, status: selectedRow?.status || "" };
   const completionReadiness = getCompletionReadiness(completionDraft, linkedPayment);
@@ -283,8 +316,8 @@ export default function StaffTracking() {
 
   const trackingRows = useMemo(() => {
     if (getEffectiveRole(currentUser) !== "junior detailer") return bookings;
-    return bookings.filter((booking) => isAssignedToCurrentUser(booking, currentUser));
-  }, [bookings, currentUser]);
+    return bookings.filter((booking) => isAssignedToCurrentUser(booking, currentUser, users));
+  }, [bookings, currentUser, users]);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -300,6 +333,20 @@ export default function StaffTracking() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  useEffect(() => {
+    if (!selectedRow?.id) return;
+    const latestRow = trackingRows.find((row) => row.id === selectedRow.id);
+    if (!latestRow) {
+      closeModal();
+      return;
+    }
+    setSelectedRow(latestRow);
+  }, [selectedRow?.id, trackingRows]);
 
   const statusClass = (status) => {
     const s = String(status || "").toLowerCase();
@@ -583,7 +630,7 @@ export default function StaffTracking() {
                   <td>{r.assigned}</td>
                   <td className="stTrackColActions">
                     <div className="stTrackRowActions">
-                      {canEditTracking && isAssignedToCurrentUser(r, currentUser) ? <button
+                      {canEditTracking && isAssignedToCurrentUser(r, currentUser, users) ? <button
                         className="stTrackMiniBtn"
                         type="button"
                         onClick={() => openEditModal(r)}

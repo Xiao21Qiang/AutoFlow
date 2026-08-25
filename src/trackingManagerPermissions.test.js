@@ -1,4 +1,4 @@
-import { canEditIssueNotes } from "./utils/trackingIssueNotes";
+import { canEditIssueNotes, isAssignedStaffForBooking } from "./utils/trackingIssueNotes";
 import { canEditWarranty } from "./utils/warrantyWorkflow";
 
 const generalManager = {
@@ -23,6 +23,14 @@ const seniorDetailer = {
   email: "senior@example.com",
   userType: "Staff",
   role: "Senior Detailer",
+};
+const renamedJunior = {
+  id: "STF-JR",
+  name: "Renamed Junior",
+  email: "renamed-junior@example.com",
+  userType: "Staff",
+  role: "Junior Detailer",
+  status: "active",
 };
 
 const scheduledBooking = {
@@ -79,5 +87,35 @@ describe("Service Tracking manager permissions", () => {
 
   test("keeps non-manager staff warranty edits assignment-scoped", () => {
     expect(canEditWarranty(inProgressBooking, paidPayment, seniorDetailer, { allowAdmin: true })).toBe(false);
+  });
+
+  test("uses stable assignment IDs across profile rename before legacy text fallback", () => {
+    expect(isAssignedStaffForBooking({
+      id: "B-JR",
+      status: "Scheduled",
+      assigned: "Old Junior Name",
+      assignedDetailerId: "STF-JR",
+    }, renamedJunior, [renamedJunior])).toBe(true);
+    expect(canEditIssueNotes({
+      booking: {
+        id: "B-JR",
+        status: "Scheduled",
+        assigned: "Old Junior Name",
+        assignedDetailerId: "STF-JR",
+      },
+      currentUser: renamedJunior,
+      users: [renamedJunior],
+    })).toBe(true);
+  });
+
+  test("fails closed for ambiguous legacy assignment text when staff users are available", () => {
+    const duplicateOne = { ...renamedJunior, id: "DUP-1", name: "Duplicate Detailer", email: "one@example.com" };
+    const duplicateTwo = { ...renamedJunior, id: "DUP-2", name: "Duplicate Detailer", email: "two@example.com" };
+
+    expect(isAssignedStaffForBooking({
+      id: "B-DUP",
+      status: "Scheduled",
+      assigned: "Duplicate Detailer",
+    }, duplicateOne, [duplicateOne, duplicateTwo])).toBe(false);
   });
 });

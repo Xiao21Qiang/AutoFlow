@@ -21,7 +21,9 @@ const salesAssociateUser = { id: "SA-1", email: "sales@example.com", name: "Sale
 const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
 const customerUser = { id: "CUS-1", email: "customer@example.com", name: "Customer", userType: "Customer", role: "New", status: "active" };
 const seniorDetailerUser = { id: "STF-1", email: "senior@example.com", name: "Senior Detailer", userType: "Staff", role: "Senior Detailer", status: "active" };
-const users = [adminUser, generalManagerUser, salesAssociateUser, marketingUser, customerUser, seniorDetailerUser];
+const juniorAUser = { id: "JR-A", email: "junior-a@example.com", name: "Junior A", userType: "Staff", role: "Junior Detailer", status: "active" };
+const juniorBUser = { id: "JR-B", email: "junior-b@example.com", name: "Junior B", userType: "Staff", role: "Junior Detailer", status: "active" };
+const users = [adminUser, generalManagerUser, salesAssociateUser, marketingUser, customerUser, seniorDetailerUser, juniorAUser, juniorBUser];
 
 const booking = {
   id: "B-AI-1",
@@ -122,7 +124,11 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  bookings = [clone(booking)];
+  bookings = [
+    clone(booking),
+    { ...clone(booking), id: "B-AI-JR-A", assigned: "Junior A", assignedDetailerId: "JR-A" },
+    { ...clone(booking), id: "B-AI-JR-B", assigned: "Junior B", assignedDetailerId: "JR-B" },
+  ];
   auditLogs = [];
   mockProviderJson({
     model: "test-groq-model",
@@ -236,6 +242,73 @@ describe("tracking issue note AI route", () => {
     expect(audit.meta.actorRole).toBe("senior detailer");
     expect(audit.meta.actorUserType).toBe("staff");
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("allows Junior Detailer AI only for their assigned booking and ignores forged actor fields", async () => {
+    const ownResponse = await request("/api/ai/tracking/issue-note", {
+      token: auth(juniorAUser),
+      body: aiBody({
+        bookingId: "B-AI-JR-A",
+        role: "Admin",
+        userType: "Admin",
+        actorRole: "Admin",
+        auditUser: "admin@example.com",
+      }),
+    });
+
+    expect(ownResponse.status).toBe(200);
+    expect(ownResponse.body).toMatchObject({ available: true, feature: "tracking-issue-note" });
+    const audit = auditLogs.find((log) => log.targetId === "tracking-issue-note");
+    expect(audit.userId).toBe("junior-a@example.com");
+    expect(audit.meta.actorRole).toBe("junior detailer");
+    global.fetch.mockClear();
+    auditLogs = [];
+
+    const otherResponse = await request("/api/ai/tracking/issue-note", {
+      token: auth(juniorAUser),
+      body: aiBody({
+        bookingId: "B-AI-JR-B",
+        assignedDetailerId: "JR-A",
+        employeeId: "JR-A",
+        role: "Admin",
+        userType: "Admin",
+        email: "junior-a@example.com",
+      }),
+    });
+
+    expect(otherResponse.status).toBe(403);
+    expect(otherResponse.body.message).toBe("You do not have permission to view this tracking record.");
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "junior-a@example.com",
+        action: "AI request failed",
+        targetId: "tracking-issue-note",
+        meta: expect.objectContaining({
+          actorRole: "junior detailer",
+          actorUserType: "staff",
+          errorCategory: "unauthorized-tracking-record",
+          result: "failed",
+        }),
+      }),
+    ]));
+  });
+
+  test.each([
+    ["text object", { currentIssueNote: { text: "bad" } }, /currentIssueNote must be text/],
+    ["issueTypes object", { issueTypes: { value: "Paint blemish" } }, /Issue types must be an array/],
+    ["issueTypes malformed item", { issueTypes: [{ value: "Paint blemish" }] }, /Issue types must contain text values only/],
+    ["issueMarkers string", { issueMarkers: "bad-marker" }, /Issue markers must be an array/],
+    ["issueMarker malformed coordinate", { issueMarkers: [{ id: 1, x: -1, y: 50, issueType: "Paint blemish" }] }, /coordinates/],
+  ])("rejects malformed Junior AI helper payload: %s", async (_label, patch, messagePattern) => {
+    const response = await request("/api/ai/tracking/issue-note", {
+      token: auth(juniorAUser),
+      body: aiBody({ bookingId: "B-AI-JR-A", ...patch }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(messagePattern);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test("normalizes provider text fallback into the canonical tracking DTO", async () => {

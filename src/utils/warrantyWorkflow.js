@@ -41,15 +41,15 @@ export function hasRequiredWarrantyFields(booking = {}) {
   );
 }
 
-export function canEditWarranty(booking = {}, payment = null, currentUser = {}, { allowAdmin = false } = {}) {
+export function canEditWarranty(booking = {}, payment = null, currentUser = {}, { allowAdmin = false, users = [] } = {}) {
   if (isWarrantyExemptService(booking)) return false;
   if (!isInProgressStatus(booking.status)) return false;
   if (!isFullPaymentPaid(payment)) return false;
   if (allowAdmin && canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateWarranty)) return true;
-  return isAssignedStaffForBooking(booking, currentUser);
+  return isAssignedStaffForBooking(booking, currentUser, users);
 }
 
-export function getWarrantyBlockReason(booking = {}, payment = null, currentUser = {}, { allowAdmin = false } = {}) {
+export function getWarrantyBlockReason(booking = {}, payment = null, currentUser = {}, { allowAdmin = false, users = [] } = {}) {
   if (isWarrantyExemptService(booking)) {
     return "Warranty document is not required for this service.";
   }
@@ -62,10 +62,10 @@ export function getWarrantyBlockReason(booking = {}, payment = null, currentUser
   if (!isFullPaymentPaid(payment)) {
     return "Full payment must be marked as paid before editing warranty details.";
   }
-  if (!allowAdmin && !isAssignedStaffForBooking(booking, currentUser)) {
+  if (!allowAdmin && !isAssignedStaffForBooking(booking, currentUser, users)) {
     return "Only the assigned staff can edit warranty details for this booking.";
   }
-  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateWarranty) && !isAssignedStaffForBooking(booking, currentUser)) {
+  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateWarranty) && !isAssignedStaffForBooking(booking, currentUser, users)) {
     return "Only the assigned staff can edit warranty details for this booking.";
   }
   return "";

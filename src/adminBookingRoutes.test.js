@@ -67,6 +67,15 @@ const basePayload = {
   placeSlot: 1,
   auditUser: "admin@example.com",
 };
+const validIssueType = "PC = Paint Crack/Chip";
+const validWarrantyCoverage = "3 Years Marine Ceramic";
+const validWarrantyItem = {
+  id: "client-inspection",
+  label: "Final inspection with client",
+  done: true,
+  doneBy: "Detailer Two",
+  notes: "Checked with client",
+};
 
 let bookings;
 let payments;
@@ -542,6 +551,7 @@ beforeAll(async () => {
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
   stub(__testModels.Review, "countDocuments", async () => 0);
   stub(__testModels.Commission, "findOne", () => queryDoc(null));
+  stub(__testModels.Commission, "find", () => chain([]));
   stub(__testModels.Commission, "create", async (payload) => clone(payload));
   stub(__testModels.Commission, "countDocuments", async () => 0);
   stub(__testModels.Reward, "find", () => chain([]));
@@ -1025,6 +1035,298 @@ describe("Junior Detailer Bookings parity route enforcement", () => {
     expect(ownResponse.body).toMatchObject({ id: "B-JUNIOR-OWN", assigned: "Detailer Two" });
     expect(otherResponse.status).toBe(403);
     expect(otherResponse.body.message).toBe("You do not have permission to view this tracking record.");
+  });
+
+  test("Junior Detailer own issue-note tracking mutation requires Staff PIN and audits the authenticated actor", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-OWN",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "Scheduled",
+      },
+    ]);
+
+    const missingPin = await request("/api/admin/bookings/B-JUNIOR-OWN", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        issueNote: "Documented paint chip before coating.",
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: validIssueType }],
+      },
+    });
+    const wrongPin = await request("/api/admin/bookings/B-JUNIOR-OWN", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        issueNote: "Documented paint chip before coating.",
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: validIssueType }],
+        specialPin: "000000",
+      },
+    });
+    const adminPin = await request("/api/admin/bookings/B-JUNIOR-OWN", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        issueNote: "Documented paint chip before coating.",
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: validIssueType }],
+        specialPin: "123456",
+      },
+    });
+
+    expect(missingPin.status).toBe(401);
+    expect(wrongPin.status).toBe(401);
+    expect(adminPin.status).toBe(401);
+    expect(bookings[0].issueNote || "").toBe("");
+
+    const response = await request("/api/admin/bookings/B-JUNIOR-OWN", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        issueNote: "Documented paint chip before coating.",
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: validIssueType }],
+        specialPin: "654321",
+        auditUser: "admin@example.com",
+        role: "Admin",
+        userType: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      issueNote: "Documented paint chip before coating.",
+      issueTypes: [validIssueType],
+      issueMarkers: [{ id: 1, x: 42, y: 58, issueType: validIssueType }],
+    });
+    expect(auditLogs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: "detailer2@example.com",
+        action: "Updated booking",
+        targetId: "B-JUNIOR-OWN",
+      }),
+    ]));
+  });
+
+  test("Junior Detailer cannot mutate another detailer's tracking, warranty, or completion even with forged identity fields", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-OTHER",
+        assigned: "Detailer Three",
+        assignedDetailerId: "STF-3",
+        status: "In Progress",
+        issueNote: "Existing issue.",
+        issueTypes: [validIssueType],
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: validIssueType }],
+        warrantyCoveragePackage: validWarrantyCoverage,
+        warrantyChecklistItems: [validWarrantyItem],
+        warrantyAcknowledgement: {
+          dateLocation: "2099-12-31 / QC",
+          carModelYearColor: "Civic",
+          plateCsNumber: "ABC123",
+          serviceAvailed: "Ceramic Coating",
+          clientName: "Customer One",
+          clientSignature: "",
+        },
+      },
+    ]);
+    payments.push({
+      id: "PAY-JR-OTHER",
+      bookingId: "B-JUNIOR-OTHER",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      downPaymentStatus: "Paid",
+      finalPaymentStatus: "Paid",
+      status: "Paid",
+    });
+    const originalBooking = clone(bookings[0]);
+    const forgedFields = {
+      specialPin: "654321",
+      assignedDetailerId: "STF-2",
+      employeeId: "STF-2",
+      role: "Admin",
+      userType: "Admin",
+      actorRole: "Admin",
+      auditUser: "admin@example.com",
+      email: "detailer2@example.com",
+    };
+
+    const issueResponse = await request("/api/admin/bookings/B-JUNIOR-OTHER", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: { issueNote: "Forged junior note.", ...forgedFields },
+    });
+    const warrantyResponse = await request("/api/admin/bookings/B-JUNIOR-OTHER", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: { warrantyChecklist: "Forged warranty.", ...forgedFields },
+    });
+    const completionResponse = await request("/api/admin/bookings/B-JUNIOR-OTHER", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: { status: "Completed", ...forgedFields },
+    });
+
+    expect(issueResponse.status).toBe(403);
+    expect(warrantyResponse.status).toBe(403);
+    expect(completionResponse.status).toBe(403);
+    expect(bookings[0]).toEqual(originalBooking);
+    expect(auditLogs).toEqual([]);
+  });
+
+  test("Junior Detailer own warranty mutation validates canonical nested shape", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-WARRANTY",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "In Progress",
+        issueNote: "Existing issue.",
+        issueTypes: [validIssueType],
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: validIssueType }],
+      },
+    ]);
+    payments.push({
+      id: "PAY-JR-WARRANTY",
+      bookingId: "B-JUNIOR-WARRANTY",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      downPaymentStatus: "Paid",
+      finalPaymentStatus: "Paid",
+      status: "Paid",
+    });
+
+    const response = await request("/api/admin/bookings/B-JUNIOR-WARRANTY", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        warrantyChecklist: "Customer advised on aftercare.",
+        warrantyChecklistItems: [validWarrantyItem],
+        warrantyCoveragePackage: validWarrantyCoverage,
+        warrantyAcknowledgement: {
+          dateLocation: "2099-12-31 / QC",
+          carModelYearColor: "Civic",
+          plateCsNumber: "ABC123",
+          serviceAvailed: "Ceramic Coating",
+          clientName: "Customer One",
+          clientSignature: "",
+        },
+        specialPin: "654321",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(bookings[0]).toMatchObject({
+      warrantyChecklist: "Customer advised on aftercare.",
+      warrantyChecklistItems: [validWarrantyItem],
+      warrantyCoveragePackage: validWarrantyCoverage,
+      warrantyAcknowledgement: expect.objectContaining({
+        dateLocation: "2099-12-31 / QC",
+        clientName: "Customer One",
+      }),
+    });
+  });
+
+  test.each([
+    ["issueNote object", { issueNote: { text: "bad" } }, /Issue note must be text/],
+    ["issueTypes object", { issueTypes: { value: validIssueType } }, /Issue types must be an array/],
+    ["issueTypes malformed item", { issueTypes: [{ value: validIssueType }] }, /Issue types must contain text values only/],
+    ["issueMarkers string", { issueMarkers: "bad-marker" }, /Issue markers must be an array/],
+    ["issueMarker malformed coordinate", { issueMarkers: [{ id: 1, x: 500, y: 20, issueType: validIssueType }] }, /coordinates/],
+    ["warranty item invalid shape", { warrantyChecklistItems: [{ id: "paint", label: "Paint", done: true, doneBy: "", notes: "" }] }, /Unsupported warranty checklist item/],
+    ["warranty coverage invalid", { warrantyCoveragePackage: "Standard Warranty" }, /Unsupported warranty coverage/],
+    ["warranty acknowledgement invalid shape", { warrantyAcknowledgement: { dateLocation: "QC", extra: "bad" } }, /unsupported field/],
+    ["warrantyReleased string", { warrantyReleased: "yes" }, /Warranty release must be true or false/],
+    ["warrantyReleasedAt invalid", { warrantyReleasedAt: "not-a-date" }, /valid date/],
+    ["warrantyQrCode forged", { warrantyQrCode: "FORGED" }, /Warranty QR code cannot be updated/],
+    ["invalid tracking status", { status: "Banana" }, /Unsupported booking status/],
+  ])("Junior Detailer malformed tracking payload rejects %s", async (_label, patch, messagePattern) => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-VALIDATION",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "Scheduled",
+      },
+    ]);
+
+    const response = await request("/api/admin/bookings/B-JUNIOR-VALIDATION", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: { ...patch, specialPin: "654321" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toMatch(messagePattern);
+  });
+
+  test("Junior tracking payload cannot smuggle Booking-module field changes", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-PROTECTED",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "Scheduled",
+      },
+    ]);
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-JUNIOR-PROTECTED", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        issueNote: "Valid issue note.",
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: validIssueType }],
+        customer: "Forged Customer",
+        service: "Forged Service",
+        specialPin: "654321",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Service Tracking updates cannot modify Booking-module fields.");
+    expect(response.body.fields).toEqual(expect.arrayContaining(["customer", "service"]));
+    expect(bookings[0]).toEqual(originalBooking);
+  });
+
+  test("Bookings reassignment removes Junior A tracking and My Work access while granting Junior B access", async () => {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-JUNIOR-REASSIGN",
+        assigned: "Detailer Two",
+        assignedDetailerId: "STF-2",
+        status: "Scheduled",
+        issueNote: "Owned by Junior A.",
+      },
+    ]);
+
+    const reassignResponse = await request("/api/admin/bookings/B-JUNIOR-REASSIGN", {
+      method: "PUT",
+      token: auth(secondDetailerUser),
+      body: {
+        ...bookings[0],
+        assigned: "Detailer Three",
+      },
+    });
+    expect(reassignResponse.status).toBe(200);
+    expect(bookings[0]).toMatchObject({ assigned: "Detailer Three", assignedDetailerId: "STF-3" });
+
+    const juniorATracking = await request("/api/tracking/B-JUNIOR-REASSIGN", { token: auth(secondDetailerUser) });
+    const juniorBTracking = await request("/api/tracking/B-JUNIOR-REASSIGN", { token: auth(thirdDetailerUser) });
+    const juniorAMyWork = await request("/api/admin/my-work?employeeId=STF-3&role=Admin", { token: auth(secondDetailerUser) });
+    const juniorBMyWork = await request("/api/admin/my-work?employeeId=STF-2&role=Admin", { token: auth(thirdDetailerUser) });
+
+    expect(juniorATracking.status).toBe(403);
+    expect(juniorBTracking.status).toBe(200);
+    expect(juniorAMyWork.status).toBe(200);
+    expect(juniorBMyWork.status).toBe(200);
+    expect(juniorAMyWork.body.assignedWork.map((item) => item.id)).toEqual([]);
+    expect(juniorBMyWork.body.assignedWork.map((item) => item.id)).toEqual(["B-JUNIOR-REASSIGN"]);
   });
 });
 

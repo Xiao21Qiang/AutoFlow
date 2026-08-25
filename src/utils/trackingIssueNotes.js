@@ -46,13 +46,29 @@ export function hasMeaningfulIssueNotes(source = {}) {
   );
 }
 
-export function isAssignedStaffForBooking(booking = {}, user = {}) {
+function isActiveDetailerUser(user = {}) {
+  const status = normalizeComparable(user?.status || (user?.deleted ? "deleted" : "active"));
+  const role = normalizeComparable(user?.role);
+  return !["inactive", "disabled", "deactivated", "deleted"].includes(status) && ["junior detailer", "senior detailer"].includes(role);
+}
+
+function getStableUserId(user = {}) {
+  return String(user?.id || user?._id || "").trim();
+}
+
+function getDetailerIdentityValues(user = {}) {
+  return [user?.id, user?._id, user?.email, user?.name]
+    .map(normalizeComparable)
+    .filter(Boolean);
+}
+
+export function isAssignedStaffForBooking(booking = {}, user = {}, users = []) {
   const safeBooking = booking || {};
   const safeUser = user || {};
   const assignedId = String(
     safeBooking.assignedDetailerId || safeBooking.assignedUserId || safeBooking.assignedStaffId || ""
   ).trim();
-  const userId = String(safeUser.id || safeUser._id || "").trim();
+  const userId = getStableUserId(safeUser);
   if (assignedId) return Boolean(userId && assignedId === userId);
 
   const bookingAssignedValues = [
@@ -64,6 +80,15 @@ export function isAssignedStaffForBooking(booking = {}, user = {}) {
   ]
     .map(normalizeComparable)
     .filter(Boolean);
+
+  if (Array.isArray(users) && users.length && bookingAssignedValues.length) {
+    const matches = users.filter((candidate) => {
+      if (!isActiveDetailerUser(candidate)) return false;
+      const identityValues = getDetailerIdentityValues(candidate);
+      return bookingAssignedValues.some((assignedValue) => identityValues.includes(assignedValue));
+    });
+    return matches.length === 1 && getStableUserId(matches[0]) === userId;
+  }
 
   const userValues = [
     safeUser.id,
@@ -87,22 +112,22 @@ export function canManageTrackingAction(user = {}, actionKey = "") {
   );
 }
 
-export function canEditIssueNotes({ booking = {}, currentUser = {}, allowAdmin = false } = {}) {
+export function canEditIssueNotes({ booking = {}, currentUser = {}, allowAdmin = false, users = [] } = {}) {
   const safeBooking = booking || {};
   if (!isScheduledStatus(safeBooking.status)) return false;
   if (allowAdmin && canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes)) return true;
-  return isAssignedStaffForBooking(safeBooking, currentUser);
+  return isAssignedStaffForBooking(safeBooking, currentUser, users);
 }
 
-export function getIssueNotesLockedMessage({ booking = {}, currentUser = {}, allowAdmin = false } = {}) {
+export function getIssueNotesLockedMessage({ booking = {}, currentUser = {}, allowAdmin = false, users = [] } = {}) {
   const safeBooking = booking || {};
   if (!isScheduledStatus(safeBooking.status)) {
     return "Issue notes can only be edited while the booking is Scheduled.";
   }
-  if (!allowAdmin && !isAssignedStaffForBooking(safeBooking, currentUser)) {
+  if (!allowAdmin && !isAssignedStaffForBooking(safeBooking, currentUser, users)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
-  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes) && !isAssignedStaffForBooking(safeBooking, currentUser)) {
+  if (allowAdmin && !canManageTrackingAction(currentUser, ACTION_KEYS.trackingUpdateIssueNotes) && !isAssignedStaffForBooking(safeBooking, currentUser, users)) {
     return "Only the assigned staff can edit issue notes for this booking.";
   }
   return "";

@@ -1054,7 +1054,48 @@ function buildTrackingIssueNoteAiInput(body = {}) {
   return hasContent ? payload : null;
 }
 
+function validateTrackingIssueNoteAiRequestBody(body = {}) {
+  if (!isPlainObject(body)) {
+    throwValidationError("Issue note context must be an object.");
+  }
+  for (const field of ["bookingId", "id", "problemLocation", "serviceType", "service", "vehicleDetails", "vehicle", "currentTrackingStatus", "status", "currentIssueNote", "issueNote", "notes"]) {
+    if (Object.prototype.hasOwnProperty.call(body, field) && typeof body[field] !== "string") {
+      throwValidationError(`${field} must be text.`);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "issueTypes")) {
+    if (!Array.isArray(body.issueTypes)) throwValidationError("Issue types must be an array.");
+    if (body.issueTypes.length > 6) throwValidationError("Issue types must not include more than 6 items.");
+    body.issueTypes.forEach((issueType) => {
+      if (typeof issueType !== "string") throwValidationError("Issue types must contain text values only.");
+      if (issueType.trim().length > TRACKING_TEXT_LIMITS.issueType) {
+        throwValidationError(`Issue type must not exceed ${TRACKING_TEXT_LIMITS.issueType} characters.`);
+      }
+    });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "issueMarkers")) {
+    if (!Array.isArray(body.issueMarkers)) throwValidationError("Issue markers must be an array.");
+    if (body.issueMarkers.length > 6) throwValidationError("Issue markers must not include more than 6 markers.");
+    body.issueMarkers.forEach((marker) => {
+      if (!isPlainObject(marker)) throwValidationError("Each issue marker must be an object.");
+      assertNoUnexpectedKeys(marker, TRACKING_MARKER_ALLOWED_KEYS, "Issue marker");
+      const id = Number(marker.id);
+      const x = Number(marker.x);
+      const y = Number(marker.y);
+      if (!Number.isInteger(id) || id < 1 || id > 99) throwValidationError("Issue marker id must be a positive integer.");
+      if (!Number.isFinite(x) || x < 0 || x > 100 || !Number.isFinite(y) || y < 0 || y > 100) {
+        throwValidationError("Issue marker coordinates must be numbers from 0 to 100.");
+      }
+      if (typeof marker.issueType !== "string") throwValidationError("Issue marker issue type must be text.");
+      if (marker.issueType.trim().length > TRACKING_TEXT_LIMITS.issueType) {
+        throwValidationError(`Issue marker issue type must not exceed ${TRACKING_TEXT_LIMITS.issueType} characters.`);
+      }
+    });
+  }
+}
+
 async function buildAuthorizedTrackingIssueNoteAiInput(req) {
+  validateTrackingIssueNoteAiRequestBody(req.body || {});
   const clientInput = buildTrackingIssueNoteAiInput(req.body);
   if (!clientInput) return null;
 
@@ -4796,6 +4837,93 @@ const WARRANTY_FIELDS = [
   "warrantyQrCode",
 ];
 
+const TRACKING_ISSUE_TYPES = Object.freeze([
+  "LS = Light Swirls",
+  "LS2 = Large Swirls",
+  "DS = Deep Scratches",
+  "DSP = Deep Scratches all panels",
+  "WS = Water Spot",
+  "AR = Acid Rain",
+  "OX = Oxidation",
+  "CF = Clearcoat Failure",
+  "PC = Paint Crack/Chip",
+  "RP = Rough Paint",
+  "OV = Over Spray",
+  "D = Dents/Dings",
+  "LM = Loose Moldings",
+]);
+const TRACKING_ISSUE_TYPE_SET = new Set(TRACKING_ISSUE_TYPES);
+const TRACKING_WARRANTY_COVERAGE_OPTIONS = Object.freeze([
+  "3 Years Marine Ceramic",
+  "5 Years APT Graphene",
+  "7 Years Multilayer",
+]);
+const TRACKING_WARRANTY_COVERAGE_SET = new Set(TRACKING_WARRANTY_COVERAGE_OPTIONS);
+const TRACKING_WARRANTY_CHECKLIST_ITEMS = Object.freeze([
+  ["remove-accessories", "Remove detachable accessories / plate number"],
+  ["initial-wash", "Initial car wash"],
+  ["clay-bar", "Clay bar"],
+  ["vacuum-interior", "Car vacuum interior"],
+  ["tape-trim", "Tape matte finish and chrome parts"],
+  ["acid-rain-removal", "Acid rain / water mark removal"],
+  ["detail-edges", "Remove dirt from windows, handles, and lights"],
+  ["buff-polish", "Machine buff / compounding / polishing"],
+  ["final-wash", "Final wash / drying"],
+  ["precoat", "Apply precoat"],
+  ["coating", "Apply Graphene or Kisho coating"],
+  ["top-coat", "Apply detailer / top coat"],
+  ["tire-vinyl", "Tire black / vinyl dressing"],
+  ["bac-to-zero", "Bac to Zero if availed"],
+  ["infrared-curing", "Infrared curing if applicable"],
+  ["reinstall-accessories", "Re-install accessories / plate number"],
+  ["client-inspection", "Final inspection with client"],
+]);
+const TRACKING_WARRANTY_CHECKLIST_LABELS = new Map(TRACKING_WARRANTY_CHECKLIST_ITEMS);
+const TRACKING_WARRANTY_CHECKLIST_IDS = new Set(TRACKING_WARRANTY_CHECKLIST_ITEMS.map(([id]) => id));
+const TRACKING_MARKER_ALLOWED_KEYS = new Set(["id", "x", "y", "issueType"]);
+const TRACKING_WARRANTY_ITEM_ALLOWED_KEYS = new Set(["id", "label", "done", "doneBy", "notes"]);
+const TRACKING_WARRANTY_ACK_ALLOWED_KEYS = new Set([
+  "dateLocation",
+  "carModelYearColor",
+  "plateCsNumber",
+  "serviceAvailed",
+  "clientName",
+  "clientSignature",
+]);
+const TRACKING_ALLOWED_FIELDS = new Set([
+  "status",
+  "issueNote",
+  "issueTypes",
+  "issueMarkers",
+  ...WARRANTY_FIELDS,
+]);
+const TRACKING_REQUEST_META_FIELDS = new Set([
+  "specialPin",
+  "specialPassword",
+  "specialCredential",
+  "auditUser",
+  "actor",
+  "actorRole",
+  "actorUserType",
+  "role",
+  "userType",
+  "employeeRole",
+  "scope",
+  "email",
+  "employeeId",
+  "assignedDetailerId",
+  "assignedUserId",
+  "assignedStaffId",
+]);
+const TRACKING_TEXT_LIMITS = Object.freeze({
+  issueNote: 2000,
+  warrantyChecklist: 2000,
+  issueType: 80,
+  warrantyChecklistText: 240,
+  warrantyAcknowledgementText: 240,
+  warrantyReleasedAt: 80,
+});
+
 function stableStringify(value) {
   if (value === undefined || value === null) return "";
   if (value instanceof Date) return value.toISOString();
@@ -4805,6 +4933,207 @@ function stableStringify(value) {
   } catch (_error) {
     return String(value);
   }
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && !(value instanceof Date));
+}
+
+function assertNoUnexpectedKeys(value = {}, allowedKeys = new Set(), label = "Object") {
+  const unexpected = Object.keys(value || {}).filter((key) => !allowedKeys.has(key));
+  if (unexpected.length) {
+    throwValidationError(`${label} contains unsupported field: ${unexpected[0]}.`);
+  }
+}
+
+function validateTrackingTextField(value, fieldLabel, maxLength) {
+  if (typeof value !== "string") {
+    throwValidationError(`${fieldLabel} must be text.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throwValidationError(`${fieldLabel} must not exceed ${maxLength} characters.`);
+  }
+  return trimmed;
+}
+
+function validateTrackingIssueTypes(value) {
+  if (!Array.isArray(value)) {
+    throwValidationError("Issue types must be an array.");
+  }
+  if (value.length > 6) {
+    throwValidationError("Issue types must not include more than 6 items.");
+  }
+  const seen = new Set();
+  return value.map((item) => {
+    if (typeof item !== "string") throwValidationError("Issue types must contain text values only.");
+    const issueType = validateTrackingTextField(item, "Issue type", TRACKING_TEXT_LIMITS.issueType);
+    if (issueType && !TRACKING_ISSUE_TYPE_SET.has(issueType)) {
+      throwValidationError(`Unsupported issue type: ${issueType}.`);
+    }
+    if (issueType) {
+      if (seen.has(issueType)) return "";
+      seen.add(issueType);
+    }
+    return issueType;
+  }).filter(Boolean);
+}
+
+function validateTrackingIssueMarkers(value) {
+  if (!Array.isArray(value)) {
+    throwValidationError("Issue markers must be an array.");
+  }
+  if (value.length > 6) {
+    throwValidationError("Issue markers must not include more than 6 markers.");
+  }
+  const seenIds = new Set();
+  return value.map((marker, index) => {
+    if (!isPlainObject(marker)) throwValidationError("Each issue marker must be an object.");
+    assertNoUnexpectedKeys(marker, TRACKING_MARKER_ALLOWED_KEYS, "Issue marker");
+    const id = Number(marker.id ?? index + 1);
+    const x = Number(marker.x);
+    const y = Number(marker.y);
+    if (!Number.isInteger(id) || id < 1 || id > 99) {
+      throwValidationError("Issue marker id must be a positive integer.");
+    }
+    if (seenIds.has(id)) {
+      throwValidationError("Issue marker ids must be unique.");
+    }
+    seenIds.add(id);
+    if (!Number.isFinite(x) || x < 0 || x > 100 || !Number.isFinite(y) || y < 0 || y > 100) {
+      throwValidationError("Issue marker coordinates must be numbers from 0 to 100.");
+    }
+    const issueType = validateTrackingTextField(marker.issueType ?? "", "Issue marker issue type", TRACKING_TEXT_LIMITS.issueType);
+    if (issueType && !TRACKING_ISSUE_TYPE_SET.has(issueType)) {
+      throwValidationError(`Unsupported issue marker issue type: ${issueType}.`);
+    }
+    return { id, x, y, issueType };
+  });
+}
+
+function validateWarrantyChecklistItems(value) {
+  if (!Array.isArray(value)) {
+    throwValidationError("Warranty checklist items must be an array.");
+  }
+  if (value.length > TRACKING_WARRANTY_CHECKLIST_ITEMS.length) {
+    throwValidationError("Warranty checklist has too many items.");
+  }
+  const seenIds = new Set();
+  return value.map((item) => {
+    if (!isPlainObject(item)) throwValidationError("Each warranty checklist item must be an object.");
+    assertNoUnexpectedKeys(item, TRACKING_WARRANTY_ITEM_ALLOWED_KEYS, "Warranty checklist item");
+    const id = validateTrackingTextField(item.id ?? "", "Warranty checklist item id", 80);
+    if (!TRACKING_WARRANTY_CHECKLIST_IDS.has(id)) {
+      throwValidationError(`Unsupported warranty checklist item: ${id || "blank"}.`);
+    }
+    if (seenIds.has(id)) {
+      throwValidationError("Warranty checklist item ids must be unique.");
+    }
+    seenIds.add(id);
+    if (typeof item.done !== "boolean") {
+      throwValidationError("Warranty checklist item done must be true or false.");
+    }
+    const expectedLabel = TRACKING_WARRANTY_CHECKLIST_LABELS.get(id);
+    const label = validateTrackingTextField(item.label ?? expectedLabel, "Warranty checklist item label", TRACKING_TEXT_LIMITS.warrantyChecklistText);
+    if (label !== expectedLabel) {
+      throwValidationError(`Warranty checklist item label does not match ${id}.`);
+    }
+    return {
+      id,
+      label,
+      done: item.done,
+      doneBy: validateTrackingTextField(item.doneBy ?? "", "Warranty checklist done by", TRACKING_TEXT_LIMITS.warrantyChecklistText),
+      notes: validateTrackingTextField(item.notes ?? "", "Warranty checklist notes", TRACKING_TEXT_LIMITS.warrantyChecklistText),
+    };
+  });
+}
+
+function validateWarrantyAcknowledgement(value, booking = {}) {
+  if (!isPlainObject(value)) {
+    throwValidationError("Warranty acknowledgement must be an object.");
+  }
+  assertNoUnexpectedKeys(value, TRACKING_WARRANTY_ACK_ALLOWED_KEYS, "Warranty acknowledgement");
+  const previous = isPlainObject(booking.warrantyAcknowledgement) ? booking.warrantyAcknowledgement : {};
+  const readonlyExpected = {
+    carModelYearColor: String(booking.vehicle || "").trim(),
+    plateCsNumber: String(booking.plate || "").trim(),
+    serviceAvailed: String(booking.service || "").trim(),
+    clientName: String(booking.customer || "").trim(),
+    clientSignature: String(previous.clientSignature || "").trim(),
+  };
+  const normalized = {
+    dateLocation: validateTrackingTextField(value.dateLocation ?? "", "Warranty acknowledgement date/location", TRACKING_TEXT_LIMITS.warrantyAcknowledgementText),
+  };
+  for (const [field, expected] of Object.entries(readonlyExpected)) {
+    const submitted = validateTrackingTextField(value[field] ?? expected, `Warranty acknowledgement ${field}`, TRACKING_TEXT_LIMITS.warrantyAcknowledgementText);
+    if (submitted && expected && submitted !== expected) {
+      throwValidationError(`Warranty acknowledgement ${field} is read-only.`);
+    }
+    if (field === "clientSignature" && submitted !== expected) {
+      throwValidationError("Warranty acknowledgement clientSignature is read-only.");
+    }
+    normalized[field] = expected || submitted;
+  }
+  return normalized;
+}
+
+function validateTrackingMutationPayload(body = {}, previousBooking = {}) {
+  if (hasChangedBodyField(previousBooking, body, "issueNote")) {
+    body.issueNote = validateTrackingTextField(body.issueNote ?? "", "Issue note", TRACKING_TEXT_LIMITS.issueNote);
+  }
+  if (hasChangedBodyField(previousBooking, body, "issueMarkers")) {
+    body.issueMarkers = validateTrackingIssueMarkers(body.issueMarkers);
+    body.issueTypes = body.issueMarkers.map((marker) => marker.issueType).filter(Boolean);
+  } else if (hasChangedBodyField(previousBooking, body, "issueTypes")) {
+    body.issueTypes = validateTrackingIssueTypes(body.issueTypes);
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyChecklist")) {
+    body.warrantyChecklist = validateTrackingTextField(body.warrantyChecklist ?? "", "Warranty notes", TRACKING_TEXT_LIMITS.warrantyChecklist);
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyChecklistItems")) {
+    body.warrantyChecklistItems = validateWarrantyChecklistItems(body.warrantyChecklistItems);
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyCoveragePackage")) {
+    const coverage = validateTrackingTextField(body.warrantyCoveragePackage ?? "", "Warranty coverage", 120);
+    if (!TRACKING_WARRANTY_COVERAGE_SET.has(coverage)) {
+      throwValidationError(`Unsupported warranty coverage: ${coverage || "blank"}.`);
+    }
+    body.warrantyCoveragePackage = coverage;
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyAcknowledgement")) {
+    body.warrantyAcknowledgement = validateWarrantyAcknowledgement(body.warrantyAcknowledgement, previousBooking);
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyReleased") && typeof body.warrantyReleased !== "boolean") {
+    throwValidationError("Warranty release must be true or false.");
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyReleasedAt")) {
+    const releasedAt = validateTrackingTextField(body.warrantyReleasedAt ?? "", "Warranty released at", TRACKING_TEXT_LIMITS.warrantyReleasedAt);
+    if (releasedAt && Number.isNaN(new Date(releasedAt).getTime())) {
+      throwValidationError("Warranty released at must be a valid date/time.");
+    }
+    body.warrantyReleasedAt = releasedAt;
+  }
+  if (hasChangedBodyField(previousBooking, body, "warrantyQrCode")) {
+    throwValidationError("Warranty QR code cannot be updated through Service Tracking.");
+  }
+}
+
+function getTrackingProtectedFieldChanges(previousBooking = {}, body = {}) {
+  if (!body || typeof body !== "object") return [];
+  return Object.keys(body).filter((field) => {
+    if (TRACKING_ALLOWED_FIELDS.has(field) || TRACKING_REQUEST_META_FIELDS.has(field)) return false;
+    return hasChangedBodyField(previousBooking, body, field);
+  });
+}
+
+function getTrackingCredentialActionKey(fields = [], nextBody = {}, previousBooking = {}) {
+  const previousStatus = normalizeWorkflowStatus(previousBooking.status || "Scheduled", "Scheduled");
+  const nextStatus = normalizeWorkflowStatus(nextBody.status || previousBooking.status, previousStatus);
+  if (fields.includes("status") && nextStatus === "Completed") return ACTION_KEYS.trackingComplete;
+  if (fields.some((field) => WARRANTY_FIELDS.includes(field)) || (fields.includes("status") && nextStatus === "In Progress")) {
+    return ACTION_KEYS.trackingUpdateWarranty;
+  }
+  return ACTION_KEYS.trackingUpdateIssueNotes;
 }
 
 function hasWarrantyFieldChanges(previousBooking = {}, nextBody = {}) {
@@ -4893,9 +5222,16 @@ function getSalesManagerTrackingMutationFields(previousBooking = {}, nextBody = 
 }
 
 function getJuniorDetailerOutOfScopeTrackingFields(previousBooking = {}, nextBody = {}) {
-  return SALES_MANAGER_TRACKING_READ_ONLY_FIELDS
-    .filter((field) => field !== "assigned")
-    .filter((field) => hasChangedBodyField(previousBooking, nextBody, field));
+  const changedFields = [];
+  if (isTrackingLifecycleStatusChange(previousBooking, nextBody)) {
+    changedFields.push("status");
+  }
+  for (const field of SALES_MANAGER_TRACKING_READ_ONLY_FIELDS) {
+    if (field !== "assigned" && hasChangedBodyField(previousBooking, nextBody, field)) {
+      changedFields.push(field);
+    }
+  }
+  return changedFields;
 }
 
 function hasRequiredWarrantyDetails(booking = {}) {
@@ -7879,6 +8215,22 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
           fields: trackingMutationFields,
         });
         return;
+      }
+      if (trackingMutationFields.length) {
+        const protectedFieldChanges = getTrackingProtectedFieldChanges(existingBookingObject, req.body || {});
+        if (protectedFieldChanges.length) {
+          res.status(403).json({
+            message: "Service Tracking updates cannot modify Booking-module fields.",
+            fields: protectedFieldChanges,
+          });
+          return;
+        }
+        validateTrackingMutationPayload(req.body || {}, existingBookingObject);
+        await requireSpecialCredentialForRequest(req, {
+          mode: "pin",
+          scope: "staff",
+          actionKey: getTrackingCredentialActionKey(trackingMutationFields, req.body || {}, existingBookingObject),
+        });
       }
     } else if (["sales manager", "sales associate", "inventory clerk"].includes(staffRoleForBookingUpdate)) {
       const trackingMutationFields = getSalesManagerTrackingMutationFields(existingBookingObject, req.body || {});
