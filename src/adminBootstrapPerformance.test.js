@@ -458,6 +458,26 @@ describe("admin bootstrap performance structure", () => {
     "rewards",
     "reward-history",
     "detailer-management",
+  ])("Junior Detailer cannot export unauthorized %s reports directly", async (reportType) => {
+    const juniorToken = auth({ id: "JR-1", email: "junior@example.com", userType: "Staff", role: "Junior Detailer" });
+    const response = await request(`/api/admin/reports/${reportType}/csv?role=Admin&userType=Admin&email=admin@example.com`, { token: juniorToken });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("You do not have permission to export this report.");
+  });
+
+  test.each([
+    "financial",
+    "analytics",
+    "stock",
+    "payments",
+    "services",
+    "audit-logs",
+    "reviews",
+    "promotions",
+    "rewards",
+    "reward-history",
+    "detailer-management",
   ])("Senior Detailer cannot export unauthorized %s reports directly", async (reportType) => {
     const seniorToken = auth({ id: "SD-1", email: "senior@example.com", userType: "Staff", role: "Senior Detailer" });
     const response = await request(`/api/admin/reports/${reportType}/csv`, { token: seniorToken });

@@ -10129,6 +10129,10 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     const requestedPhone = phoneWasSubmitted
       ? String(req.body.phone || "").trim().replace(/\D/g, "").slice(0, 11)
       : String(existingUser.phone || "").trim();
+    if (phoneWasSubmitted && !requestedPhone) {
+      res.status(400).json({ message: "Contact number is required." });
+      return;
+    }
     if (requestedPhone && !/^09\d{9}$/.test(requestedPhone)) {
       res.status(400).json({ message: "Please enter a valid phone number." });
       return;
@@ -10140,7 +10144,9 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       "role",
       "status",
       "password",
+      "passwordHash",
       "cars",
+      "isAdmin",
       "isActive",
       "active",
       "deleted",
@@ -10155,6 +10161,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       "adminSpecialPasswordHash",
       "staffSpecialPinHash",
       "staffSpecialPasswordHash",
+      "securitySettings",
     ];
     const hasProtectedSelfProfilePayload = protectedSelfProfileFields.some((key) =>
       Object.prototype.hasOwnProperty.call(req.body || {}, key)

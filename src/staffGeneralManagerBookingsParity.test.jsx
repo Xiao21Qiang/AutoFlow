@@ -5,6 +5,7 @@ import { buildReportDownloadPath, downloadAuthenticatedFile } from "./utils/down
 import { apiRequest } from "./services/api";
 
 const mockUseAdminData = jest.fn();
+const mockNavigate = jest.fn();
 
 jest.mock("./context/AdminDataContext", () => ({
   AdminDataProvider: ({ children }) => <>{children}</>,
@@ -12,7 +13,7 @@ jest.mock("./context/AdminDataContext", () => ({
 }));
 
 jest.mock("react-router-dom", () => ({
-  useNavigate: () => jest.fn(),
+  useNavigate: () => mockNavigate,
 }), { virtual: true });
 
 jest.mock("./utils/reauth", () => ({
@@ -174,6 +175,11 @@ function setContext(overrides = {}) {
   });
 }
 
+function createTestToken() {
+  const payload = window.btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `header.${payload}.signature`;
+}
+
 beforeEach(() => {
   localStorage.clear();
   validateSpecialCredential.mockReset();
@@ -184,11 +190,12 @@ beforeEach(() => {
   downloadAuthenticatedFile.mockResolvedValue(undefined);
   apiRequest.mockReset();
   apiRequest.mockResolvedValue({ assignedWork: [], juniorDetailerWork: [], commissionAudit: [] });
+  mockNavigate.mockReset();
   setContext();
 });
 
 function renderStaffMain(session = generalManager) {
-  localStorage.setItem("token", "test-token");
+  localStorage.setItem("token", createTestToken());
   localStorage.setItem("user", JSON.stringify(session));
   render(<StaffMain session={session} />);
 }
@@ -279,6 +286,38 @@ describe("Senior Detailer navigation and My Work compatibility", () => {
     expect(screen.queryByText("B-OTHER")).not.toBeInTheDocument();
     expect(screen.queryByText("Other Customer")).not.toBeInTheDocument();
     expect(apiRequest).toHaveBeenCalledWith("/api/admin/my-work");
+  });
+
+  test("Junior Detailer sidebar shows exactly approved modules and logout clears session", async () => {
+    renderStaffMain(juniorDetailer);
+
+    for (const label of ["My Work", "Bookings", "Service Tracking", "Profile", "Logout"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    for (const label of [
+      "Dashboard",
+      "Analytics",
+      "Audit Logs",
+      "Services",
+      "Stock Monitoring",
+      "Payment Tracking",
+      "Financial Tracker",
+      "Engagement",
+      "User Management",
+      "Detailer Management",
+    ]) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
+
+    expect(localStorage.getItem("token")).toEqual(expect.any(String));
+    fireEvent.click(screen.getByRole("button", { name: /Logout/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem("token")).toBeNull();
+      expect(localStorage.getItem("user")).toBeNull();
+      expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+    });
   });
 });
 

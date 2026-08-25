@@ -839,10 +839,73 @@ describe("Edit User route validation", () => {
     }));
   });
 
+  test("Junior Detailer can update own allowed profile fields and refresh session without role drift", async () => {
+    const response = await request("/api/admin/users/STF-1?refreshSession=1", {
+      token: auth(staffUser),
+      body: {
+        first: "  Jules  ",
+        last: " Detailer ",
+        email: "Jules.Detailer@Example.com",
+        phone: "0918-111-2222",
+        auditUser: "admin@example.com",
+        actor: "Admin",
+        role: "Admin",
+        userType: "Admin",
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Profile updates cannot change protected account fields.");
+    expect(__testModels.User.findOneAndUpdate).not.toHaveBeenCalled();
+
+    const allowedResponse = await request("/api/admin/users/STF-1?refreshSession=1", {
+      token: auth(staffUser),
+      body: {
+        first: "  Jules  ",
+        last: " Detailer ",
+        email: "Jules.Detailer@Example.com",
+        phone: "0918-111-2222",
+        auditUser: "admin@example.com",
+        actor: "Admin",
+      },
+    });
+
+    expect(allowedResponse.status).toBe(200);
+    expect(allowedResponse.body.token).toEqual(expect.any(String));
+    expect(allowedResponse.body.user).toEqual(expect.objectContaining({
+      id: "STF-1",
+      first: "Jules",
+      last: "Detailer",
+      name: "Jules Detailer",
+      email: "jules.detailer@example.com",
+      phone: "09181112222",
+      userType: "staff",
+      role: "junior detailer",
+    }));
+    expect(__testModels.User.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(__testModels.User.findOneAndUpdate.mock.calls[0][1]).toEqual({
+      first: "Jules",
+      last: "Detailer",
+      name: "Jules Detailer",
+      email: "jules.detailer@example.com",
+      phone: "09181112222",
+    });
+    expect(successAuditLogs()[0]).toEqual(expect.objectContaining({
+      userId: "casey.staff@example.com",
+      targetId: "STF-1",
+      meta: expect.objectContaining({
+        actorId: "STF-1",
+        actorRole: "junior detailer",
+        result: "allowed",
+      }),
+    }));
+  });
+
   test.each([
     ["blank first name", { first: "   " }, 400, "First name is required."],
     ["whitespace-only last name", { last: "   " }, 400, "Last name is required."],
     ["malformed email", { email: "sales@" }, 400, "Please enter a valid email address."],
+    ["blank phone", { phone: "   " }, 400, "Contact number is required."],
     ["duplicate email", { email: "other.staff@example.com" }, 409, "That email is already registered."],
     ["duplicate phone", { phone: "09999999999" }, 409, "That contact number is already registered."],
   ])("Sales Associate profile rejects %s before mutation", async (_label, override, status, message) => {
@@ -874,6 +937,8 @@ describe("Edit User route validation", () => {
     ["role escalation", { role: "Admin", userType: "Admin", employeeRole: "General Manager" }, "Profile updates cannot change protected account fields."],
     ["status change", { status: "deactivated", isActive: false }, "Profile updates cannot change protected account fields."],
     ["password injection", { password: "NewPass1!" }, "Profile updates cannot change protected account fields."],
+    ["hash injection", { passwordHash: "forged-hash", isAdmin: true }, "Profile updates cannot change protected account fields."],
+    ["security settings injection", { securitySettings: { staffSpecialPinHash: "forged" } }, "Profile updates cannot change protected account fields."],
   ])("Sales Associate profile rejects crafted %s payload", async (_label, protectedPayload, message) => {
     resetData([salesAssociateUser]);
     const response = await request("/api/admin/users/SA-1?refreshSession=1", {

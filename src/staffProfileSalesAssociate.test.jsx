@@ -42,6 +42,18 @@ const generalManager = {
   status: "active",
 };
 
+const juniorDetailer = {
+  id: "JR-1",
+  email: "junior@example.com",
+  name: "Junior Detailer",
+  first: "Junior",
+  last: "Detailer",
+  phone: "09170000003",
+  userType: "Staff",
+  role: "Junior Detailer",
+  status: "active",
+};
+
 function createDeferred() {
   let resolve;
   let reject;
@@ -194,5 +206,39 @@ describe("Sales Associate Staff Profile parity", () => {
     expect(input("Edit phone")).toHaveValue("09170000002");
     expect(screen.queryByText("Required Down Payment")).not.toBeInTheDocument();
     expect(screen.queryByText("Security Controls")).not.toBeInTheDocument();
+  });
+
+  test("Junior Detailer uses the same Staff Profile edit flow without Admin-only controls", async () => {
+    mockUpdateProfile.mockResolvedValueOnce({
+      ...juniorDetailer,
+      first: "Jules",
+      last: "Detailer",
+      email: "jules@example.com",
+      phone: "09181112222",
+    });
+    renderProfile(juniorDetailer);
+    openEditAccount();
+
+    expect(input("Edit first name")).toHaveValue("Junior");
+    expect(input("Edit last name")).toHaveValue("Detailer");
+    expect(input("Edit email")).toHaveValue("junior@example.com");
+    expect(input("Edit phone")).toHaveValue("09170000003");
+    expect(screen.queryByText("Required Down Payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("Security Controls")).not.toBeInTheDocument();
+
+    fireEvent.change(input("Edit first name"), { target: { value: "  Jules  " } });
+    fireEvent.change(input("Edit email"), { target: { value: " Jules@Example.com " } });
+    fireEvent.change(input("Edit phone"), { target: { value: "0918-111-2222" } });
+    await saveChanges();
+
+    expect(mockUpdateProfile).toHaveBeenCalledWith({
+      first: "Jules",
+      last: "Detailer",
+      email: "jules@example.com",
+      phone: "09181112222",
+    });
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("role");
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("userType");
+    expect(mockUpdateProfile.mock.calls[0][0]).not.toHaveProperty("status");
   });
 });
