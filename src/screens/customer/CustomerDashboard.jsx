@@ -1,7 +1,7 @@
 import "../../styles/css/customer/customerDashboardStyle.css";
 import { useMemo } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
-import { getRecognizedRevenue, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
+import { getBookingDateTimeSortValue, getRecognizedRevenue, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -9,41 +9,36 @@ function formatDate(dateStr) {
   return d.toLocaleString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-export default function CustomerDashboard({ goTo }) {
-  const { bookings, payments, currentUser } = useAdminData();
-  const customerName = String(currentUser?.name || "").trim().toLowerCase();
-  const clientBookings = useMemo(
-    () => bookings.filter((booking) => String(booking.customer || "").trim().toLowerCase() === customerName),
-    [bookings, customerName]
-  );
-  const clientPayments = useMemo(
-    () => payments.filter((payment) => String(payment.customer || "").trim().toLowerCase() === customerName),
-    [payments, customerName]
-  );
+export function buildCustomerDashboardViewModel({ bookings = [], payments = [], todayKey = toAppDateKey() } = {}) {
+  const scopedBookings = Array.isArray(bookings) ? bookings : [];
+  const scopedPayments = Array.isArray(payments) ? payments : [];
 
-  const stats = useMemo(
-    () => ({
-      totalBookings: clientBookings.length,
-      inProgress: clientBookings.filter((booking) =>
+  return {
+    stats: {
+      totalBookings: scopedBookings.length,
+      inProgress: scopedBookings.filter((booking) =>
         normalizeBookingStatus(booking.status, "") === "In Progress"
       ).length,
-      totalPaid: clientPayments.reduce((sum, payment) => sum + getRecognizedRevenue(payment), 0),
-    }),
-    [clientBookings, clientPayments]
-  );
+      totalPaid: scopedPayments.reduce((sum, payment) => sum + getRecognizedRevenue(payment), 0),
+    },
+    upcomingBookings: [...scopedBookings]
+      .filter((booking) => isUpcomingBooking(booking, todayKey))
+      .sort((a, b) => getBookingDateTimeSortValue(a) - getBookingDateTimeSortValue(b))
+      .slice(0, 4)
+      .map((booking) => ({
+        id: booking.id,
+        title: `${booking.service} - ${booking.vehicle}`,
+        date: formatDate(booking.date),
+      })),
+  };
+}
 
-  const upcomingBookings = useMemo(
-    () =>
-      [...clientBookings]
-        .filter((booking) => isUpcomingBooking(booking, toAppDateKey()))
-        .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-        .slice(0, 4)
-        .map((booking) => ({
-          id: booking.id,
-          title: `${booking.service} - ${booking.vehicle}`,
-          date: formatDate(booking.date),
-        })),
-    [clientBookings]
+export default function CustomerDashboard({ goTo }) {
+  const { bookings, payments } = useAdminData();
+
+  const { stats, upcomingBookings } = useMemo(
+    () => buildCustomerDashboardViewModel({ bookings, payments }),
+    [bookings, payments]
   );
 
   return (

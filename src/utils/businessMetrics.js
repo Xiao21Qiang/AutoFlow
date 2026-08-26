@@ -106,3 +106,11 @@ export function isUpcomingBooking(booking = {}, todayKey = "") {
   if (status === "Completed" || status === "Cancelled") return false;
   return Boolean(booking.date && String(booking.date) >= todayKey);
 }
+
+export function getBookingDateTimeSortValue(booking = {}) {
+  const date = String(booking.date || "").trim();
+  const time = String(booking.time || "").trim();
+  const normalizedTime = /^\d{2}:\d{2}$/.test(time) ? time : "23:59";
+  const parsed = date ? new Date(`${date}T${normalizedTime}:00`) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+}

@@ -2082,6 +2082,8 @@ const STAFF_ROLE_OPTIONS = [
 const EMPLOYEE_STAFF_ROLE_OPTIONS = STAFF_ROLE_OPTIONS.filter((role) => role !== "Admin");
 const EMPLOYEE_STAFF_ROLE_KEYS = new Set(EMPLOYEE_STAFF_ROLE_OPTIONS.map((role) => normalizeRoleKey(role)));
 const EMPLOYEE_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const CUSTOMER_SIGNUP_NAME_MAX_LENGTH = 24;
+const EMAIL_MAX_LENGTH = 254;
 
 const STAFF_ROLE_LABELS = new Map(
   STAFF_ROLE_OPTIONS.map((role) => [normalizeRoleKey(role), role])
@@ -2193,6 +2195,87 @@ function getPasswordRuleError(password) {
   if (!/\d/.test(value)) return "Password must include at least 1 number.";
   if (!/[^A-Za-z0-9]/.test(value)) return "Password must include at least 1 special character.";
   return "";
+}
+
+function normalizeCustomerSignupName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function buildFieldValidationError(message, field, errors = {}) {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.field = field;
+  error.errors = Object.keys(errors).length ? errors : { [field]: message };
+  return error;
+}
+
+function getFirstValidationError(errors) {
+  const [field, message] = Object.entries(errors)[0] || [];
+  return { field, message };
+}
+
+function validatePublicCustomerSignupPayload(body = {}) {
+  const payload = {
+    first: normalizeCustomerSignupName(body.firstName),
+    last: normalizeCustomerSignupName(body.lastName),
+    email: String(body.email || "").trim().toLowerCase(),
+    phone: String(body.phone || "").trim(),
+    password: String(body.password || ""),
+    confirmPassword: String(body.confirmPassword || ""),
+    channel: String(body.channel || "").trim().toLowerCase(),
+  };
+  const errors = {};
+
+  if (!payload.first) {
+    errors.firstName = "First name is required.";
+  } else if (payload.first.length > CUSTOMER_SIGNUP_NAME_MAX_LENGTH) {
+    errors.firstName = "First name must be 24 characters or less.";
+  } else if (!/^[\p{L}\s'.-]+$/u.test(payload.first)) {
+    errors.firstName = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  }
+
+  if (!payload.last) {
+    errors.lastName = "Last name is required.";
+  } else if (payload.last.length > CUSTOMER_SIGNUP_NAME_MAX_LENGTH) {
+    errors.lastName = "Last name must be 24 characters or less.";
+  } else if (!/^[\p{L}\s'.-]+$/u.test(payload.last)) {
+    errors.lastName = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+  }
+
+  if (!payload.email) {
+    errors.email = "Email is required.";
+  } else if (payload.email.length > EMAIL_MAX_LENGTH || !EMPLOYEE_EMAIL_REGEX.test(payload.email)) {
+    errors.email = "Enter a valid email address.";
+  }
+
+  if (!payload.phone) {
+    errors.phone = "Phone number is required.";
+  } else if (!/^\d+$/.test(payload.phone)) {
+    errors.phone = "Phone must contain digits only.";
+  } else if (!/^09\d{9}$/.test(payload.phone)) {
+    errors.phone = "Phone must be 11 digits and start with 09.";
+  }
+
+  const passwordError = payload.password ? getPasswordRuleError(payload.password) : "Password is required.";
+  if (passwordError) errors.password = passwordError;
+
+  if (!payload.confirmPassword) {
+    errors.confirmPassword = "Confirm your password.";
+  } else if (payload.confirmPassword !== payload.password) {
+    errors.confirmPassword = "Passwords do not match.";
+  }
+
+  if (payload.channel !== "email") {
+    errors.channel = "Please use email for signup OTP delivery.";
+  }
+
+  if (Object.keys(errors).length) {
+    const firstError = getFirstValidationError(errors);
+    throw buildFieldValidationError(firstError.message, firstError.field, errors);
+  }
+
+  delete payload.confirmPassword;
+  return payload;
 }
 
 const MODULE_KEYS = {
@@ -3088,15 +3171,13 @@ async function requireAdminSpecialCredentialWithAudit(req, actionKey, targetId) 
 
 function sanitizePreferredDetailerUser(user) {
   if (!user) return user;
+  const fullName = user.name || [user.first, user.last].filter(Boolean).join(" ").trim();
   return {
     id: user.id || String(user._id || ""),
-    _id: user.id || String(user._id || ""),
-    name: user.name || [user.first, user.last].filter(Boolean).join(" ").trim(),
-    fullName: user.name || [user.first, user.last].filter(Boolean).join(" ").trim(),
+    name: fullName,
+    fullName,
     userType: "Staff",
     role: toDisplaySubtype(user.userType, user.role),
-    status: user.status || "active",
-    isActive: true,
   };
 }
 
@@ -6758,6 +6839,16 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
     const scopedBookings = data.bookings.filter((booking) => canViewBooking(scopedUser, booking, data.users));
     const visibleBookingIds = new Set(scopedBookings.map((booking) => String(booking.id || "")));
     const customerName = String(scopedUser.name || ownUser?.name || "").trim().toLowerCase();
+    const scopedPayments = data.payments.filter((payment) => {
+      const paymentEmail = String(payment.customerEmail || "").trim().toLowerCase();
+      return (email && paymentEmail === email) || visibleBookingIds.has(String(payment.bookingId || ""));
+    });
+    const customerSummary = buildBusinessSummary({
+      bookings: scopedBookings,
+      payments: scopedPayments,
+      stockMonitoring: [],
+      quoteRequests: [],
+    });
     const safePreferredDetailers = data.users
       .filter((user) => isActiveDetailerUser(user))
       .map((user) => sanitizePreferredDetailerUser(user));
@@ -6765,18 +6856,15 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
     return {
       ...data,
       bookings: scopedBookings,
-      payments: data.payments.filter((payment) => {
-        const paymentEmail = String(payment.customerEmail || "").trim().toLowerCase();
-        return (email && paymentEmail === email) || visibleBookingIds.has(String(payment.bookingId || ""));
-      }),
-      users: [...(ownUser ? [ownUser] : []), ...safePreferredDetailers],
+      payments: scopedPayments,
+      users: [...(ownUser ? [sanitizeUser(ownUser)] : []), ...safePreferredDetailers],
       stockMonitoring: [],
       auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
       archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
       reviews: data.reviews.filter((review) => {
         const reviewEmail = String(review.customerEmail || "").trim().toLowerCase();
         const reviewCustomer = String(review.customer || "").trim().toLowerCase();
-        return (email && reviewEmail === email) || (customerName && reviewCustomer === customerName);
+        return (email && reviewEmail === email) || (!reviewEmail && customerName && reviewCustomer === customerName);
       }),
       quoteRequests: [],
       expenses: [],
@@ -6789,6 +6877,21 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
         return (email && rewardEmail === email) || (scopedUser.id && rewardCustomerId === String(scopedUser.id));
       }),
       alerts: [],
+      financialReport: { totals: {}, payments: [], expenses: [], commissions: [] },
+      summary: {
+        bookingsToday: customerSummary.bookingsToday,
+        inProgressCount: customerSummary.inProgressCount,
+        paidRevenue: customerSummary.paidRevenue,
+        activePaidRevenue: customerSummary.activePaidRevenue,
+        historicalPaidRevenue: customerSummary.historicalPaidRevenue,
+        paidRevenueEvents: customerSummary.paidRevenueEvents,
+        totalSchedules: customerSummary.totalSchedules,
+        completedCount: customerSummary.completedCount,
+        cancelledCount: customerSummary.cancelledCount,
+        pendingCount: customerSummary.pendingCount,
+        scheduledCount: customerSummary.scheduledCount,
+        upcomingBookings: customerSummary.upcomingBookings,
+      },
     };
   }
 
@@ -7674,19 +7777,7 @@ app.post("/api/auth/signup/request-otp", async (req, res, next) => {
   try {
     if (respondIfDatabaseUnavailable(res)) return;
 
-    const payload = {
-      first: String(req.body.firstName || "").trim(),
-      last: String(req.body.lastName || "").trim(),
-      email: String(req.body.email || "").trim().toLowerCase(),
-      phone: String(req.body.phone || "").trim(),
-      password: String(req.body.password || ""),
-      channel: String(req.body.channel || "").trim().toLowerCase(),
-    };
-
-    if (payload.channel !== "email") {
-      res.status(400).json({ message: "Please use email for signup OTP delivery." });
-      return;
-    }
+    const payload = validatePublicCustomerSignupPayload(req.body);
 
     const [existingEmail, existingPhone] = await Promise.all([
       User.findOne({ email: payload.email }).lean(),
@@ -7694,12 +7785,20 @@ app.post("/api/auth/signup/request-otp", async (req, res, next) => {
     ]);
 
     if (existingEmail) {
-      res.status(409).json({ message: "That email is already registered." });
+      res.status(409).json({
+        message: "That email is already registered.",
+        field: "email",
+        errors: { email: "That email is already registered." },
+      });
       return;
     }
 
     if (existingPhone) {
-      res.status(409).json({ message: "That contact number is already registered." });
+      res.status(409).json({
+        message: "That contact number is already registered.",
+        field: "phone",
+        errors: { phone: "That contact number is already registered." },
+      });
       return;
     }
 
@@ -11311,7 +11410,10 @@ if (IS_PRODUCTION) {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(error.statusCode || 500).json({ message: error.message || "Unexpected server error" });
+  const body = { message: error.message || "Unexpected server error" };
+  if (error.field) body.field = error.field;
+  if (error.errors && typeof error.errors === "object") body.errors = error.errors;
+  res.status(error.statusCode || 500).json(body);
 });
 
 async function start() {
@@ -11354,6 +11456,7 @@ module.exports = {
   MODULE_KEYS,
   QR_TOKEN_PURPOSES,
   toTimestamp,
+  __testSignupOtpStore: signupOtpStore,
   __testPasswordChangeOtpStore: passwordChangeOtpStore,
   __testModels: {
     AuditLog,
@@ -11388,6 +11491,7 @@ module.exports = {
   getBookingAccessVersion,
   loadBootstrapData,
   parseExportFilters,
+  validatePublicCustomerSignupPayload,
   isBookingAccessRevoked,
   isActiveAccount,
   parseBookingAccessToken,

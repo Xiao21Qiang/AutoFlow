@@ -76,6 +76,7 @@ export default function Login() {
 
   const [touchedIn, setTouchedIn] = useState({});
   const [touchedUp, setTouchedUp] = useState({});
+  const [signUpServerErrors, setSignUpServerErrors] = useState({});
   const [authError, setAuthError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -160,8 +161,8 @@ export default function Login() {
     if (!signUp.confirmPassword) e.confirmPassword = "Confirm your password.";
     else if (signUp.confirmPassword !== signUp.password) e.confirmPassword = "Passwords do not match.";
 
-    return e;
-  }, [signUp]);
+    return { ...signUpServerErrors, ...e };
+  }, [signUp, signUpServerErrors]);
 
   const canSubmitSignIn = Object.keys(signInErrors).length === 0;
   const canSubmitSignUp = Object.keys(signUpErrors).length === 0;
@@ -300,11 +301,22 @@ export default function Login() {
     setShowPass(false);
     setShowPass2(false);
     setAuthError("");
+    setSignUpServerErrors({});
+  };
+
+  const updateSignUpField = (field, value) => {
+    setSignUp((prev) => ({ ...prev, [field]: value }));
+    setSignUpServerErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
   };
 
   const handlePhoneChange = (value) => {
     const digitsOnly = value.replace(/\D/g, "").slice(0, 11);
-    setSignUp((p) => ({ ...p, phone: digitsOnly }));
+    updateSignUpField("phone", digitsOnly);
   };
 
   const startFpOtpWait = () => {
@@ -565,6 +577,7 @@ export default function Login() {
     setSignupOtpOpen(true);
     setSignupOtpChoice("email");
     setSignupOtpError("");
+    setSignUpServerErrors({});
 
     if (hasActiveOtp) {
       setSignupOtpStep("otp");
@@ -633,6 +646,8 @@ export default function Login() {
           ...signUp,
           firstName: normalizeNameForSubmit(signUp.firstName),
           lastName: normalizeNameForSubmit(signUp.lastName),
+          email: signUp.email.trim().toLowerCase(),
+          phone: signUp.phone.trim(),
           channel,
         }),
       });
@@ -661,7 +676,25 @@ export default function Login() {
         startSignupOtpWait();
       }
     } catch (error) {
-      setSignupOtpError(error.message || "Failed to send OTP.");
+      const fieldErrors = error.errors && typeof error.errors === "object" ? error.errors : {};
+      const field = String(error.field || "").trim();
+      const signUpFields = ["firstName", "lastName", "email", "phone", "password", "confirmPassword"];
+      const nextFieldErrors = Object.fromEntries(
+        Object.entries(fieldErrors).filter(([key]) => signUpFields.includes(key))
+      );
+      if (!Object.keys(nextFieldErrors).length && signUpFields.includes(field)) {
+        nextFieldErrors[field] = error.message || "Please check this field.";
+      }
+      if (Object.keys(nextFieldErrors).length) {
+        setSignUpServerErrors(nextFieldErrors);
+        setTouchedUp((prev) => ({
+          ...prev,
+          ...Object.fromEntries(Object.keys(nextFieldErrors).map((key) => [key, true])),
+        }));
+        closeSignupOtp({ force: true });
+      } else {
+        setSignupOtpError(error.message || "Failed to send OTP.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -819,7 +852,7 @@ export default function Login() {
                       <input
                         className={`authInput ${shouldShowSignUpError("firstName") ? "inputError" : ""}`}
                         value={signUp.firstName}
-                        onChange={(e) => setSignUp((p) => ({ ...p, firstName: sanitizeNameInput(e.target.value) }))}
+                        onChange={(e) => updateSignUpField("firstName", sanitizeNameInput(e.target.value))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, firstName: true }))}
                         maxLength={24}
                         placeholder="Enter your first name"
@@ -834,7 +867,7 @@ export default function Login() {
                       <input
                         className={`authInput ${shouldShowSignUpError("lastName") ? "inputError" : ""}`}
                         value={signUp.lastName}
-                        onChange={(e) => setSignUp((p) => ({ ...p, lastName: sanitizeNameInput(e.target.value) }))}
+                        onChange={(e) => updateSignUpField("lastName", sanitizeNameInput(e.target.value))}
                         onBlur={() => setTouchedUp((p) => ({ ...p, lastName: true }))}
                         maxLength={24}
                         placeholder="Enter your last name"
@@ -850,7 +883,7 @@ export default function Login() {
                     <input
                       className={`authInput ${shouldShowSignUpError("email") ? "inputError" : ""}`}
                       value={signUp.email}
-                      onChange={(e) => setSignUp((p) => ({ ...p, email: e.target.value }))}
+                      onChange={(e) => updateSignUpField("email", e.target.value)}
                       onBlur={() => setTouchedUp((p) => ({ ...p, email: true }))}
                       type="email"
                       placeholder="Enter your email"
@@ -882,7 +915,7 @@ export default function Login() {
                       <input
                         className={`authInput authInputPass ${shouldShowSignUpError("password") ? "inputError" : ""}`}
                         value={signUp.password}
-                        onChange={(e) => setSignUp((p) => ({ ...p, password: e.target.value }))}
+                        onChange={(e) => updateSignUpField("password", e.target.value)}
                         onBlur={() => setTouchedUp((p) => ({ ...p, password: true }))}
                         type={showPass ? "text" : "password"}
                         placeholder="Enter your password"
@@ -914,7 +947,7 @@ export default function Login() {
                       <input
                         className={`authInput authInputPass ${shouldShowSignUpError("confirmPassword") ? "inputError" : ""}`}
                         value={signUp.confirmPassword}
-                        onChange={(e) => setSignUp((p) => ({ ...p, confirmPassword: e.target.value }))}
+                        onChange={(e) => updateSignUpField("confirmPassword", e.target.value)}
                         onBlur={() => setTouchedUp((p) => ({ ...p, confirmPassword: true }))}
                         type={showPass2 ? "text" : "password"}
                         placeholder="Confirm your password"

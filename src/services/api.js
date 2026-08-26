@@ -107,7 +107,11 @@ export async function apiRequest(path, options = {}) {
         localStorage.removeItem(key);
       });
     }
-    throw new Error(data.message || "Request failed");
+    const error = new Error(data.message || "Request failed");
+    error.status = response.status;
+    error.field = data.field || "";
+    error.errors = data.errors && typeof data.errors === "object" ? data.errors : {};
+    throw error;
   }
 
   return data;
