@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerBookingsStyle.css";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
@@ -8,11 +8,11 @@ import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 import {
-  buildPreferredDetailerPayload,
   getServiceArrivalTimeOptions,
   getPreferredDetailerDisplay,
   getPreferredDetailerOptions,
 } from "../../utils/bookingWorkflow";
+import { CANONICAL_BOOKING_STATUSES, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -53,14 +53,6 @@ function createEmptyForm(defaultService = "") {
   };
 }
 
-function getTodayKey() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatBookingTime(value) {
   const time = String(value || "").trim();
   return time || "No time selected";
@@ -83,13 +75,44 @@ const CUSTOMER_BOOKING_REQUIRED_FIELDS = Object.keys(CUSTOMER_BOOKING_REQUIRED_M
 
 function getCustomerBookingValidationErrors({ form, serviceOptions }) {
   const errors = {};
-  if (!String(form.vehicle || "").trim()) errors.vehicle = CUSTOMER_BOOKING_REQUIRED_MESSAGES.vehicle;
-  if (!String(form.plate || "").trim()) errors.plate = CUSTOMER_BOOKING_REQUIRED_MESSAGES.plate;
+  const vehicle = String(form.vehicle || "").trim().replace(/\s+/g, " ");
+  const rawPlate = String(form.plate || "").trim();
+  const normalizedPlate = rawPlate.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+  if (!vehicle) errors.vehicle = CUSTOMER_BOOKING_REQUIRED_MESSAGES.vehicle;
+  else if (vehicle.length < 2 || vehicle.length > 80) errors.vehicle = "Vehicle model must be 2 to 80 characters.";
+  else if (!/^[A-Za-z0-9][A-Za-z0-9\s.'()/-]*$/.test(vehicle)) errors.vehicle = "Vehicle model contains unsupported characters.";
+  if (!rawPlate) errors.plate = CUSTOMER_BOOKING_REQUIRED_MESSAGES.plate;
+  else if (/[^A-Za-z0-9\s-]/.test(rawPlate)) errors.plate = "Plate number contains unsupported characters.";
+  else if (normalizedPlate.length < 3 || normalizedPlate.length > 16) errors.plate = "Plate number must be 3 to 16 letters or numbers.";
   if (!serviceOptions.includes(String(form.service || "").trim())) errors.service = CUSTOMER_BOOKING_REQUIRED_MESSAGES.service;
   if (!CAR_SIZE_OPTIONS.includes(String(form.carSize || "").trim())) errors.carSize = CUSTOMER_BOOKING_REQUIRED_MESSAGES.carSize;
   if (!String(form.date || "").trim()) errors.date = CUSTOMER_BOOKING_REQUIRED_MESSAGES.date;
   if (!String(form.time || "").trim()) errors.time = CUSTOMER_BOOKING_REQUIRED_MESSAGES.time;
   return errors;
+}
+
+function normalizePlateInput(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9-\s]/g, "").slice(0, 20);
+}
+
+function getAssignedDetailerDisplay(booking = {}) {
+  return String(booking.assigned || booking.assignedDetailerName || booking.assignedDetailerId || "").trim() || "-";
+}
+
+function getCustomerBookingSearchText(booking = {}) {
+  return [
+    booking.id,
+    booking.service,
+    booking.vehicle,
+    booking.plate,
+    formatDate(booking.date),
+    booking.date,
+    normalizeBookingStatus(booking.status, booking.status || ""),
+    getPreferredDetailerDisplay(booking),
+    getAssignedDetailerDisplay(booking),
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .join(" ");
 }
 
 function ModalSelect({ value, options, placeholder, onSelect, invalid = false, ariaLabel, ariaDescribedBy, onBlur }) {
@@ -139,19 +162,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     () => (bookableServices.length ? bookableServices.map((service) => service.name) : []),
     [bookableServices]
   );
-  const customerName = String(currentUser?.name || "").trim().toLowerCase();
-  const customerEmail = String(currentUser?.email || "").trim().toLowerCase();
   const customerBookings = useMemo(
-    () =>
-      bookings.filter((booking) => {
-        const bookingEmail = String(booking.customerEmail || "").trim().toLowerCase();
-        const bookingName = String(booking.customer || "").trim().toLowerCase();
-        if (customerEmail && bookingEmail) {
-          return bookingEmail === customerEmail;
-        }
-        return bookingName === customerName;
-      }),
-    [bookings, customerEmail, customerName]
+    () => (Array.isArray(bookings) ? bookings : []),
+    [bookings]
   );
   const paymentByBookingId = useMemo(
     () => new Map(payments.map((payment) => [payment.bookingId, payment])),
@@ -160,15 +173,17 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filters, setFilters] = useState({ service: "", assignedTo: "" });
+  const [filters, setFilters] = useState({ service: "", status: "" });
   const [modal, setModal] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [form, setForm] = useState(createEmptyForm());
   const [formError, setFormError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [touchedFields, setTouchedFields] = useState({});
   const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
-  const todayKey = getTodayKey();
+  const bookingSubmitInFlightRef = useRef(false);
+  const todayKey = toAppDateKey();
   const savedCars = useMemo(
     () => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate),
     [currentUser]
@@ -243,6 +258,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     if (initialAction !== "open-add-booking") return;
     setForm(createEmptyForm());
     setTouchedFields({});
+    setFieldErrors({});
     setFormError("");
     setModal("add");
     onActionHandled?.();
@@ -251,19 +267,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
     return customerBookings.filter((booking) => {
-      const assignedTo = booking.assigned || "-";
-      const matchesQuery =
-        !q ||
-        String(booking.id || "").toLowerCase().includes(q) ||
-        String(booking.customer || "").toLowerCase().includes(q) ||
-        String(booking.vehicle || "").toLowerCase().includes(q) ||
-        String(booking.plate || "").toLowerCase().includes(q) ||
-        String(booking.service || "").toLowerCase().includes(q) ||
-        String(assignedTo).toLowerCase().includes(q) ||
-        formatDate(booking.date).toLowerCase().includes(q);
+      const bookingStatus = normalizeBookingStatus(booking.status, booking.status || "");
+      const matchesQuery = !q || getCustomerBookingSearchText(booking).includes(q);
       const matchesService = !filters.service || booking.service === filters.service;
-      const matchesAssigned = !filters.assignedTo || assignedTo === filters.assignedTo;
-      return matchesQuery && matchesService && matchesAssigned;
+      const matchesStatus = !filters.status || bookingStatus === filters.status;
+      return matchesQuery && matchesService && matchesStatus;
     });
   }, [customerBookings, query, filters]);
 
@@ -278,11 +286,27 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     () => modal === "add" ? getCustomerBookingValidationErrors({ form, serviceOptions }) : {},
     [form, modal, serviceOptions]
   );
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+  const selectedBookingDetails = useMemo(
+    () => customerBookings.find((booking) => String(booking.id || "") === String(selectedBooking?.id || "")) || selectedBooking,
+    [customerBookings, selectedBooking]
+  );
   const isCustomerBookingFormValid = modal !== "add" || Object.keys(bookingValidationErrors).length === 0;
+  const setFormField = (field, value) => {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
   const markFieldTouched = (field) => {
     setTouchedFields((prev) => ({ ...prev, [field]: true }));
   };
-  const getTouchedFieldError = (field) => (touchedFields[field] ? bookingValidationErrors[field] || "" : "");
+  const getTouchedFieldError = (field) => fieldErrors[field] || (touchedFields[field] ? bookingValidationErrors[field] || "" : "");
   const touchAllRequiredFields = () => {
     setTouchedFields(Object.fromEntries(CUSTOMER_BOOKING_REQUIRED_FIELDS.map((field) => [field, true])));
   };
@@ -293,50 +317,53 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     setForm(createEmptyForm());
     setTouchedFields({});
     setFormError("");
+    setFieldErrors({});
     setShowDownPaymentConfirm(false);
     setIsSubmittingBooking(false);
+    bookingSubmitInFlightRef.current = false;
   };
 
   const submitCustomerBooking = async () => {
-    if (isSubmittingBooking) return;
+    if (isSubmittingBooking || bookingSubmitInFlightRef.current) return;
     if (!isCustomerBookingFormValid) {
       touchAllRequiredFields();
-      setFormError(Object.values(bookingValidationErrors)[0] || "Please complete the required booking fields.");
       return;
     }
     try {
+      bookingSubmitInFlightRef.current = true;
       setIsSubmittingBooking(true);
-      const matchedService = bookableServices.find((service) => service.name === form.service);
-      const resolvedPrice = getPriceForCarSize(matchedService, form.carSize);
-      const preferredDetailerPayload = buildPreferredDetailerPayload(form, preferredDetailerOptions);
       await createBooking({
-        customer: currentUser?.name || "Customer",
-        customerEmail: currentUser?.email || "",
         date: form.date,
         time: form.time,
-        vehicle: form.vehicle,
+        vehicle: String(form.vehicle || "").trim().replace(/\s+/g, " "),
         carSize: form.carSize,
-        plate: form.plate,
+        plate: String(form.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
         service: form.service,
         promoId: form.promoId,
         rewardId: form.rewardId,
-        originalAmount: Number(resolvedPrice || 0),
-        assigned: "",
         customerRequested: true,
         bookingSource: "customer",
-        amount: Number(resolvedPrice || 0),
-        status: "Pending Confirmation",
-        issueNote: "",
-        issueTypes: [],
-        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: "" }],
-        ...preferredDetailerPayload,
+        preferredDetailerId: form.preferredDetailerId,
       });
       setPage(1);
       closeModal();
     } catch (error) {
-      setFormError(error.message || "Failed to create booking.");
+      const backendErrors = error.errors && typeof error.errors === "object" ? error.errors : {};
+      const nextFieldErrors = {
+        ...backendErrors,
+        ...(error.field && !backendErrors[error.field] ? { [error.field]: error.message } : {}),
+      };
+      setFieldErrors(nextFieldErrors);
+      if (Object.keys(nextFieldErrors).length) {
+        setTouchedFields((prev) => ({
+          ...prev,
+          ...Object.fromEntries(Object.keys(nextFieldErrors).map((field) => [field, true])),
+        }));
+      }
+      setFormError(Object.keys(nextFieldErrors).length ? "" : error.message || "Failed to create booking.");
       setShowDownPaymentConfirm(false);
       setIsSubmittingBooking(false);
+      bookingSubmitInFlightRef.current = false;
     }
   };
 
@@ -366,6 +393,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
           onClick={() => {
             setForm(createEmptyForm());
             setTouchedFields({});
+            setFieldErrors({});
             setFormError("");
             setModal("add");
           }}
@@ -378,11 +406,12 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
         <div className="clBookHead">
           <div>Booking ID</div>
           <div>Booking Date</div>
-          <div>Customer</div>
           <div>Vehicle Model</div>
           <div>Plate Number</div>
           <div>Service</div>
-          <div>Assigned To</div>
+          <div>Status</div>
+          <div>Preferred Detailer</div>
+          <div>Assigned Detailer</div>
           <div>Details</div>
         </div>
 
@@ -395,11 +424,12 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
             <div className="clBookRow" key={booking.id}>
               <div>{booking.id}</div>
               <div>{formatDate(booking.date)}</div>
-              <div>{booking.customer}</div>
               <div>{booking.vehicle}</div>
               <div>{booking.plate}</div>
               <div>{booking.service}</div>
-              <div>{booking.assigned || "-"}</div>
+              <div>{normalizeBookingStatus(booking.status, booking.status || "-")}</div>
+              <div>{getPreferredDetailerDisplay(booking)}</div>
+              <div>{getAssignedDetailerDisplay(booking)}</div>
               <div>
                 <button
                   className="clBookViewBtn"
@@ -418,11 +448,21 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
       </div>
 
       <div className="clBookPager">
-        <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+        <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={safePage <= 1}>
           {"<"}
         </button>
-        <div>{safePage}</div>
-        <button type="button" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+        {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+          <button
+            key={pageNumber}
+            className={pageNumber === safePage ? "active" : ""}
+            type="button"
+            onClick={() => setPage(pageNumber)}
+            aria-current={pageNumber === safePage ? "page" : undefined}
+          >
+            {pageNumber}
+          </button>
+        ))}
+        <button type="button" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={safePage >= totalPages}>
           {">"}
         </button>
       </div>
@@ -448,11 +488,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
 
                   if (!isCustomerBookingFormValid) {
                     touchAllRequiredFields();
-                    setFormError(Object.values(bookingValidationErrors)[0] || "Please complete the required booking fields.");
                     return;
                   }
                   if (form.date && form.date < todayKey) {
-                    setFormError("Please select today or a future date for your booking.");
+                    setFieldErrors((prev) => ({ ...prev, date: "Please select today or a future date for your booking." }));
+                    setTouchedFields((prev) => ({ ...prev, date: true }));
                     return;
                   }
                   if (requiresDownPayment(selectedService || form.service)) {
@@ -479,7 +519,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     min={todayKey}
                     value={form.date}
                     onBlur={() => markFieldTouched("date")}
-                    onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
+                    onChange={(e) => setFormField("date", e.target.value)}
                     className={getTouchedFieldError("date") ? "clBookFieldInvalidInput" : ""}
                     required
                     aria-invalid={getTouchedFieldError("date") ? "true" : undefined}
@@ -500,6 +540,14 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                         const selectedCar = savedCars.find(
                           (car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}` === option
                         );
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.selectedCar;
+                          delete next.vehicle;
+                          delete next.carSize;
+                          delete next.plate;
+                          return next;
+                        });
                         setForm((prev) => ({
                           ...prev,
                           selectedCar: option,
@@ -518,7 +566,15 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     value={form.vehicle}
                     aria-label="Vehicle Model"
                     onBlur={() => markFieldTouched("vehicle")}
-                    onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }))}
+                    onChange={(e) => {
+                      setFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.selectedCar;
+                        delete next.vehicle;
+                        return next;
+                      });
+                      setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }));
+                    }}
                     className={getTouchedFieldError("vehicle") ? "clBookFieldInvalidInput" : ""}
                     required
                     aria-invalid={getTouchedFieldError("vehicle") ? "true" : undefined}
@@ -534,7 +590,15 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.plate}
                       aria-label="Plate Number"
                       onBlur={() => markFieldTouched("plate")}
-                      onChange={(e) => setForm((prev) => ({ ...prev, selectedCar: "", plate: e.target.value.toUpperCase() }))}
+                      onChange={(e) => {
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.selectedCar;
+                          delete next.plate;
+                          return next;
+                        });
+                        setForm((prev) => ({ ...prev, selectedCar: "", plate: normalizePlateInput(e.target.value) }));
+                      }}
                       className={getTouchedFieldError("plate") ? "clBookFieldInvalidInput" : ""}
                       required
                       aria-invalid={getTouchedFieldError("plate") ? "true" : undefined}
@@ -553,7 +617,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       ariaLabel="Car Size"
                       ariaDescribedBy={getTouchedFieldError("carSize") ? "customer-booking-car-size-error" : undefined}
                       onBlur={() => markFieldTouched("carSize")}
-                      onSelect={(option) => setForm((prev) => ({ ...prev, carSize: option }))}
+                      onSelect={(option) => setFormField("carSize", option)}
                     />
                     {getTouchedFieldError("carSize") ? <div id="customer-booking-car-size-error" className="clBookFieldError">{getTouchedFieldError("carSize")}</div> : null}
                   </label>
@@ -568,7 +632,15 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       ariaLabel="Service"
                       ariaDescribedBy={getTouchedFieldError("service") ? "customer-booking-service-error" : undefined}
                       onBlur={() => markFieldTouched("service")}
-                      onSelect={(option) => setForm((prev) => ({ ...prev, service: option, time: "" }))}
+                      onSelect={(option) => {
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.service;
+                          delete next.time;
+                          return next;
+                        });
+                        setForm((prev) => ({ ...prev, service: option, time: "" }));
+                      }}
                     />
                     {getTouchedFieldError("service") ? <div id="customer-booking-service-error" className="clBookFieldError">{getTouchedFieldError("service")}</div> : null}
                   </label>
@@ -578,7 +650,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.time}
                       aria-label="Preferred Time"
                       onBlur={() => markFieldTouched("time")}
-                      onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
+                      onChange={(e) => setFormField("time", e.target.value)}
                       disabled={!selectedService}
                       className={getTouchedFieldError("time") ? "clBookFieldInvalidInput" : ""}
                       required
@@ -607,6 +679,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.preferredDetailerId}
                       onChange={(e) => {
                         const option = preferredDetailerOptions.find((entry) => entry.id === e.target.value);
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.preferredDetailerId;
+                          return next;
+                        });
                         setForm((prev) => ({
                           ...prev,
                           preferredDetailerId: option?.id || "",
@@ -614,6 +691,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           preferredDetailer: option?.name || "",
                         }));
                       }}
+                      className={getTouchedFieldError("preferredDetailerId") ? "clBookFieldInvalidInput" : ""}
+                      aria-invalid={getTouchedFieldError("preferredDetailerId") ? "true" : undefined}
+                      aria-describedby={getTouchedFieldError("preferredDetailerId") ? "customer-booking-preferred-detailer-error" : undefined}
                     >
                       <option value="">No preference</option>
                       {preferredDetailerOptions.map((option) => (
@@ -622,13 +702,17 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                         </option>
                       ))}
                     </select>
+                    {getTouchedFieldError("preferredDetailerId") ? <div id="customer-booking-preferred-detailer-error" className="clBookFieldError">{getTouchedFieldError("preferredDetailerId")}</div> : null}
                   </label>
                   {activePromos.length > 0 && (
                     <label className="clBookField">
                       <span>Promo</span>
                       <select
                         value={form.promoId}
-                        onChange={(e) => setForm((prev) => ({ ...prev, promoId: e.target.value }))}
+                        onChange={(e) => setFormField("promoId", e.target.value)}
+                        className={getTouchedFieldError("promoId") ? "clBookFieldInvalidInput" : ""}
+                        aria-invalid={getTouchedFieldError("promoId") ? "true" : undefined}
+                        aria-describedby={getTouchedFieldError("promoId") ? "customer-booking-promo-error" : undefined}
                       >
                         <option value="">No promo</option>
                         {activePromos.map((promo) => (
@@ -637,6 +721,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           </option>
                         ))}
                       </select>
+                      {getTouchedFieldError("promoId") ? <div id="customer-booking-promo-error" className="clBookFieldError">{getTouchedFieldError("promoId")}</div> : null}
                     </label>
                   )}
                   {usableRewards.length > 0 && (
@@ -644,7 +729,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       <span>Claim Reward</span>
                       <select
                         value={form.rewardId}
-                        onChange={(e) => setForm((prev) => ({ ...prev, rewardId: e.target.value }))}
+                        onChange={(e) => setFormField("rewardId", e.target.value)}
+                        className={getTouchedFieldError("rewardId") ? "clBookFieldInvalidInput" : ""}
+                        aria-invalid={getTouchedFieldError("rewardId") ? "true" : undefined}
+                        aria-describedby={getTouchedFieldError("rewardId") ? "customer-booking-reward-error" : undefined}
                       >
                         <option value="">No reward</option>
                         {usableRewards.map((reward) => (
@@ -653,6 +741,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           </option>
                         ))}
                       </select>
+                      {getTouchedFieldError("rewardId") ? <div id="customer-booking-reward-error" className="clBookFieldError">{getTouchedFieldError("rewardId")}</div> : null}
                     </label>
                   )}
                 </div>
@@ -709,31 +798,50 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
               </div>
             )}
 
-            {modal === "details" && selectedBooking && (
-              <div>
-                <div className="clBookModalTitle">Booking Details</div>
-                <div className="clBookDetailList">
-                  <div><strong>ID:</strong> {selectedBooking.id}</div>
-                  <div><strong>Date:</strong> {formatDate(selectedBooking.date)}</div>
-                  <div><strong>Time:</strong> {formatBookingTime(selectedBooking.time)}</div>
-                  <div><strong>Vehicle:</strong> {selectedBooking.vehicle}</div>
-                  <div><strong>Car Size:</strong> {selectedBooking.carSize || "-"}</div>
-                  <div><strong>Plate:</strong> {selectedBooking.plate}</div>
-                  <div><strong>Service:</strong> {selectedBooking.service}</div>
-                  <div><strong>Preferred Detailer:</strong> {getPreferredDetailerDisplay(selectedBooking)}</div>
-                  <div><strong>Assigned To:</strong> {selectedBooking.assigned || "-"}</div>
-                  <div><strong>Status:</strong> {selectedBooking.status}</div>
-                  {paymentByBookingId.get(selectedBooking.id)?.downPaymentDueAt && paymentByBookingId.get(selectedBooking.id)?.downPaymentRequired === true ? (
-                    <div><strong>Down payment due:</strong> {formatDateTime(paymentByBookingId.get(selectedBooking.id).downPaymentDueAt)}</div>
-                  ) : null}
+            {modal === "details" && selectedBookingDetails && (() => {
+              const detailBooking = selectedBookingDetails;
+              const linkedPayment = paymentByBookingId.get(detailBooking.id);
+              const placeSlot = Number(detailBooking.placeSlot || 0);
+              const note = String(detailBooking.notes || detailBooking.specialInstructions || detailBooking.customerNotes || "").trim();
+              const cancellationInfo = String(detailBooking.cancellationReason || detailBooking.cancelReason || "").trim();
+              return (
+                <div>
+                  <div className="clBookModalTitle">Booking Details</div>
+                  <div className="clBookDetailList">
+                    <div><strong>Booking ID:</strong> {detailBooking.id}</div>
+                    <div><strong>Service:</strong> {detailBooking.service}</div>
+                    <div><strong>Vehicle:</strong> {detailBooking.vehicle}</div>
+                    <div><strong>Plate Number:</strong> {detailBooking.plate}</div>
+                    <div><strong>Car Size:</strong> {detailBooking.carSize || "-"}</div>
+                    <div><strong>Date:</strong> {formatDate(detailBooking.date)}</div>
+                    <div><strong>Time:</strong> {formatBookingTime(detailBooking.time)}</div>
+                    <div><strong>Booking Status:</strong> {normalizeBookingStatus(detailBooking.status, detailBooking.status || "-")}</div>
+                    <div><strong>Preferred Detailer:</strong> {getPreferredDetailerDisplay(detailBooking)}</div>
+                    <div><strong>Assigned Detailer:</strong> {getAssignedDetailerDisplay(detailBooking)}</div>
+                    {placeSlot > 0 ? <div><strong>Place Slot:</strong> {placeSlot}</div> : null}
+                    {detailBooking.promoTitle || detailBooking.promoCode ? (
+                      <div><strong>Promo:</strong> {detailBooking.promoTitle || detailBooking.promoCode}</div>
+                    ) : null}
+                    {detailBooking.rewardName ? <div><strong>Reward:</strong> {detailBooking.rewardName}</div> : null}
+                    {note ? <div><strong>Special Instructions:</strong> {note}</div> : null}
+                    {linkedPayment?.downPaymentDueAt && linkedPayment?.downPaymentRequired === true ? (
+                      <div><strong>Down Payment Due:</strong> {formatDateTime(linkedPayment.downPaymentDueAt)}</div>
+                    ) : null}
+                    {linkedPayment ? (
+                      <div><strong>Payment:</strong> Down payment {linkedPayment.downPaymentStatus || "-"}; final payment {linkedPayment.finalPaymentStatus || linkedPayment.status || "-"}</div>
+                    ) : null}
+                    {normalizeBookingStatus(detailBooking.status, "") === "Cancelled" && cancellationInfo ? (
+                      <div><strong>Cancellation:</strong> {cancellationInfo}</div>
+                    ) : null}
+                  </div>
+                  <div className="clBookModalActions">
+                    <button className="clBookPrimaryBtn" type="button" onClick={closeModal}>
+                      Close
+                    </button>
+                  </div>
                 </div>
-                <div className="clBookModalActions">
-                  <button className="clBookPrimaryBtn" type="button" onClick={closeModal}>
-                    Close
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -743,17 +851,20 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
         title="Filter Bookings"
         fields={[
           { key: "service", label: "Service", type: "select", options: [...new Set(customerBookings.map((booking) => booking.service).filter(Boolean))] },
-          { key: "assignedTo", label: "Assigned To", type: "select", options: [...new Set(customerBookings.map((booking) => booking.assigned).filter(Boolean))] },
+          { key: "status", label: "Booking Status", type: "select", options: CANONICAL_BOOKING_STATUSES },
         ]}
         values={filters}
-        onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}
+        onChange={(key, value) => {
+          setFilters((prev) => ({ ...prev, [key]: value }));
+          setPage(1);
+        }}
         onClose={() => setIsFilterOpen(false)}
         onApply={() => {
           setPage(1);
           setIsFilterOpen(false);
         }}
         onReset={() => {
-          setFilters({ service: "", assignedTo: "" });
+          setFilters({ service: "", status: "" });
           setPage(1);
         }}
       />

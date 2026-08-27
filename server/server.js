@@ -510,9 +510,7 @@ async function enforcePromoUsagePerUserLimit({ promo, promoId, customerEmail, cu
   });
 
   if (usageCountForCustomer >= maxUsagePerUser) {
-    const error = new Error(`This promo can only be used ${maxUsagePerUser} time${maxUsagePerUser === 1 ? "" : "s"} per user.`);
-    error.statusCode = 400;
-    throw error;
+    throwValidationError(`This promo can only be used ${maxUsagePerUser} time${maxUsagePerUser === 1 ? "" : "s"} per user.`, 400, "promoId");
   }
 }
 
@@ -527,16 +525,12 @@ async function resolvePromoById(promoId) {
     ],
   });
   if (!promo) {
-    const error = new Error("Selected promo was not found.");
-    error.statusCode = 404;
-    throw error;
+    throwValidationError("Selected promo was not found.", 404, "promoId");
   }
 
   const hydratedPromo = hydratePromo(promo);
   if (hydratedPromo.status !== "Active") {
-    const error = new Error("Selected promo is no longer active.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Selected promo is no longer active.", 400, "promoId");
   }
 
   return { promo, hydratedPromo };
@@ -655,9 +649,13 @@ function validateAllowedArrivalTimesPayload(value) {
   }
 }
 
-function throwValidationError(message, statusCode = 400) {
+function throwValidationError(message, statusCode = 400, field = "", errors = {}) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  if (field) {
+    error.field = field;
+    error.errors = Object.keys(errors).length ? errors : { [field]: message };
+  }
   throw error;
 }
 
@@ -772,21 +770,15 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
 async function ensureBookableService(serviceName) {
   const name = String(serviceName || "").trim();
   if (!name) {
-    const error = new Error("Service selection is required.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Service selection is required.", 400, "service");
   }
 
   const service = await Service.findOne({ name }).lean();
   if (!service) {
-    const error = new Error("Selected service is invalid.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Selected service is invalid.", 400, "service");
   }
   if (service.enabled === false) {
-    const error = new Error("Selected service is currently disabled and cannot be booked.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Selected service is currently disabled and cannot be booked.", 400, "service");
   }
   return service;
 }
@@ -3373,17 +3365,41 @@ function normalizePlateNumber(value) {
   return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
 }
 
+function normalizeVehicleModel(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
 function getCustomerCarKey(car = {}) {
   return [
-    String(car.vehicle || car.model || "").trim().toLowerCase(),
+    normalizeVehicleModel(car.vehicle || car.model).toLowerCase(),
     normalizePlateNumber(car.plate),
   ].join("::");
 }
 
 function validateVehicleSnapshotFields({ vehicle = "", carSize = "", plate = "" } = {}) {
-  if (!String(vehicle || "").trim()) throwValidationError("Vehicle model is required.");
-  if (!normalizeCarSizeLabel(carSize)) throwValidationError("Car size is required.");
-  if (!normalizePlateNumber(plate)) throwValidationError("Plate number is required.");
+  const normalizedVehicle = normalizeVehicleModel(vehicle);
+  const normalizedCarSize = normalizeCarSizeLabel(carSize);
+  const rawPlate = String(plate || "").trim();
+  const normalizedPlateForValidation = rawPlate.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+  const normalizedPlate = normalizePlateNumber(rawPlate);
+
+  if (!normalizedVehicle) throwValidationError("Vehicle model is required.", 400, "vehicle");
+  if (normalizedVehicle.length < 2 || normalizedVehicle.length > 80) {
+    throwValidationError("Vehicle model must be 2 to 80 characters.", 400, "vehicle");
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9\s.'()/-]*$/.test(normalizedVehicle)) {
+    throwValidationError("Vehicle model contains unsupported characters.", 400, "vehicle");
+  }
+  if (!normalizedCarSize) throwValidationError("Car size is required.", 400, "carSize");
+  if (!normalizedPlateForValidation) throwValidationError("Plate number is required.", 400, "plate");
+  if (rawPlate && /[^A-Za-z0-9\s-]/.test(rawPlate)) {
+    throwValidationError("Plate number contains unsupported characters.", 400, "plate");
+  }
+  if (normalizedPlateForValidation.length < 3 || normalizedPlateForValidation.length > 16) {
+    throwValidationError("Plate number must be 3 to 16 letters or numbers.", 400, "plate");
+  }
+
+  return { vehicle: normalizedVehicle, carSize: normalizedCarSize, plate: normalizedPlate };
 }
 
 async function resolveRequiredAssignedDetailer(value = "") {
@@ -3407,6 +3423,45 @@ async function resolveRequiredAssignedDetailer(value = "") {
   return {
     assigned: detailer.name || requestedDetailer,
     assignedDetailerId: getStableUserId(detailer),
+  };
+}
+
+function getDetailerDisplayName(user = {}) {
+  return String(user.name || [user.first, user.last].filter(Boolean).join(" ").trim() || user.email || "").trim();
+}
+
+async function resolvePreferredDetailerForBooking(body = {}, { isCustomerRequested = false } = {}) {
+  if (!isCustomerRequested) {
+    return getPreferredDetailerFields(body);
+  }
+
+  const requestedId = String(body.preferredDetailerId || "").trim();
+  const requestedText = String(body.preferredDetailer || body.preferredDetailerName || "").trim();
+  if (!requestedId) {
+    if (requestedText) {
+      throwValidationError("Please choose a preferred detailer from the list.", 400, "preferredDetailerId");
+    }
+    return {
+      preferredDetailer: "",
+      preferredDetailerName: "",
+      preferredDetailerId: "",
+    };
+  }
+
+  const detailer = await User.findOne({ id: requestedId }).lean();
+  if (!isActiveDetailerUser(detailer)) {
+    throwValidationError("Please choose an active Junior or Senior Detailer.", 400, "preferredDetailerId");
+  }
+
+  const preferredDetailer = getDetailerDisplayName(detailer);
+  if (!preferredDetailer) {
+    throwValidationError("Please choose an active Junior or Senior Detailer.", 400, "preferredDetailerId");
+  }
+
+  return {
+    preferredDetailer,
+    preferredDetailerName: preferredDetailer,
+    preferredDetailerId: getStableUserId(detailer),
   };
 }
 
@@ -3448,16 +3503,16 @@ function validateCustomerBookingCreateRequirements(req, { service = null } = {})
   const time = String(req.body.time || "").trim();
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    throwValidationError("Booking date is required.");
+    throwValidationError("Booking date is required.", 400, "date");
   }
 
   if (!isValidScheduleTime(time)) {
-    throwValidationError("Please select a preferred time.");
+    throwValidationError("Please select a preferred time.", 400, "time");
   }
 
   const allowedArrivalTimes = normalizeAllowedArrivalTimes(service?.allowedArrivalTimes, service?.mins);
   if (!allowedArrivalTimes.includes(time)) {
-    throwValidationError("Selected preferred time is not available for this service.");
+    throwValidationError("Selected preferred time is not available for this service.", 400, "time");
   }
 
   return { date, time };
@@ -3483,30 +3538,31 @@ async function resolveBookingCustomerForRequest(req, { isCustomerRequested = fal
 }
 
 async function validateVehicleOwnershipForBooking({ req, customer = null, isCustomerRequested = false }) {
-  const vehicle = String(req.body.vehicle || "").trim();
-  const carSize = normalizeCarSizeLabel(req.body.carSize);
-  const plate = normalizePlateNumber(req.body.plate);
-  validateVehicleSnapshotFields({ vehicle, carSize, plate });
+  const vehicleSnapshot = validateVehicleSnapshotFields({
+    vehicle: req.body.vehicle,
+    carSize: req.body.carSize,
+    plate: req.body.plate,
+  });
 
   const owner = customer || (isCustomerRequested ? await User.findOne({ id: req.authUser?.id }).lean() : null);
   const ownerCars = normalizeCustomerCars(owner?.cars || []);
-  const submittedKey = getCustomerCarKey({ vehicle, plate });
+  const submittedKey = getCustomerCarKey(vehicleSnapshot);
 
   if (ownerCars.length && !ownerCars.some((car) => getCustomerCarKey(car) === submittedKey)) {
-    throwValidationError("Selected vehicle does not belong to the customer.");
+    throwValidationError("Selected vehicle does not belong to the customer.", 400, "selectedCar");
   }
 
   const conflictingOwner = await User.findOne({
     id: { $ne: owner?.id || req.authUser?.id || "" },
     userType: /^customer$/i,
     status: { $nin: ["inactive", "deactivated", "deleted"] },
-    "cars.plate": plate,
+    "cars.plate": vehicleSnapshot.plate,
   }).lean();
   if (conflictingOwner) {
-    throwValidationError("Selected vehicle belongs to another customer.");
+    throwValidationError("Selected vehicle belongs to another customer.", 400, "plate");
   }
 
-  return { vehicle, carSize, plate };
+  return vehicleSnapshot;
 }
 
 function getVehicleCache(key) {
@@ -5536,9 +5592,7 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
 
   const customerReward = await CustomerReward.findOne({ id: normalizedRewardId }).lean();
   if (!customerReward) {
-    const error = new Error("Reward not found.");
-    error.statusCode = 404;
-    throw error;
+    throwValidationError("Reward not found.", 404, "rewardId");
   }
 
   const ownerEmail = String(customerReward.customerEmail || "").trim().toLowerCase();
@@ -5547,16 +5601,12 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
   const requestName = String(customerName || "").trim().toLowerCase();
   const belongsToCustomer = ownerEmail ? ownerEmail === requestEmail : ownerName && ownerName === requestName;
   if (!belongsToCustomer) {
-    const error = new Error("Reward does not belong to your account.");
-    error.statusCode = 403;
-    throw error;
+    throwValidationError("Reward does not belong to your account.", 403, "rewardId");
   }
 
   const currentRewardStatus = getCustomerRewardUsageStatus(customerReward);
   if (!["Available", "Claimed", "Released"].includes(currentRewardStatus)) {
-    const error = new Error("This reward is not available.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("This reward is not available.", 400, "rewardId");
   }
 
   const existingActivePayment = await Payment.findOne({
@@ -5565,22 +5615,16 @@ async function validateCustomerRewardForUse({ rewardId = "", customerEmail = "",
     status: { $nin: ["Rejected"] },
   }).lean();
   if (existingActivePayment) {
-    const error = new Error("This reward is already reserved for another booking.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("This reward is already reserved for another booking.", 400, "rewardId");
   }
 
   if (isRewardExpired(customerReward)) {
-    const error = new Error("Reward expired.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Reward expired.", 400, "rewardId");
   }
 
   const reward = await Reward.findOne({ id: customerReward.rewardId }).lean();
   if (!reward || !engagementDomain.isRewardDefinitionSelectable(reward, service)) {
-    const error = new Error("Reward is no longer active.");
-    error.statusCode = 400;
-    throw error;
+    throwValidationError("Reward is no longer active.", 400, "rewardId");
   }
 
   return buildRewardPricing(baseAmount, customerReward);
@@ -8080,8 +8124,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     });
 
     if (isPastDateKey(bookingDate)) {
-      res.status(400).json({ message: "Booking date cannot be in the past." });
-      return;
+      throwValidationError("Booking date cannot be in the past.", 400, "date");
     }
     if (isCustomerRequested && !bookingDate) {
       res.status(400).json({ message: "Please choose a preferred booking date." });
@@ -8118,8 +8161,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       ? engagementDomain.evaluatePromotionEligibility({ promo: promoResolution.hydratedPromo, service: selectedService })
       : { eligible: true };
     if (!promoEligibility.eligible) {
-      res.status(400).json({ message: promoEligibility.reason });
-      return;
+      throwValidationError(promoEligibility.reason, 400, "promoId");
     }
     await enforcePromoUsagePerUserLimit({
       promo: promoResolution?.hydratedPromo || null,
@@ -8144,7 +8186,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       service: selectedService,
     });
 
-    const preferredDetailerFields = getPreferredDetailerFields(req.body);
+    const preferredDetailerFields = await resolvePreferredDetailerForBooking(req.body, { isCustomerRequested });
     const booking = await Booking.create({
       id: createId("B"),
       customer: bookingCustomerName,

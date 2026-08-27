@@ -11,7 +11,7 @@ global.TextEncoder = global.TextEncoder || TextEncoder;
 const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
-const { __testModels, app, signJwt } = require("../server/server");
+const { __testModels, app, filterBootstrapDataForRole, signJwt } = require("../server/server");
 
 jest.setTimeout(15000);
 
@@ -35,6 +35,28 @@ const otherCustomer = {
 };
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer One", userType: "Staff", role: "Senior Detailer", status: "active" };
+const juniorDetailerUser = { id: "STF-2", email: "junior@example.com", name: "Junior One", userType: "Staff", role: "Junior Detailer", status: "active" };
+const inactiveSeniorDetailer = { id: "STF-3", email: "inactive-senior@example.com", name: "Inactive Senior", userType: "Staff", role: "Senior Detailer", status: "inactive" };
+const inactiveJuniorDetailer = { id: "STF-4", email: "inactive-junior@example.com", name: "Inactive Junior", userType: "Staff", role: "Junior Detailer", status: "deactivated" };
+const generalManagerUser = { id: "GM-1", email: "gm@example.com", name: "General Manager", userType: "Staff", role: "General Manager", status: "active" };
+const salesManagerUser = { id: "SM-1", email: "sales-manager@example.com", name: "Sales Manager", userType: "Staff", role: "Sales Manager", status: "active" };
+const salesAssociateUser = { id: "SA-1", email: "sales-associate@example.com", name: "Sales Associate", userType: "Staff", role: "Sales Associate", status: "active" };
+const inventoryClerkUser = { id: "INV-1", email: "inventory@example.com", name: "Inventory Clerk", userType: "Staff", role: "Inventory Clerk", status: "active" };
+const marketingUser = { id: "MKT-1", email: "marketing@example.com", name: "Marketing", userType: "Staff", role: "Marketing", status: "active" };
+const allUsers = [
+  customerUser,
+  otherCustomer,
+  adminUser,
+  detailerUser,
+  juniorDetailerUser,
+  inactiveSeniorDetailer,
+  inactiveJuniorDetailer,
+  generalManagerUser,
+  salesManagerUser,
+  salesAssociateUser,
+  inventoryClerkUser,
+  marketingUser,
+];
 
 const enabledService = {
   id: "SVC-1",
@@ -68,6 +90,8 @@ const basePayload = {
 let bookings;
 let payments;
 let auditLogs;
+let customerRewardRecords;
+let rewardRecords;
 const originals = [];
 
 function clone(value) {
@@ -142,11 +166,10 @@ async function request(path, { method = "GET", token = auth(), body } = {}) {
 }
 
 function findUser(query = {}) {
-  const users = [customerUser, otherCustomer, adminUser, detailerUser];
-  if (query.id) return users.find((user) => user.id === query.id);
-  if (query.email && typeof query.email === "string") return users.find((user) => user.email === query.email);
+  if (query.id && typeof query.id === "string") return allUsers.find((user) => user.id === query.id);
+  if (query.email && typeof query.email === "string") return allUsers.find((user) => user.email === query.email);
   if (query["cars.plate"]) {
-    return users.find((user) => user.id !== query.id?.$ne && user.cars?.some((car) => car.plate === query["cars.plate"]));
+    return allUsers.find((user) => user.id !== query.id?.$ne && user.cars?.some((car) => car.plate === query["cars.plate"]));
   }
   return null;
 }
@@ -160,11 +183,23 @@ function resetData(seedBookings = []) {
   bookings = seedBookings.map(clone);
   payments = [];
   auditLogs = [];
+  customerRewardRecords = [];
+  rewardRecords = [{
+    id: "RWD-1",
+    active: true,
+    enabled: true,
+    name: "Loyalty Discount",
+    rewardType: "Fixed Discount",
+    discountType: "Fixed",
+    discountValue: 100,
+    weight: 1,
+    quantity: 1,
+  }];
 }
 
 beforeAll(async () => {
   stub(__testModels.User, "findOne", (query) => doc(findUser(query)));
-  stub(__testModels.User, "find", () => chain([customerUser, otherCustomer, adminUser, detailerUser]));
+  stub(__testModels.User, "find", () => chain(allUsers));
   stub(__testModels.Service, "findOne", (query) => doc(findService(query)));
   stub(__testModels.Service, "find", () => chain([enabledService, disabledService]));
   stub(__testModels.Booking, "find", () => chain(bookings));
@@ -183,8 +218,9 @@ beforeAll(async () => {
   stub(__testModels.Payment, "findOneAndUpdate", async () => null);
   stub(__testModels.Payment, "countDocuments", async () => 0);
   stub(__testModels.Promo, "findOne", () => doc(null));
-  stub(__testModels.CustomerReward, "findOne", () => doc(null));
+  stub(__testModels.CustomerReward, "findOne", (query = {}) => doc(customerRewardRecords.find((reward) => reward.id === query.id)));
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
+  stub(__testModels.Reward, "findOne", (query = {}) => doc(rewardRecords.find((reward) => reward.id === query.id)));
   stub(__testModels.Review, "countDocuments", async () => 0);
   stub(__testModels.Commission, "findOne", () => doc(null));
   stub(__testModels.Commission, "countDocuments", async () => 0);
@@ -278,12 +314,17 @@ describe("Customer booking creation route validation", () => {
       body: {
         ...basePayload,
         assigned: "Detailer One",
+        assignedDetailerId: "STF-1",
+        assignedDetailerName: "Detailer One",
         placeSlot: 7,
         status: "Completed",
         amount: 1,
         finalAmount: 1,
         paymentStatus: "Paid",
         verified: true,
+        trackingState: "Completed",
+        warrantyReleased: true,
+        reviewedBy: "admin@example.com",
       },
     });
     expect(response.status).toBe(201);
@@ -293,6 +334,7 @@ describe("Customer booking creation route validation", () => {
       customerEmail: "customer@example.com",
       customerId: "CUS-1",
       assigned: "",
+      assignedDetailerId: "",
       status: "Pending",
       placeSlot: 0,
       vehicle: "Civic",
@@ -302,6 +344,8 @@ describe("Customer booking creation route validation", () => {
       date: "2099-12-31",
       time: "10:00",
     });
+    expect(bookings[0].warrantyReleased).toBeUndefined();
+    expect(bookings[0].trackingState).toBeUndefined();
   });
 
   test("a customer cannot force Scheduled or Completed status", async () => {
@@ -335,6 +379,210 @@ describe("Customer booking creation route validation", () => {
       service: "Car Wash",
       date: "2099-12-31",
       time: "10:00",
+    });
+  });
+
+  test.each([
+    ["active Senior Detailer", "STF-1", "Detailer One"],
+    ["active Junior Detailer", "STF-2", "Junior One"],
+  ])("%s can be stored as a preferred detailer with a server-derived display name", async (_label, preferredDetailerId, expectedName) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: {
+        ...basePayload,
+        preferredDetailerId,
+        preferredDetailerName: "Forged Name",
+        preferredDetailer: "Forged Name",
+      },
+    });
+
+    expect(response.status).toBe(201);
+    expect(bookings).toHaveLength(1);
+    expect(bookings[0]).toMatchObject({
+      preferredDetailerId,
+      preferredDetailerName: expectedName,
+      preferredDetailer: expectedName,
+      assigned: "",
+      assignedDetailerId: "",
+    });
+  });
+
+  test.each([
+    ["nonexistent ID", "NO-SUCH-DETAILER"],
+    ["inactive Senior Detailer", "STF-3"],
+    ["inactive Junior Detailer", "STF-4"],
+    ["Customer ID", "CUS-1"],
+    ["Admin ID", "ADM-1"],
+    ["General Manager ID", "GM-1"],
+    ["Sales Manager ID", "SM-1"],
+    ["Sales Associate ID", "SA-1"],
+    ["Inventory Clerk ID", "INV-1"],
+    ["Marketing ID", "MKT-1"],
+  ])("rejects forged preferred detailer using %s", async (_label, preferredDetailerId) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, preferredDetailerId },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe("preferredDetailerId");
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("rejects free-text preferred detailer names without a stable detailer ID", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, preferredDetailerName: "Someone Else" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe("preferredDetailerId");
+    expect(bookings).toHaveLength(0);
+  });
+
+  test.each([
+    ["empty vehicle", { vehicle: "   " }, "vehicle"],
+    ["whitespace vehicle", { vehicle: "\t\n" }, "vehicle"],
+    ["invalid plate", { plate: "AB@123" }, "plate"],
+    ["invalid car size", { carSize: "Truck" }, "carSize"],
+    ["past date", { date: "2000-01-01" }, "date"],
+    ["malformed date", { date: "2099/12/31" }, "date"],
+    ["unsupported time", { time: "11:00" }, "time"],
+    ["nonexistent service", { service: "Missing Service" }, "service"],
+    ["disabled service", { service: "Disabled Wash" }, "service"],
+  ])("maps backend field validation for %s", async (_label, patch, field) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, ...patch },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe(field);
+    expect(response.body.errors[field]).toBeTruthy();
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("normalizes plate and vehicle snapshots before persistence", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, vehicle: "  Civic  ", plate: " abc 123 " },
+    });
+
+    expect(response.status).toBe(201);
+    expect(bookings[0]).toMatchObject({
+      vehicle: "Civic",
+      plate: "ABC123",
+    });
+  });
+
+  test("rejects a reward that belongs to another Customer", async () => {
+    customerRewardRecords.push({
+      id: "CR-OTHER",
+      rewardId: "RWD-1",
+      customerId: otherCustomer.id,
+      customerEmail: otherCustomer.email,
+      customerName: otherCustomer.name,
+      rewardName: "Other Customer Discount",
+      rewardType: "Fixed Discount",
+      rewardValue: "P100 off",
+      discountType: "Fixed",
+      discountValue: 100,
+      status: "Available",
+    });
+
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, rewardId: "CR-OTHER" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.field).toBe("rewardId");
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
+  });
+
+  test("bootstrap synchronization keeps Customer scoped to authoritative operations changes", () => {
+    const scoped = filterBootstrapDataForRole({
+      bookings: [
+        {
+          id: "B-A",
+          customerEmail: customerUser.email,
+          customerId: customerUser.id,
+          customer: "Customer One",
+          service: "Car Wash",
+          vehicle: "Civic",
+          plate: "ABC123",
+          carSize: "Sedan / Small Car",
+          status: "Scheduled",
+          date: "2099-12-31",
+          time: "13:00",
+          placeSlot: 4,
+          preferredDetailerId: "STF-1",
+          preferredDetailerName: "Detailer One",
+          preferredDetailer: "Detailer One",
+          assignedDetailerId: "STF-2",
+          assigned: "Junior One",
+        },
+        {
+          id: "B-B",
+          customerEmail: otherCustomer.email,
+          customerId: otherCustomer.id,
+          customer: "Other Customer",
+          service: "Car Wash",
+          status: "Cancelled",
+          date: "2099-12-30",
+          time: "10:00",
+          placeSlot: 2,
+          assigned: "Detailer One",
+        },
+        {
+          id: "B-CANCELLED",
+          customerEmail: customerUser.email,
+          customerId: customerUser.id,
+          customer: "Customer One",
+          service: "Car Wash",
+          status: "Cancelled",
+          date: "2099-12-29",
+          time: "10:00",
+          placeSlot: 0,
+          cancelReason: "Shop emergency",
+        },
+      ],
+      services: [],
+      stockMonitoring: [],
+      payments: [{ id: "PAY-A", bookingId: "B-A", customerEmail: customerUser.email, downPaymentStatus: "Paid", finalPaymentStatus: "Pending" }],
+      users: allUsers,
+      auditLogs: [],
+      archivedAuditLogs: [],
+      reviews: [],
+      promos: [],
+      quoteRequests: [],
+      expenses: [],
+      commissions: [],
+      rewards: [],
+      customerRewards: [],
+      alerts: [],
+      financialReport: { totals: {}, payments: [], expenses: [], commissions: [] },
+      summary: {},
+    }, customerUser);
+
+    expect(scoped.bookings.map((booking) => booking.id)).toEqual(["B-A", "B-CANCELLED"]);
+    expect(scoped.payments.map((payment) => payment.id)).toEqual(["PAY-A"]);
+    expect(scoped.bookings[0]).toMatchObject({
+      status: "Scheduled",
+      date: "2099-12-31",
+      time: "13:00",
+      placeSlot: 4,
+      preferredDetailerId: "STF-1",
+      preferredDetailerName: "Detailer One",
+      assignedDetailerId: "STF-2",
+      assigned: "Junior One",
+    });
+    expect(scoped.bookings[1]).toMatchObject({
+      status: "Cancelled",
+      cancelReason: "Shop emergency",
     });
   });
 });
