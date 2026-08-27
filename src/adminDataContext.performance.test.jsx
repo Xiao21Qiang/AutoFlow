@@ -90,8 +90,8 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
     jest.clearAllMocks();
   });
 
-  async function renderAndResolveInitial(payload = buildPayload()) {
-    render(<Harness session={session} onContext={(value) => { context = value; }} />);
+  async function renderAndResolveInitial(payload = buildPayload(), activeSession = session) {
+    render(<Harness session={activeSession} onContext={(value) => { context = value; }} />);
     await waitFor(() => expect(requests).toHaveLength(1));
     await act(async () => {
       requests[0].resolve(payload);
@@ -541,6 +541,66 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
       role: "Owner",
       userType: "Admin",
     }));
+  });
+
+  test("customer profile update persists saved cars through the dedicated self-cars route", async () => {
+    const customerSession = {
+      id: "CUS-1",
+      email: "customer@example.com",
+      name: "Customer One",
+      first: "Customer",
+      last: "One",
+      phone: "09123456789",
+      userType: "Customer",
+      role: "New",
+      cars: [],
+    };
+    const updatedCustomer = {
+      ...customerSession,
+      cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }],
+    };
+    await renderAndResolveInitial(buildPayload({ users: [customerSession] }), customerSession);
+
+    apiRequest.mockImplementation((path) => {
+      if (path === "/api/admin/users/CUS-1?refreshSession=1") {
+        return Promise.resolve({ token: "token-profile", user: { ...customerSession, first: "Updated" } });
+      }
+      if (path === "/api/customer/cars?refreshSession=1") {
+        return Promise.resolve({ token: "token-cars", user: updatedCustomer });
+      }
+      if (path === "/api/admin/bootstrap") {
+        return Promise.resolve(buildPayload({ users: [updatedCustomer] }));
+      }
+      return Promise.resolve({});
+    });
+
+    let returnedUser;
+    await act(async () => {
+      returnedUser = await context.updateProfile({
+        first: "Updated",
+        last: "One",
+        email: "customer@example.com",
+        phone: "09123456789",
+        cars: updatedCustomer.cars,
+      });
+    });
+
+    expect(apiRequest.mock.calls[0][0]).toBe("/api/admin/users/CUS-1?refreshSession=1");
+    expect(JSON.parse(apiRequest.mock.calls[0][1].body)).toEqual({
+      first: "Updated",
+      last: "One",
+      email: "customer@example.com",
+      phone: "09123456789",
+      auditUser: "customer@example.com",
+    });
+    expect(apiRequest.mock.calls[2][0]).toBe("/api/customer/cars?refreshSession=1");
+    expect(JSON.parse(apiRequest.mock.calls[2][1].body)).toEqual({
+      cars: updatedCustomer.cars,
+      auditUser: "customer@example.com",
+    });
+    expect(returnedUser.cars).toEqual(updatedCustomer.cars);
+    expect(localStorage.getItem("token")).toBe("token-cars");
+    expect(JSON.parse(localStorage.getItem("user")).cars).toEqual(updatedCustomer.cars);
   });
 });
 

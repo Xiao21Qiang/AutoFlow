@@ -2206,6 +2206,10 @@ function getFirstValidationError(errors) {
   return { field, message };
 }
 
+function respondFieldError(res, statusCode, field, message) {
+  res.status(statusCode).json({ message, field, errors: { [field]: message } });
+}
+
 function validatePublicCustomerSignupPayload(body = {}) {
   const payload = {
     first: normalizeCustomerSignupName(body.firstName),
@@ -2779,6 +2783,7 @@ function buildAuthPayload(user) {
       first: user.first || "",
       last: user.last || "",
       phone: user.phone || "",
+      cars: normalizeCustomerCars(user.cars || []),
     },
   };
 }
@@ -3367,6 +3372,51 @@ function normalizeCustomerCars(cars) {
       seen.add(key);
       return true;
     });
+}
+
+function validateCustomerSavedCars(cars) {
+  if (!Array.isArray(cars)) {
+    throwValidationError("Saved cars must be a list.", 400, "cars");
+  }
+
+  const seenPlates = new Set();
+  return cars.map((car, index) => {
+    const prefix = `Saved car ${index + 1}`;
+    const brand = String(car?.brand || car?.make || "").trim().replace(/\s+/g, " ");
+    let vehicleSnapshot;
+    try {
+      vehicleSnapshot = validateVehicleSnapshotFields({
+        vehicle: car?.vehicle,
+        carSize: car?.size,
+        plate: car?.plate,
+      });
+    } catch (error) {
+      const fieldMap = { vehicle: "vehicle", carSize: "size", plate: "plate" };
+      const carField = fieldMap[error.field] || "vehicle";
+      throw buildFieldValidationError(error.message, `cars.${index}.${carField}`);
+    }
+
+    if (!brand) {
+      throwValidationError(`${prefix} brand is required.`, 400, `cars.${index}.brand`);
+    }
+    if (brand.length < 2 || brand.length > 40) {
+      throwValidationError(`${prefix} brand must be 2 to 40 characters.`, 400, `cars.${index}.brand`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9\s.'()/-]*$/.test(brand)) {
+      throwValidationError(`${prefix} brand contains unsupported characters.`, 400, `cars.${index}.brand`);
+    }
+    if (seenPlates.has(vehicleSnapshot.plate)) {
+      throwValidationError("A saved car with this plate already exists.", 400, `cars.${index}.plate`);
+    }
+    seenPlates.add(vehicleSnapshot.plate);
+
+    return {
+      brand,
+      vehicle: vehicleSnapshot.vehicle,
+      size: vehicleSnapshot.carSize,
+      plate: vehicleSnapshot.plate,
+    };
+  });
 }
 
 function normalizePlateNumber(value) {
@@ -6793,6 +6843,15 @@ function isAuditLogWithinDays(log, days) {
   return newestDate.getTime() >= cutoff;
 }
 
+function getAuditLogTimestamp(log = {}) {
+  return [log.createdAt, log.updatedAt, log.archivedAt, log.ts]
+    .map((value) => {
+      const date = value ? new Date(value) : null;
+      return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
+    })
+    .sort((left, right) => right - left)[0] || 0;
+}
+
 function isCustomerScopedAuditLog(log) {
   return getAuditCustomerScopeValues(log).length > 0;
 }
@@ -6911,8 +6970,12 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
       payments: scopedPayments,
       users: [...(ownUser ? [sanitizeUser(ownUser)] : []), ...safePreferredDetailers],
       stockMonitoring: [],
-      auditLogs: data.auditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
-      archivedAuditLogs: data.archivedAuditLogs.filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30)),
+      auditLogs: data.auditLogs
+        .filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30))
+        .sort((left, right) => getAuditLogTimestamp(right) - getAuditLogTimestamp(left)),
+      archivedAuditLogs: data.archivedAuditLogs
+        .filter((log) => isCustomerVisibleAuditLog(log, customerAuditScope) && isAuditLogWithinDays(log, 30))
+        .sort((left, right) => getAuditLogTimestamp(right) - getAuditLogTimestamp(left)),
       reviews: data.reviews.filter((review) => {
         const reviewEmail = String(review.customerEmail || "").trim().toLowerCase();
         const reviewCustomer = String(review.customer || "").trim().toLowerCase();
@@ -10059,6 +10122,44 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
 app.post("/api/ai/tracking/issue-note", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.trackingUpdateIssueNotes), handleTrackingIssueNoteAi);
 app.post("/api/admin/issue-note-suggestion", requireRoles("admin", "staff"), requireAction(ACTION_KEYS.trackingUpdateIssueNotes), handleTrackingIssueNoteAi);
 
+app.put("/api/customer/cars", authenticateApi, requireRoles("customer"), async (req, res, next) => {
+  try {
+    const existingUser = await User.findOne({ id: req.authUser?.id }).lean();
+    if (!existingUser || normalizeUserType(existingUser.userType, existingUser.role) !== "customer") {
+      res.status(404).json({ message: "Customer profile not found." });
+      return;
+    }
+    if (!isActiveAccount(existingUser) || isDeletedAccount(existingUser)) {
+      res.status(409).json({ message: "Inactive customer accounts cannot update saved cars." });
+      return;
+    }
+
+    const cars = validateCustomerSavedCars(req.body?.cars || []);
+    const user = await User.findOneAndUpdate({ id: existingUser.id }, { cars }, { new: true });
+    if (!user) {
+      res.status(404).json({ message: "Customer profile not found." });
+      return;
+    }
+
+    await recordAudit(req.authUser?.email, "Updated saved cars", existingUser.id, {
+      actorId: req.authUser?.id || "",
+      actorRole: req.authUser?.role || "",
+      targetType: "User",
+      email: user.email || existingUser.email || "",
+      savedVehicles: cars.length,
+      result: "allowed",
+    });
+
+    if (String(req.query?.refreshSession || "") === "1") {
+      res.json(buildAuthPayload(user));
+      return;
+    }
+    res.json(sanitizeUser(user));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/admin/users/staff", requireAdminUser, async (req, res, next) => {
   try {
     if (respondIfDatabaseUnavailable(res)) return;
@@ -10198,6 +10299,10 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     }
 
     const existingUserType = normalizeUserType(existingUser.userType, existingUser.role);
+    const isCustomerProfileTarget = existingUserType === "customer";
+    const sendProfileFieldError = (statusCode, field, customerMessage, legacyMessage = customerMessage) => {
+      respondFieldError(res, statusCode, field, isCustomerProfileTarget ? customerMessage : legacyMessage);
+    };
     const hasUnsupportedPermissionPayload = ["modules", "moduleAccess", "modulePermissions", "permissions"].some((key) =>
       Object.prototype.hasOwnProperty.call(req.body || {}, key)
     );
@@ -10232,15 +10337,37 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       : String(existingUser.last || "").trim().replace(/\s+/g, " ");
     if (hasSubmittedNameParts) {
       if (!submittedFirst) {
-        res.status(400).json({ message: "First name is required." });
+        sendProfileFieldError(400, "first", "First name is required.");
         return;
       }
       if (!submittedLast) {
-        res.status(400).json({ message: "Last name is required." });
+        sendProfileFieldError(400, "last", "Last name is required.");
         return;
       }
-      if (!/^[\p{L}\s'.-]+$/u.test(submittedFirst) || !/^[\p{L}\s'.-]+$/u.test(submittedLast)) {
-        res.status(400).json({ message: "Name can only contain letters, spaces, hyphens, apostrophes, and periods." });
+      if (submittedFirst.length > CUSTOMER_SIGNUP_NAME_MAX_LENGTH) {
+        sendProfileFieldError(400, "first", "First name must be 24 characters or less.");
+        return;
+      }
+      if (submittedLast.length > CUSTOMER_SIGNUP_NAME_MAX_LENGTH) {
+        sendProfileFieldError(400, "last", "Last name must be 24 characters or less.");
+        return;
+      }
+      if (!/^[\p{L}\s'.-]+$/u.test(submittedFirst)) {
+        sendProfileFieldError(
+          400,
+          "first",
+          "First name can only contain letters, spaces, hyphens, apostrophes, and periods.",
+          "Name can only contain letters, spaces, hyphens, apostrophes, and periods."
+        );
+        return;
+      }
+      if (!/^[\p{L}\s'.-]+$/u.test(submittedLast)) {
+        sendProfileFieldError(
+          400,
+          "last",
+          "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.",
+          "Name can only contain letters, spaces, hyphens, apostrophes, and periods."
+        );
         return;
       }
     }
@@ -10253,7 +10380,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
           : existingUser.name
     ).trim().replace(/\s+/g, " ");
     if (!requestedName) {
-      res.status(400).json({ message: "Full name is required." });
+      sendProfileFieldError(400, "name", "Full name is required.");
       return;
     }
 
@@ -10266,11 +10393,11 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       ? String(req.body.email ?? "").trim().toLowerCase()
       : String(existingUser.email ?? "").trim().toLowerCase();
     if (!requestedEmail) {
-      res.status(400).json({ message: "Email is required." });
+      sendProfileFieldError(400, "email", "Email is required.");
       return;
     }
     if (!EMPLOYEE_EMAIL_REGEX.test(requestedEmail)) {
-      res.status(400).json({ message: "Please enter a valid email address." });
+      sendProfileFieldError(400, "email", "Enter a valid email address.", "Please enter a valid email address.");
       return;
     }
 
@@ -10279,11 +10406,11 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       ? String(req.body.phone || "").trim().replace(/\D/g, "").slice(0, 11)
       : String(existingUser.phone || "").trim();
     if (phoneWasSubmitted && !requestedPhone) {
-      res.status(400).json({ message: "Contact number is required." });
+      sendProfileFieldError(400, "phone", "Phone number is required.", "Contact number is required.");
       return;
     }
     if (requestedPhone && !/^09\d{9}$/.test(requestedPhone)) {
-      res.status(400).json({ message: "Please enter a valid phone number." });
+      sendProfileFieldError(400, "phone", "Phone must be 11 digits and start with 09.", "Please enter a valid phone number.");
       return;
     }
 
@@ -10325,11 +10452,11 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
         requestedPhone ? User.findOne({ phone: requestedPhone }).lean() : Promise.resolve(null),
       ]);
       if (duplicateEmail && String(duplicateEmail.id || "") !== String(existingUser.id || "")) {
-        res.status(409).json({ message: "That email is already registered." });
+        respondFieldError(res, 409, "email", "That email is already registered.");
         return;
       }
       if (duplicatePhone && String(duplicatePhone.id || "") !== String(existingUser.id || "")) {
-        res.status(409).json({ message: "That contact number is already registered." });
+        respondFieldError(res, 409, "phone", "That contact number is already registered.");
         return;
       }
 
@@ -10447,11 +10574,11 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
       requestedPhone ? User.findOne({ phone: requestedPhone }).lean() : Promise.resolve(null),
     ]);
     if (duplicateEmail && String(duplicateEmail.id || "") !== String(existingUser.id || "")) {
-      res.status(409).json({ message: "That email is already registered." });
+      respondFieldError(res, 409, "email", "That email is already registered.");
       return;
     }
     if (duplicatePhone && String(duplicatePhone.id || "") !== String(existingUser.id || "")) {
-      res.status(409).json({ message: "That contact number is already registered." });
+      respondFieldError(res, 409, "phone", "That contact number is already registered.");
       return;
     }
 
@@ -10818,7 +10945,7 @@ app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, re
     }
     const bookingId = String(req.body.bookingId || "").trim();
     if (!bookingId) {
-      res.status(400).json({ message: "Booking selection is required before submitting a review." });
+      respondFieldError(res, 400, "bookingId", "Booking selection is required before submitting a review.");
       return;
     }
     const [booking, existingReview] = await Promise.all([
@@ -10836,10 +10963,17 @@ app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, re
       customer: req.authUser,
     });
     if (!eligibility.eligible) {
-      res.status(400).json({ message: eligibility.reason });
+      respondFieldError(res, 400, "bookingId", eligibility.reason);
       return;
     }
-    const reviewInput = engagementDomain.validateReviewInput(req.body);
+    let reviewInput;
+    try {
+      reviewInput = engagementDomain.validateReviewInput(req.body);
+    } catch (error) {
+      const field = String(error.message || "").toLowerCase().includes("rating") ? "rating" : "comment";
+      respondFieldError(res, error.statusCode || 400, field, error.message || "Review details are invalid.");
+      return;
+    }
     const review = await Review.create({
       id: createId("REV"),
       customerId: req.authUser?.id || booking.customerId || "",
@@ -10866,7 +11000,7 @@ app.post("/api/admin/reviews", requireRoles("admin", "customer"), async (req, re
     res.status(201).json(review);
   } catch (error) {
     if (error?.code === 11000) {
-      res.status(409).json({ message: "This booking already has a review." });
+      respondFieldError(res, 409, "bookingId", "This booking already has a review.");
       return;
     }
     next(error);

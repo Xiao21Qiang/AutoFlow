@@ -54,6 +54,9 @@ const CAR_SIZE_OPTIONS = [
   "SUV",
   "XL / Van / Semi Truck",
 ];
+const NAME_MAX_LENGTH = 24;
+const PROFILE_NAME_REGEX = /^[\p{L}\s'.-]+$/u;
+const CAR_TEXT_REGEX = /^[A-Za-z0-9][A-Za-z0-9\s.'()/-]*$/;
 
 function normalizeCars(cars) {
   if (!Array.isArray(cars)) return [];
@@ -79,6 +82,70 @@ function createEmptyCar() {
   return { brand: "", vehicle: "", size: "", plate: "" };
 }
 
+function normalizePlate(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16);
+}
+
+function validateProfileForm(form) {
+  const payload = {
+    first: String(form.first || "").trim().replace(/\s+/g, " "),
+    last: String(form.last || "").trim().replace(/\s+/g, " "),
+    email: String(form.email || "").trim().toLowerCase(),
+    phone: String(form.phone || "").trim().replace(/\D/g, "").slice(0, 11),
+    cars: [],
+  };
+  const errors = {};
+
+  if (!payload.first) errors.first = "First name is required.";
+  else if (payload.first.length > NAME_MAX_LENGTH) errors.first = "First name must be 24 characters or less.";
+  else if (!PROFILE_NAME_REGEX.test(payload.first)) errors.first = "First name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+
+  if (!payload.last) errors.last = "Last name is required.";
+  else if (payload.last.length > NAME_MAX_LENGTH) errors.last = "Last name must be 24 characters or less.";
+  else if (!PROFILE_NAME_REGEX.test(payload.last)) errors.last = "Last name can only contain letters, spaces, hyphens, apostrophes, and periods.";
+
+  if (!payload.email) errors.email = "Email is required.";
+  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) errors.email = "Enter a valid email address.";
+
+  if (!payload.phone) errors.phone = "Phone number is required.";
+  else if (!/^09\d{9}$/.test(payload.phone)) errors.phone = "Phone must be 11 digits and start with 09.";
+
+  const seenPlates = new Set();
+  payload.cars = (Array.isArray(form.cars) ? form.cars : []).map((car, index) => {
+    const brand = String(car?.brand || "").trim().replace(/\s+/g, " ");
+    const vehicle = String(car?.vehicle || "").trim().replace(/\s+/g, " ");
+    const size = String(car?.size || "").trim();
+    const rawPlate = String(car?.plate || "").trim();
+    const plate = normalizePlate(rawPlate);
+    const values = [brand, vehicle, size, rawPlate];
+    const hasAnyValue = values.some((value) => String(value || "").trim());
+
+    if (!hasAnyValue) {
+      return { brand, vehicle, size, plate };
+    }
+
+    if (!brand) errors[`cars.${index}.brand`] = "Car brand is required.";
+    else if (brand.length < 2 || brand.length > 40) errors[`cars.${index}.brand`] = "Car brand must be 2 to 40 characters.";
+    else if (!CAR_TEXT_REGEX.test(brand)) errors[`cars.${index}.brand`] = "Car brand contains unsupported characters.";
+
+    if (!vehicle) errors[`cars.${index}.vehicle`] = "Car model is required.";
+    else if (vehicle.length < 2 || vehicle.length > 80) errors[`cars.${index}.vehicle`] = "Car model must be 2 to 80 characters.";
+    else if (!CAR_TEXT_REGEX.test(vehicle)) errors[`cars.${index}.vehicle`] = "Car model contains unsupported characters.";
+
+    if (!CAR_SIZE_OPTIONS.includes(size)) errors[`cars.${index}.size`] = "Select a valid car size.";
+
+    if (!plate) errors[`cars.${index}.plate`] = "Plate number is required.";
+    else if (/[^A-Za-z0-9\s-]/.test(rawPlate)) errors[`cars.${index}.plate`] = "Plate number contains unsupported characters.";
+    else if (plate.length < 3 || plate.length > 16) errors[`cars.${index}.plate`] = "Plate number must be 3 to 16 letters or numbers.";
+    else if (seenPlates.has(plate)) errors[`cars.${index}.plate`] = "A saved car with this plate already exists.";
+
+    if (plate) seenPlates.add(plate);
+    return { brand, vehicle, size, plate };
+  }).filter((car) => car.brand || car.vehicle || car.size || car.plate);
+
+  return { payload, errors };
+}
+
 function getAuditDetail(log) {
   const meta = log?.meta || {};
   if (meta.message) return String(meta.message);
@@ -94,7 +161,7 @@ export default function CustomerProfile({ session }) {
       last: currentUser?.last || session?.last || session?.lastName || "",
       email: currentUser?.email || session?.email || "",
       phone: currentUser?.phone || session?.phone || "",
-      cars: normalizeCars(currentUser?.cars),
+      cars: normalizeCars(Array.isArray(currentUser?.cars) ? currentUser.cars : session?.cars),
     }),
     [currentUser, session]
   );
@@ -103,6 +170,8 @@ export default function CustomerProfile({ session }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [animating, setAnimating] = useState(false);
   const [form, setForm] = useState(initial);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [saveError, setSaveError] = useState("");
   const [pwStep, setPwStep] = useState("idle");
   const [verifyEmail, setVerifyEmail] = useState("");
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -214,6 +283,8 @@ export default function CustomerProfile({ session }) {
 
   const openModal = () => {
     setForm(saved);
+    setFieldErrors({});
+    setSaveError("");
     setPwStep("idle");
     setVerifyEmail(initial.email);
     setOtpDigits(["", "", "", "", "", ""]);
@@ -300,6 +371,8 @@ export default function CustomerProfile({ session }) {
   };
 
   const updateCar = (index, key, value) => {
+    setFieldErrors((prev) => ({ ...prev, [`cars.${index}.${key}`]: "" }));
+    setSaveError("");
     setForm((prev) => ({
       ...prev,
       cars: prev.cars.map((car, carIndex) =>
@@ -317,6 +390,8 @@ export default function CustomerProfile({ session }) {
     const rawBrand = String(brand || "");
     const nextBrand = rawBrand.trimStart();
     const matchedBrand = findMatchingBrand(nextBrand, carBrands);
+    setFieldErrors((prev) => ({ ...prev, [`cars.${index}.brand`]: "", [`cars.${index}.vehicle`]: "" }));
+    setSaveError("");
     setForm((prev) => ({
       ...prev,
       cars: prev.cars.map((car, carIndex) =>
@@ -341,12 +416,8 @@ export default function CustomerProfile({ session }) {
       cars: prev.cars.map((car, carIndex) => {
         if (carIndex !== index) return car;
         const matchedBrand = findMatchingBrand(car.brand, carBrands);
-        if (!String(car.brand || "").trim()) {
-          return { ...car, brand: "", vehicle: "" };
-        }
-        if (!matchedBrand) {
-          return { ...car, brand: "", vehicle: "" };
-        }
+        if (!String(car.brand || "").trim()) return { ...car, brand: "" };
+        if (!matchedBrand) return { ...car, brand: String(car.brand || "").trim().replace(/\s+/g, " ") };
         if (matchedBrand === car.brand) {
           return car;
         }
@@ -358,6 +429,8 @@ export default function CustomerProfile({ session }) {
 
   const updateCarModel = (index, model) => {
     const nextModel = String(model || "").trim();
+    setFieldErrors((prev) => ({ ...prev, [`cars.${index}.vehicle`]: "" }));
+    setSaveError("");
     setForm((prev) => ({
       ...prev,
       cars: prev.cars.map((car, carIndex) => {
@@ -377,7 +450,7 @@ export default function CustomerProfile({ session }) {
       ...prev,
       cars: prev.cars.map((car, carIndex) => {
         if (carIndex !== index) return car;
-        const activeBrand = findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands);
+        const activeBrand = findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands) || String(car.brand || "").trim();
         const typedModel = extractModelFromVehicle(car.vehicle, activeBrand);
         if (!typedModel) {
           return { ...car, vehicle: activeBrand || "" };
@@ -396,46 +469,22 @@ export default function CustomerProfile({ session }) {
   };
 
   const addCar = () => {
+    setSaveError("");
     setForm((prev) => ({ ...prev, cars: [...prev.cars, createEmptyCar()] }));
   };
 
   const removeCar = (index) => {
+    setSaveError("");
+    setFieldErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => !key.startsWith("cars."))));
     setForm((prev) => ({ ...prev, cars: prev.cars.filter((_, carIndex) => carIndex !== index) }));
   };
 
   const handleSaveAll = async () => {
-    const payload = {
-      first: form.first.trim(),
-      last: form.last.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      cars: normalizeCars(form.cars),
-    };
+    const { payload, errors } = validateProfileForm(form);
+    setFieldErrors(errors);
+    setSaveError("");
 
-    if (!payload.first || !payload.last) {
-      window.alert("Please enter your first and last name.");
-      return;
-    }
-    if (!payload.email.includes("@")) {
-      window.alert("Please enter a valid email address.");
-      return;
-    }
-    const hasIncompleteCar = form.cars.some((car) => {
-      const values = [car.brand, car.vehicle, car.size, car.plate].map((value) => String(value || "").trim());
-      const hasAnyValue = values.some(Boolean);
-      if (!hasAnyValue) return false;
-      return values.some((value) => !value);
-    });
-    if (hasIncompleteCar) {
-      window.alert("Please complete Car Brand, Car Model, Car Size, and Plate Number for each saved car.");
-      return;
-    }
-    const hasInvalidBrand = form.cars.some((car) => {
-      const brand = String(car.brand || "").trim();
-      return brand && !findMatchingBrand(brand, carBrands);
-    });
-    if (hasInvalidBrand) {
-      window.alert("Please choose a car brand from the dropdown suggestions.");
+    if (Object.keys(errors).length) {
       return;
     }
     if (pwStep === "newpass") {
@@ -457,9 +506,26 @@ export default function CustomerProfile({ session }) {
       }
       await resetPasswordWithOtp({ verificationId: otpSession.verificationId, password: newPass });
     }
-    await updateProfile(payload);
-    setSaved(payload);
-    closeModal();
+    try {
+      const updatedUser = await updateProfile(payload);
+      const nextSaved = {
+        first: updatedUser?.first || payload.first,
+        last: updatedUser?.last || payload.last,
+        email: updatedUser?.email || payload.email,
+        phone: updatedUser?.phone || payload.phone,
+        cars: normalizeCars(Array.isArray(updatedUser?.cars) ? updatedUser.cars : payload.cars),
+      };
+      setSaved(nextSaved);
+      closeModal();
+    } catch (error) {
+      if (error.errors && Object.keys(error.errors).length) {
+        setFieldErrors(error.errors);
+      } else if (error.field) {
+        setFieldErrors({ [error.field]: error.message || "Please check this field." });
+      } else {
+        setSaveError(error.message || "Failed to save profile changes.");
+      }
+    }
   };
 
   const canSave = pwStep === "idle" || pwStep === "newpass";
@@ -570,22 +636,26 @@ export default function CustomerProfile({ session }) {
               <div className="clProGrid2">
                 <div className="clM-field">
                   <div className="clM-label">First Name</div>
-                  <input className="clM-input" value={form.first} onChange={(e) => setForm((prev) => ({ ...prev, first: e.target.value }))} placeholder="First name" />
+                  <input className={`clM-input${fieldErrors.first ? " eb" : ""}`} aria-label="First Name" value={form.first} onChange={(e) => { setForm((prev) => ({ ...prev, first: e.target.value })); setFieldErrors((prev) => ({ ...prev, first: "" })); setSaveError(""); }} placeholder="First name" />
+                  {fieldErrors.first && <div className="clErr-msg field">{fieldErrors.first}</div>}
                 </div>
                 <div className="clM-field">
                   <div className="clM-label">Last Name</div>
-                  <input className="clM-input" value={form.last} onChange={(e) => setForm((prev) => ({ ...prev, last: e.target.value }))} placeholder="Last name" />
+                  <input className={`clM-input${fieldErrors.last ? " eb" : ""}`} aria-label="Last Name" value={form.last} onChange={(e) => { setForm((prev) => ({ ...prev, last: e.target.value })); setFieldErrors((prev) => ({ ...prev, last: "" })); setSaveError(""); }} placeholder="Last name" />
+                  {fieldErrors.last && <div className="clErr-msg field">{fieldErrors.last}</div>}
                 </div>
               </div>
 
               <div className="clM-field">
                 <div className="clM-label">Email</div>
-                <input className="clM-input" type="email" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="Enter your email" />
+                <input className={`clM-input${fieldErrors.email ? " eb" : ""}`} aria-label="Email" type="email" value={form.email} onChange={(e) => { setForm((prev) => ({ ...prev, email: e.target.value })); setFieldErrors((prev) => ({ ...prev, email: "" })); setSaveError(""); }} placeholder="Enter your email" />
+                {fieldErrors.email && <div className="clErr-msg field">{fieldErrors.email}</div>}
               </div>
 
               <div className="clM-field">
                 <div className="clM-label">Phone</div>
-                <input className="clM-input" type="tel" value={form.phone} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) }))} placeholder="09xx xxx xxxx" />
+                <input className={`clM-input${fieldErrors.phone ? " eb" : ""}`} aria-label="Phone" type="tel" value={form.phone} onChange={(e) => { setForm((prev) => ({ ...prev, phone: e.target.value.replace(/\D/g, "").slice(0, 11) })); setFieldErrors((prev) => ({ ...prev, phone: "" })); setSaveError(""); }} placeholder="09xx xxx xxxx" />
+                {fieldErrors.phone && <div className="clErr-msg field">{fieldErrors.phone}</div>}
               </div>
 
               <div className="clM-divider"><span>Car Details</span></div>
@@ -597,13 +667,15 @@ export default function CustomerProfile({ session }) {
                       <div className="clM-label">Car Brand</div>
                       <div className="clCarLookup">
                         <input
-                          className="clM-input"
+                          className={`clM-input${fieldErrors[`cars.${index}.brand`] ? " eb" : ""}`}
+                          aria-label={`Car ${index + 1} Brand`}
                           value={car.brand || inferBrandFromVehicle(car.vehicle, carBrands)}
                           onChange={(e) => updateCarBrand(index, e.target.value)}
                           onFocus={() => setOpenLookup({ type: "brand", index })}
                           onBlur={() => setTimeout(() => handleCarBrandBlur(index), 120)}
                           placeholder={loadingCarBrands ? "Loading car brands..." : "Search car brand"}
                         />
+                        {fieldErrors[`cars.${index}.brand`] && <div className="clErr-msg field">{fieldErrors[`cars.${index}.brand`]}</div>}
                         {openLookup.type === "brand" && openLookup.index === index && filterSuggestions(carBrands, car.brand || inferBrandFromVehicle(car.vehicle, carBrands)).length > 0 && (
                           <div className="clCarLookupMenu">
                             {filterSuggestions(carBrands, car.brand || inferBrandFromVehicle(car.vehicle, carBrands)).map((brand) => (
@@ -635,7 +707,8 @@ export default function CustomerProfile({ session }) {
                       <div className="clM-label">Car Model</div>
                       <div className="clCarLookup">
                         <input
-                          className="clM-input"
+                          className={`clM-input${fieldErrors[`cars.${index}.vehicle`] ? " eb" : ""}`}
+                          aria-label={`Car ${index + 1} Model`}
                           value={extractModelFromVehicle(car.vehicle, findMatchingBrand(car.brand, carBrands) || car.brand || inferBrandFromVehicle(car.vehicle, carBrands))}
                           onChange={(e) => updateCarModel(index, e.target.value)}
                           onFocus={() => {
@@ -646,15 +719,16 @@ export default function CustomerProfile({ session }) {
                             }
                           }}
                           onBlur={() => setTimeout(() => handleCarModelBlur(index), 120)}
-                          disabled={!findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands)}
+                          disabled={!String(car.brand || inferBrandFromVehicle(car.vehicle, carBrands)).trim()}
                           placeholder={
-                            !findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands)
+                            !String(car.brand || inferBrandFromVehicle(car.vehicle, carBrands)).trim()
                               ? "Choose car brand first"
                               : loadingModelBrands[String(findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands)).trim().toLowerCase()]
                                 ? "Loading car models..."
                                 : "Search car model"
                           }
                         />
+                        {fieldErrors[`cars.${index}.vehicle`] && <div className="clErr-msg field">{fieldErrors[`cars.${index}.vehicle`]}</div>}
                         {openLookup.type === "model" && openLookup.index === index && (() => {
                           const activeBrand = findMatchingBrand(car.brand || inferBrandFromVehicle(car.vehicle, carBrands), carBrands);
                           const modelOptions = carModelsByBrand[String(activeBrand || "").trim().toLowerCase()] || [];
@@ -687,7 +761,8 @@ export default function CustomerProfile({ session }) {
                     <div className="clCarField">
                       <div className="clM-label">Car Size</div>
                       <select
-                        className="clM-input clCarSizeSelect"
+                        className={`clM-input clCarSizeSelect${fieldErrors[`cars.${index}.size`] ? " eb" : ""}`}
+                        aria-label={`Car ${index + 1} Size`}
                         value={car.size}
                         onChange={(e) => updateCar(index, "size", e.target.value)}
                       >
@@ -698,16 +773,19 @@ export default function CustomerProfile({ session }) {
                           </option>
                         ))}
                       </select>
+                      {fieldErrors[`cars.${index}.size`] && <div className="clErr-msg field">{fieldErrors[`cars.${index}.size`]}</div>}
                     </div>
                     <div className="clCarField">
                       <div className="clM-label">Plate Number</div>
-                      <input className="clM-input" value={car.plate} onChange={(e) => updateCar(index, "plate", e.target.value)} placeholder="Plate number" />
+                      <input className={`clM-input${fieldErrors[`cars.${index}.plate`] ? " eb" : ""}`} aria-label={`Car ${index + 1} Plate Number`} value={car.plate} onChange={(e) => updateCar(index, "plate", e.target.value)} placeholder="Plate number" />
+                      {fieldErrors[`cars.${index}.plate`] && <div className="clErr-msg field">{fieldErrors[`cars.${index}.plate`]}</div>}
                     </div>
                     <button className="clCarRemoveBtn" type="button" onClick={() => removeCar(index)}>Remove</button>
                   </div>
                 ))}
                 <button className="clCarAddBtn" type="button" onClick={addCar}>Add Car</button>
               </div>
+              {saveError && <div className="clErr-msg field">{saveError}</div>}
 
               <div className="clM-divider"><span>Password</span></div>
 

@@ -196,6 +196,7 @@
 .clOtp-box.bad { border-color: #f87171; background: #fff5f5; }
 
 .clErr-msg { font-size: 11px; color: #ef4444; font-weight: 700; text-align: center; }
+.clErr-msg.field { text-align: left; line-height: 1.35; }
 .clResend-row { font-size: 11px; color: #9ca3af; text-align: center; }
 .clResend-row button { background: none; border: none; font-size: 11px; font-weight: 950; color: #000; cursor: pointer; padding: 0; }
 

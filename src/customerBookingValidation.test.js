@@ -1,14 +1,27 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import CustomerBookings from "./screens/customer/CustomerBookings";
+import CustomerEngagement from "./screens/customer/CustomerEngagement";
+import CustomerProfile from "./screens/customer/CustomerProfile";
 import CustomerServices from "./screens/customer/CustomerServices";
 import CustomerTracking from "./screens/customer/CustomerTracking";
+import { apiRequest } from "./services/api";
 
 const mockCreateBooking = jest.fn();
+const mockCreateReview = jest.fn();
+const mockClaimReward = jest.fn();
+const mockUpdateProfile = jest.fn();
+
+jest.mock("./services/api", () => ({
+  apiRequest: jest.fn(),
+}));
 
 const currentCustomer = {
   id: "CUS-1",
   name: "Customer One",
+  first: "Customer",
+  last: "One",
   email: "customer@example.com",
+  phone: "09123456789",
   userType: "Customer",
   role: "New",
   cars: [],
@@ -84,6 +97,12 @@ jest.mock("./context/AdminDataContext", () => ({
     users: [],
     currentUser: currentCustomer,
     createBooking: mockCreateBooking,
+    createReview: mockCreateReview,
+    claimReward: mockClaimReward,
+    updateProfile: mockUpdateProfile,
+    requestPasswordChangeOtp: jest.fn(),
+    verifyPasswordChangeOtp: jest.fn(),
+    resetPasswordWithOtp: jest.fn(),
     loading: false,
     ...mockData,
   }),
@@ -113,6 +132,18 @@ beforeEach(() => {
   mockData = {};
   mockCreateBooking.mockReset();
   mockCreateBooking.mockResolvedValue({});
+  mockCreateReview.mockReset();
+  mockCreateReview.mockResolvedValue({});
+  mockClaimReward.mockReset();
+  mockClaimReward.mockResolvedValue({});
+  mockUpdateProfile.mockReset();
+  mockUpdateProfile.mockImplementation(async (payload) => payload);
+  apiRequest.mockReset();
+  apiRequest.mockImplementation(async (path) => {
+    if (path === "/api/reference/vehicle-brands") return { brands: ["Toyota", "Honda"] };
+    if (String(path).includes("/api/reference/vehicle-models")) return { models: ["Vios", "Corolla", "City"] };
+    return {};
+  });
 });
 
 describe("Customer Add New Booking validation", () => {
@@ -386,6 +417,108 @@ describe("Customer Services contextual booking", () => {
     expect(screen.getAllByText("Car Wash").length).toBeGreaterThan(1);
     const timeField = screen.getByText("Time Slot").closest("label").querySelector("select");
     expect(timeField).toBeEnabled();
+  });
+});
+
+describe("Customer Engagement validation and reward visibility", () => {
+  test("no eligible review bookings shows a disabled customer-facing review flow", () => {
+    render(<CustomerEngagement initialAction="open-add-review" />);
+
+    expect(screen.getByRole("button", { name: "Add Review" })).toBeDisabled();
+    expect(screen.getByText("No completed and fully paid bookings are ready for review.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit Review" })).toBeDisabled();
+  });
+
+  test("review submission uses inline field errors instead of alerts", async () => {
+    mockData = {
+      bookings: [{ ...customerBookings[0], id: "B-READY", status: "Completed", service: "Car Wash" }],
+      payments: [{ id: "PAY-READY", bookingId: "B-READY", invoice: { outstandingBalance: 0, finalAmountDue: 500 } }],
+    };
+    render(<CustomerEngagement />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Review" }));
+    fireEvent.change(screen.getByText("Booking").closest("label").querySelector("select"), { target: { value: "B-READY" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Review" }));
+
+    expect(screen.getByText("Review comment must be at least 3 characters.")).toBeInTheDocument();
+    expect(mockCreateReview).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByPlaceholderText("Share your experience..."), { target: { value: "Great finish." } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit Review" }));
+
+    await waitFor(() => expect(mockCreateReview).toHaveBeenCalledWith({
+      bookingId: "B-READY",
+      rating: 5,
+      comment: "Great finish.",
+    }));
+  });
+
+  test("inactive reward definitions are visible as unavailable but not claimable", () => {
+    mockData = {
+      rewards: [{ id: "RWD-INACTIVE", active: false, enabled: false }],
+      customerRewards: [{
+        id: "CR-1",
+        rewardId: "RWD-INACTIVE",
+        customerEmail: currentCustomer.email,
+        rewardName: "Inactive Reward",
+        rewardValue: "P100 off",
+        status: "Available",
+      }],
+    };
+    render(<CustomerEngagement />);
+
+    expect(screen.getByText("Inactive Reward")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Claim" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Customer Profile saved cars and validation", () => {
+  test("profile save validates inline and persists saved cars through updateProfile", async () => {
+    render(<CustomerProfile />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Account" }));
+    fireEvent.change(screen.getByLabelText("First Name"), { target: { value: "Juan123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    expect(screen.getByText("First name can only contain letters, spaces, hyphens, apostrophes, and periods.")).toBeInTheDocument();
+    expect(mockUpdateProfile).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("First Name"), { target: { value: "Customer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Car" }));
+    fireEvent.change(screen.getByLabelText("Car 1 Brand"), { target: { value: "Toyota" } });
+    fireEvent.change(screen.getByLabelText("Car 1 Model"), { target: { value: "Vios" } });
+    fireEvent.change(screen.getByLabelText("Car 1 Size"), { target: { value: "Sedan / Small Car" } });
+    fireEvent.change(screen.getByLabelText("Car 1 Plate Number"), { target: { value: "abc 123" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+    expect(mockUpdateProfile.mock.calls[0][0]).toEqual({
+      first: "Customer",
+      last: "One",
+      email: "customer@example.com",
+      phone: "09123456789",
+      cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }],
+    });
+  });
+
+  test("persisted saved cars appear in booking autofill after refresh", () => {
+    mockData = {
+      currentUser: {
+        ...currentCustomer,
+        cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }],
+      },
+    };
+    render(<CustomerBookings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "Saved Car" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toyota Vios | ABC123" }));
+
+    expect(screen.getByLabelText("Vehicle Model")).toHaveValue("Toyota Vios");
+    expect(screen.getByLabelText("Plate Number")).toHaveValue("ABC123");
+    expect(screen.getByRole("button", { name: "Car Size" })).toHaveTextContent("Sedan / Small Car");
   });
 });
 

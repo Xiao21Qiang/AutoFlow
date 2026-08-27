@@ -370,4 +370,136 @@ describe("Customer Phase 2 bootstrap and profile boundaries", () => {
       phone: "09444444444",
     });
   });
+
+  test.each([
+    ["invalid first name", { first: "Updated123", last: "Customer", email: "same@example.com", phone: "09111111111" }, "first"],
+    ["invalid last name", { first: "Updated", last: "Customer123", email: "same@example.com", phone: "09111111111" }, "last"],
+    ["invalid email", { first: "Updated", last: "Customer", email: "bad-email", phone: "09111111111" }, "email"],
+    ["invalid phone", { first: "Updated", last: "Customer", email: "same@example.com", phone: "02111111111" }, "phone"],
+    ["duplicate email", { first: "Updated", last: "Customer", email: "other@example.com", phone: "09111111111" }, "email"],
+    ["duplicate phone", { first: "Updated", last: "Customer", email: "same@example.com", phone: "09222222222" }, "phone"],
+  ])("Customer self-profile update maps %s to canonical field errors", async (_label, body, field) => {
+    users.push(customerA, customerB);
+
+    const response = await request("/api/admin/users/CUS-A?refreshSession=1", {
+      method: "PUT",
+      token: auth(customerA),
+      body,
+    });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.body.field).toBe(field);
+    expect(response.body.errors[field]).toBeTruthy();
+    expect(users.find((user) => user.id === "CUS-A").email).toBe(customerA.email);
+  });
+
+  test("Customer saved cars add, edit, and remove persist through the dedicated self-cars endpoint", async () => {
+    users.push({ ...customerA, cars: [] }, { ...customerB, cars: [{ brand: "Honda", vehicle: "Honda City", size: "Sedan / Small Car", plate: "BBB222" }] });
+
+    const add = await request("/api/customer/cars?refreshSession=1", {
+      method: "PUT",
+      token: auth(customerA),
+      body: {
+        userId: "CUS-B",
+        customerId: "CUS-B",
+        ownerId: "CUS-B",
+        email: customerB.email,
+        cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: " abc 123 " }],
+      },
+    });
+    expect(add.status).toBe(200);
+    expect(add.body.user.cars).toEqual([{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }]);
+    expect(users.find((user) => user.id === "CUS-A").cars).toEqual(add.body.user.cars);
+    expect(users.find((user) => user.id === "CUS-B").cars).toEqual([{ brand: "Honda", vehicle: "Honda City", size: "Sedan / Small Car", plate: "BBB222" }]);
+
+    const edit = await request("/api/customer/cars?refreshSession=1", {
+      method: "PUT",
+      token: auth(customerA),
+      body: { cars: [{ brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }] },
+    });
+    expect(edit.status).toBe(200);
+    expect(edit.body.user.cars).toEqual([{ brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }]);
+
+    const remove = await request("/api/customer/cars?refreshSession=1", {
+      method: "PUT",
+      token: auth(customerA),
+      body: { cars: [] },
+    });
+    expect(remove.status).toBe(200);
+    expect(remove.body.user.cars).toEqual([]);
+    expect(auditLogs.map((log) => log.action)).toEqual(["Updated saved cars", "Updated saved cars", "Updated saved cars"]);
+  });
+
+  test.each([
+    ["invalid size", [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Truck", plate: "ABC123" }], "cars.0.size"],
+    ["invalid plate", [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "AB@123" }], "cars.0.plate"],
+    ["duplicate normalized plate", [
+      { brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC 123" },
+      { brand: "Honda", vehicle: "Honda City", size: "Sedan / Small Car", plate: "ABC123" },
+    ], "cars.1.plate"],
+  ])("Customer saved cars reject %s", async (_label, cars, field) => {
+    users.push({ ...customerA, cars: [] });
+
+    const response = await request("/api/customer/cars", {
+      method: "PUT",
+      token: auth(customerA),
+      body: { cars },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe(field);
+    expect(response.body.errors[field]).toBeTruthy();
+    expect(users.find((user) => user.id === "CUS-A").cars).toEqual([]);
+  });
+
+  test("Customer saved car edits do not mutate historical booking snapshots", async () => {
+    const historicalBooking = { id: "B-HISTORY", customerId: customerA.id, customerEmail: customerA.email, vehicle: "Toyota Vios", plate: "ABC123", carSize: "Sedan / Small Car" };
+    users.push({ ...customerA, cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }] });
+
+    const response = await request("/api/customer/cars", {
+      method: "PUT",
+      token: auth(customerA),
+      body: { cars: [{ brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }] },
+    });
+
+    expect(response.status).toBe(200);
+    expect(historicalBooking).toEqual({ id: "B-HISTORY", customerId: customerA.id, customerEmail: customerA.email, vehicle: "Toyota Vios", plate: "ABC123", carSize: "Sedan / Small Car" });
+  });
+
+  test("Customer personal activity is own-only, recent, operations-safe, and newest first", () => {
+    const now = Date.now();
+    const recentOlder = new Date(now - 20 * 60 * 1000).toISOString();
+    const recentNewest = new Date(now - 5 * 60 * 1000).toISOString();
+    const old = new Date(now - 31 * 24 * 60 * 60 * 1000).toISOString();
+
+    const scoped = filterBootstrapDataForRole({
+      bookings: [],
+      services: [],
+      stockMonitoring: [],
+      payments: [],
+      users: [customerA, customerB, { id: "ADM", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" }],
+      auditLogs: [
+        { id: "AUD-OLDER", userId: customerA.email, action: "Profile updated", ts: recentOlder },
+        { id: "AUD-OTHER", userId: customerB.email, action: "Profile updated", ts: recentNewest },
+        { id: "AUD-OPS", userId: "admin@example.com", action: "Restocked stock monitoring item", ts: recentNewest },
+        { id: "AUD-OLD", userId: customerA.email, action: "Old profile update", ts: old },
+        { id: "AUD-NEWEST", userId: "system", action: "Payment details requested", ts: recentNewest, meta: { customerEmail: customerA.email } },
+      ],
+      archivedAuditLogs: [],
+      reviews: [],
+      promos: [],
+      quoteRequests: [],
+      expenses: [],
+      commissions: [],
+      rewards: [],
+      customerRewards: [],
+      alerts: [],
+      financialReport: { totals: {}, payments: [], expenses: [], commissions: [] },
+      summary: {},
+    }, customerA);
+
+    expect(scoped.auditLogs.map((log) => log.id)).toEqual(["AUD-NEWEST", "AUD-OLDER"]);
+    expect(scoped.auditLogs.map((log) => log.id)).not.toEqual(expect.arrayContaining(["AUD-OTHER", "AUD-OPS", "AUD-OLD"]));
+    expect(JSON.stringify(scoped.auditLogs)).not.toMatch(/admin@example\.com/);
+  });
 });

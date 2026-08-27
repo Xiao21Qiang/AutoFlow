@@ -90,6 +90,7 @@ const basePayload = {
 let bookings;
 let payments;
 let auditLogs;
+let reviewRecords;
 let customerRewardRecords;
 let rewardRecords;
 const originals = [];
@@ -108,7 +109,10 @@ function doc(value) {
     ...value,
     lean: async () => clone(value),
     toObject: () => clone(value),
-    save: async () => value,
+    save: async function save() {
+      Object.assign(value, clone(this));
+      return this;
+    },
   };
 }
 
@@ -183,6 +187,7 @@ function resetData(seedBookings = []) {
   bookings = seedBookings.map(clone);
   payments = [];
   auditLogs = [];
+  reviewRecords = [];
   customerRewardRecords = [];
   rewardRecords = [{
     id: "RWD-1",
@@ -214,14 +219,37 @@ beforeAll(async () => {
     payments.push(clone(payload));
     return clone(payload);
   });
-  stub(__testModels.Payment, "findOne", (query = {}) => doc(payments.find((payment) => payment.bookingId === query.bookingId)));
+  stub(__testModels.Payment, "findOne", (query = {}) => {
+    const directBookingId = query.bookingId && typeof query.bookingId === "string" ? query.bookingId : "";
+    const candidateIds = Array.isArray(query.$or)
+      ? query.$or.flatMap((entry) => {
+        if (Array.isArray(entry.bookingId?.$in)) return entry.bookingId.$in;
+        if (Array.isArray(entry.reference?.$in)) return entry.reference.$in;
+        return [];
+      })
+      : [];
+    return doc(payments.find((payment) => {
+      if (directBookingId) return payment.bookingId === directBookingId;
+      return candidateIds.includes(payment.bookingId) || candidateIds.includes(payment.reference);
+    }));
+  });
   stub(__testModels.Payment, "findOneAndUpdate", async () => null);
   stub(__testModels.Payment, "countDocuments", async () => 0);
   stub(__testModels.Promo, "findOne", () => doc(null));
   stub(__testModels.CustomerReward, "findOne", (query = {}) => doc(customerRewardRecords.find((reward) => reward.id === query.id)));
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
   stub(__testModels.Reward, "findOne", (query = {}) => doc(rewardRecords.find((reward) => reward.id === query.id)));
-  stub(__testModels.Review, "countDocuments", async () => 0);
+  stub(__testModels.Review, "findOne", (query = {}) => doc(reviewRecords.find((review) => {
+    if (query.bookingId && review.bookingId !== query.bookingId) return false;
+    if (query.status?.$nin?.includes(review.status)) return false;
+    return true;
+  })));
+  stub(__testModels.Review, "create", async (payload) => {
+    const saved = clone(payload);
+    reviewRecords.push(saved);
+    return saved;
+  });
+  stub(__testModels.Review, "countDocuments", async () => reviewRecords.length);
   stub(__testModels.Commission, "findOne", () => doc(null));
   stub(__testModels.Commission, "countDocuments", async () => 0);
   stub(__testModels.AuditLog, "create", async (payload) => {
@@ -584,6 +612,177 @@ describe("Customer booking creation route validation", () => {
       status: "Cancelled",
       cancelReason: "Shop emergency",
     });
+  });
+});
+
+describe("Customer engagement route validation", () => {
+  function seedReviewBookings() {
+    resetData([
+      {
+        ...basePayload,
+        id: "B-REVIEW-OWN",
+        customer: customerUser.name,
+        customerEmail: customerUser.email,
+        customerId: customerUser.id,
+        status: "Completed",
+        serviceId: "SVC-1",
+        amount: 500,
+      },
+      {
+        ...basePayload,
+        id: "B-REVIEW-OTHER",
+        customer: otherCustomer.name,
+        customerEmail: otherCustomer.email,
+        customerId: otherCustomer.id,
+        status: "Completed",
+        serviceId: "SVC-1",
+        amount: 500,
+      },
+    ]);
+    payments.push(
+      { id: "PAY-REVIEW-OWN", bookingId: "B-REVIEW-OWN", amount: 500, totalAmount: 500, finalAmount: 500, finalPaymentStatus: "Paid", status: "Paid" },
+      { id: "PAY-REVIEW-OTHER", bookingId: "B-REVIEW-OTHER", amount: 500, totalAmount: 500, finalAmount: 500, finalPaymentStatus: "Paid", status: "Paid" }
+    );
+  }
+
+  test("eligible own completed and paid booking review succeeds", async () => {
+    seedReviewBookings();
+
+    const response = await request("/api/admin/reviews", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { bookingId: "B-REVIEW-OWN", rating: 5, comment: "Excellent service." },
+    });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      bookingId: "B-REVIEW-OWN",
+      customerId: customerUser.id,
+      customerEmail: customerUser.email,
+      rating: 5,
+      comment: "Excellent service.",
+      status: "Pending",
+    });
+    expect(reviewRecords).toHaveLength(1);
+  });
+
+  test("other Customer booking and duplicate review are rejected with booking field errors", async () => {
+    seedReviewBookings();
+    reviewRecords.push({ id: "REV-EXISTING", bookingId: "B-REVIEW-OWN", status: "Published" });
+
+    const otherBooking = await request("/api/admin/reviews", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { bookingId: "B-REVIEW-OTHER", rating: 5, comment: "Great." },
+    });
+    const duplicate = await request("/api/admin/reviews", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { bookingId: "B-REVIEW-OWN", rating: 5, comment: "Great." },
+    });
+
+    expect(otherBooking.status).toBe(400);
+    expect(otherBooking.body.field).toBe("bookingId");
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body.field).toBe("bookingId");
+    expect(reviewRecords).toHaveLength(1);
+  });
+
+  test.each([
+    ["missing booking", { bookingId: "", rating: 5, comment: "Great work." }, "bookingId"],
+    ["invalid rating", { bookingId: "B-REVIEW-OWN", rating: 6, comment: "Great work." }, "rating"],
+    ["invalid comment", { bookingId: "B-REVIEW-OWN", rating: 5, comment: " " }, "comment"],
+  ])("%s review input is rejected with a field error", async (_label, body, field) => {
+    seedReviewBookings();
+
+    const response = await request("/api/admin/reviews", {
+      method: "POST",
+      token: auth(customerUser),
+      body,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe(field);
+    expect(response.body.errors[field]).toBeTruthy();
+    expect(reviewRecords).toHaveLength(0);
+  });
+
+  test("Customer reward claim is owner-scoped and unavailable statuses cannot be claimed", async () => {
+    resetData();
+    customerRewardRecords.push(
+      {
+        id: "CR-OWN",
+        rewardId: "RWD-1",
+        customerId: customerUser.id,
+        customerEmail: customerUser.email,
+        customerName: customerUser.name,
+        rewardName: "Loyalty Discount",
+        status: "Available",
+      },
+      {
+        id: "CR-OTHER",
+        rewardId: "RWD-1",
+        customerId: otherCustomer.id,
+        customerEmail: otherCustomer.email,
+        customerName: otherCustomer.name,
+        rewardName: "Other Discount",
+        status: "Available",
+      },
+      {
+        id: "CR-USED",
+        rewardId: "RWD-1",
+        customerId: customerUser.id,
+        customerEmail: customerUser.email,
+        customerName: customerUser.name,
+        rewardName: "Used Discount",
+        status: "Used",
+      }
+    );
+
+    const ownClaim = await request("/api/admin/rewards/CR-OWN/claim", { method: "POST", token: auth(customerUser), body: { customerId: otherCustomer.id } });
+    const otherClaim = await request("/api/admin/rewards/CR-OTHER/claim", { method: "POST", token: auth(customerUser) });
+    const unavailableClaim = await request("/api/admin/rewards/CR-USED/claim", { method: "POST", token: auth(customerUser) });
+
+    expect(ownClaim.status).toBe(200);
+    expect(ownClaim.body).toMatchObject({ id: "CR-OWN", status: "Claimed" });
+    expect(otherClaim.status).toBe(403);
+    expect(otherClaim.body.message).toBe("Reward does not belong to your account.");
+    expect(unavailableClaim.status).toBe(400);
+    expect(unavailableClaim.body.message).toBe("This reward cannot be claimed from its current status.");
+  });
+
+  test("unavailable or cross-customer reward cannot be used for Customer booking", async () => {
+    customerRewardRecords.push({
+      id: "CR-OTHER",
+      rewardId: "RWD-1",
+      customerId: otherCustomer.id,
+      customerEmail: otherCustomer.email,
+      customerName: otherCustomer.name,
+      rewardName: "Other Customer Discount",
+      rewardType: "Fixed Discount",
+      rewardValue: "P100 off",
+      discountType: "Fixed",
+      discountValue: 100,
+      status: "Available",
+    });
+    rewardRecords[0].active = false;
+    rewardRecords[0].enabled = false;
+
+    const otherReward = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { ...basePayload, rewardId: "CR-OTHER" },
+    });
+    const inactiveReward = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(otherCustomer),
+      body: { ...basePayload, vehicle: "Accord", plate: "XYZ789", carSize: "SUV", rewardId: "CR-OTHER" },
+    });
+
+    expect(otherReward.status).toBe(403);
+    expect(otherReward.body.field).toBe("rewardId");
+    expect(inactiveReward.status).toBe(400);
+    expect(inactiveReward.body.field).toBe("rewardId");
   });
 });
 

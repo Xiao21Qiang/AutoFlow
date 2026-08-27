@@ -568,6 +568,9 @@ export function AdminDataProvider({ children, session }) {
     if (!profileUserId) {
       throw new Error("Could not identify the current profile.");
     }
+    const shouldUpdateCustomerCars =
+      Object.prototype.hasOwnProperty.call(payload || {}, "cars") &&
+      normalizeUserType(currentUser?.userType || session?.userType, currentUser?.role || session?.role) === "customer";
     const profilePayload = {
       first: payload.first,
       last: payload.last,
@@ -580,9 +583,19 @@ export function AdminDataProvider({ children, session }) {
       method: "PUT",
       body: JSON.stringify(profilePayload),
     });
-    const updatedUser = result?.user || result || {};
+    let updatedUser = result?.user || result || {};
     if (result?.token && result?.user) {
       writeAuthSession(result.token, result.user);
+    }
+    if (shouldUpdateCustomerCars) {
+      const carsResult = await mutate("/api/customer/cars?refreshSession=1", {
+        method: "PUT",
+        body: JSON.stringify({ cars: Array.isArray(payload.cars) ? payload.cars : [], auditUser }),
+      });
+      updatedUser = carsResult?.user || carsResult || updatedUser;
+      if (carsResult?.token && carsResult?.user) {
+        writeAuthSession(carsResult.token, carsResult.user);
+      }
     }
 
     const nextUser = {
@@ -596,7 +609,7 @@ export function AdminDataProvider({ children, session }) {
       role: updatedUser.role || currentUser.role || session?.role || "New",
       cars: Array.isArray(updatedUser.cars) ? updatedUser.cars : Array.isArray(payload.cars) ? payload.cars : Array.isArray(currentUser.cars) ? currentUser.cars : [],
     };
-    if (!result?.token) {
+    if (!result?.token && !shouldUpdateCustomerCars) {
       localStorage.setItem("user", JSON.stringify(nextUser));
     }
     return nextUser;
