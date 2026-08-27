@@ -586,3 +586,137 @@ describe("Customer booking creation route validation", () => {
     });
   });
 });
+
+describe("Customer-owned service tracking routes", () => {
+  function seedTrackingRecords() {
+    resetData([
+      {
+        id: "B-CUS-OWN",
+        customer: "Customer One",
+        customerEmail: customerUser.email,
+        customerId: customerUser.id,
+        vehicle: "Civic",
+        plate: "ABC123",
+        carSize: "Sedan / Small Car",
+        service: "Car Wash",
+        date: "2099-12-31",
+        time: "10:00",
+        status: "Completed",
+        assigned: "Junior One",
+        issueNote: "Paint chip documented at intake.",
+        issueTypes: ["Paint Crack / Chip"],
+        issueMarkers: [{ id: 1, x: 42, y: 58, issueType: "Paint Crack / Chip" }],
+        warrantyChecklist: "Customer advised on aftercare.",
+        warrantyChecklistItems: [{ id: "client-inspection", label: "Final inspection with client", done: true, doneBy: "Junior One", notes: "Released" }],
+        warrantyCoveragePackage: "3 Years Marine Ceramic",
+        warrantyAcknowledgement: { dateLocation: "2099-12-31 / QC", clientName: "Customer One" },
+        warrantyReleased: true,
+        warrantyReleasedAt: "2099-12-31T08:00:00.000Z",
+      },
+      {
+        id: "B-CUS-OTHER",
+        customer: "Other Customer",
+        customerEmail: otherCustomer.email,
+        customerId: otherCustomer.id,
+        vehicle: "Accord",
+        plate: "XYZ789",
+        carSize: "SUV",
+        service: "Car Wash",
+        date: "2099-12-31",
+        time: "13:00",
+        status: "Completed",
+        assigned: "Junior One",
+        issueNote: "Other customer issue note.",
+        warrantyReleased: true,
+        warrantyReleasedAt: "2099-12-31T08:00:00.000Z",
+      },
+    ]);
+  }
+
+  test("Customer can read own tracking but not cross-customer tracking with forged identifiers", async () => {
+    seedTrackingRecords();
+
+    const ownResponse = await request("/api/tracking/B-CUS-OWN?customerEmail=other@example.com&customerId=CUS-2", {
+      token: auth(customerUser),
+    });
+    const otherResponse = await request("/api/tracking/B-CUS-OTHER?customerEmail=customer@example.com&customerId=CUS-1", {
+      token: auth(customerUser),
+    });
+
+    expect(ownResponse.status).toBe(200);
+    expect(ownResponse.body).toMatchObject({
+      id: "B-CUS-OWN",
+      status: "Completed",
+      assigned: "Junior One",
+      issueNote: "Paint chip documented at intake.",
+      issueTypes: ["Paint Crack / Chip"],
+    });
+    expect(ownResponse.body).not.toHaveProperty("customerEmail");
+    expect(ownResponse.body).not.toHaveProperty("customerId");
+    expect(otherResponse.status).toBe(403);
+    expect(otherResponse.body.message).toBe("You do not have permission to view this tracking record.");
+  });
+
+  test("Customer can read own released warranty but not cross-customer warranty", async () => {
+    seedTrackingRecords();
+
+    const ownResponse = await request("/api/tracking/B-CUS-OWN/warranty", { token: auth(customerUser) });
+    const otherResponse = await request("/api/tracking/B-CUS-OTHER/warranty", { token: auth(customerUser) });
+
+    expect(ownResponse.status).toBe(200);
+    expect(ownResponse.body).toMatchObject({
+      id: "B-CUS-OWN",
+      warrantyReleased: true,
+      warrantyChecklist: "Customer advised on aftercare.",
+      warrantyCoveragePackage: "3 Years Marine Ceramic",
+    });
+    expect(ownResponse.body).not.toHaveProperty("customerEmail");
+    expect(ownResponse.body).not.toHaveProperty("customerId");
+    expect(otherResponse.status).toBe(403);
+    expect(otherResponse.body.message).toBe("You do not have permission to view this warranty record.");
+  });
+
+  test("Customer cannot mutate tracking fields through forged booking update data", async () => {
+    seedTrackingRecords();
+    const originalBooking = clone(bookings[0]);
+
+    const response = await request("/api/admin/bookings/B-CUS-OWN", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: {
+        status: "Completed",
+        assigned: "Detailer One",
+        issueNote: "Forged update.",
+        issueTypes: ["Water Spot"],
+        issueMarkers: [{ id: 1, x: 5, y: 5, issueType: "Water Spot" }],
+        warrantyReleased: false,
+        role: "Admin",
+        userType: "Admin",
+        customerEmail: otherCustomer.email,
+        customerId: otherCustomer.id,
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(bookings[0]).toEqual(originalBooking);
+  });
+
+  test("Unauthenticated authenticated tracking routes fail", async () => {
+    seedTrackingRecords();
+
+    expect((await request("/api/tracking/B-CUS-OWN", { token: "" })).status).toBe(401);
+    expect((await request("/api/tracking/B-CUS-OWN/warranty", { token: "" })).status).toBe(401);
+  });
+
+  test("Admin tracking reads continue to work through tracking view permission", async () => {
+    seedTrackingRecords();
+
+    const trackingResponse = await request("/api/tracking/B-CUS-OTHER", { token: auth(adminUser) });
+    const warrantyResponse = await request("/api/tracking/B-CUS-OTHER/warranty", { token: auth(adminUser) });
+
+    expect(trackingResponse.status).toBe(200);
+    expect(trackingResponse.body).toMatchObject({ id: "B-CUS-OTHER" });
+    expect(warrantyResponse.status).toBe(200);
+    expect(warrantyResponse.body).toMatchObject({ id: "B-CUS-OTHER", warrantyReleased: true });
+  });
+});

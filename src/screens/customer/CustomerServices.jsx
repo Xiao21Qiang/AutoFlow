@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerServicesStyle.css";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import icoSearch from "../../styles/icons/search.png";
@@ -38,6 +38,11 @@ function requiresDownPayment(service) {
   return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") !== "car wash";
 }
 
+function getServiceDescription(service) {
+  const description = String(service?.desc || "").trim();
+  return description || "No description available.";
+}
+
 export default function CustomerServices() {
   const { services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
@@ -45,6 +50,7 @@ export default function CustomerServices() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ maxMins: "", maxPrice: "" });
   const [selectedService, setSelectedService] = useState(null);
+  const [selectedDetailsService, setSelectedDetailsService] = useState(null);
   const [bookingForm, setBookingForm] = useState({
     date: "",
     time: "",
@@ -113,6 +119,11 @@ export default function CustomerServices() {
   const pageSize = 6;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
+  useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, safePage]);
   const pageRows = useMemo(() => {
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
@@ -208,6 +219,16 @@ export default function CustomerServices() {
     if (!options.length) return "No time slots configured";
     return options.map((option) => option.label).join(", ");
   };
+  const renderPriceBreakdown = (service) => (
+    <div className="clSvcDetailsPriceGrid">
+      {CAR_SIZE_OPTIONS.map((size) => (
+        <div className="clSvcDetailsPriceItem" key={size}>
+          <span>{size}</span>
+          <strong>P {Number(getPriceForCarSize(service, size) || 0).toLocaleString()}</strong>
+        </div>
+      ))}
+    </div>
+  );
   const renderServiceSection = (title, items) => {
     const section = getSectionDetails(title);
     return (
@@ -229,7 +250,7 @@ export default function CustomerServices() {
                 {service.category ? <span className="clSvcCategoryBadge">{service.category}</span> : null}
               </div>
               <div className="clSvcTitle">{service.name}</div>
-              <div className="clSvcSub">{service.desc || "Premium auto care service from All Pro-Tec."}</div>
+              <div className="clSvcSub">{getServiceDescription(service)}</div>
               <div className="clSvcInfoGrid">
                 <div className="clSvcInfoItem">
                   <span>Price</span>
@@ -247,9 +268,14 @@ export default function CustomerServices() {
               <div className={`clSvcPaymentChip${requiresDownPayment(service) ? "" : " exempt"}`}>
                 {requiresDownPayment(service) ? "Down payment required" : "No down payment required"}
               </div>
-              <button className="clSvcBookBtn" type="button" onClick={() => setSelectedService(service)}>
-                Book
-              </button>
+              <div className="clSvcCardActions">
+                <button className="clSvcDetailsBtn" type="button" onClick={() => setSelectedDetailsService(service)}>
+                  View Details
+                </button>
+                <button className="clSvcBookBtn" type="button" onClick={() => setSelectedService(service)}>
+                  Book
+                </button>
+              </div>
             </div>
           ))}
           </div>
@@ -287,14 +313,53 @@ export default function CustomerServices() {
       </div>
 
       <div className="clSvcPager">
-        <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+        <button type="button" disabled={safePage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
           {"<"}
         </button>
         <div>{safePage}</div>
-        <button type="button" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+        <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
           {">"}
         </button>
       </div>
+
+      {selectedDetailsService && (
+        <div className="clSvcModalOverlay" onClick={() => setSelectedDetailsService(null)}>
+          <div className="clSvcModalCard clSvcDetailsCard" role="dialog" aria-modal="true" aria-labelledby="clSvcDetailsTitle" onClick={(e) => e.stopPropagation()}>
+            <button className="clSvcModalClose" type="button" onClick={() => setSelectedDetailsService(null)}>
+              x
+            </button>
+            <div className="clSvcModalTitle" id="clSvcDetailsTitle">Service Details</div>
+            <div className="clSvcDetailsHeader">
+              <span className={`clSvcTypeBadge ${getServiceType(selectedDetailsService) === "Package" ? "package" : "basic"}`}>
+                {getServiceType(selectedDetailsService)}
+              </span>
+              {selectedDetailsService.category ? <span className="clSvcCategoryBadge">{selectedDetailsService.category}</span> : null}
+            </div>
+            <div className="clSvcDetailsName">{selectedDetailsService.name}</div>
+            <div className="clSvcDetailsDesc">{getServiceDescription(selectedDetailsService)}</div>
+            <div className="clSvcDetailsGrid">
+              <div className="clSvcDetailsBlock">
+                <span>Price Range</span>
+                <strong>{formatPriceRangeLabel(selectedDetailsService)}</strong>
+              </div>
+              <div className="clSvcDetailsBlock">
+                <span>Duration</span>
+                <strong>{selectedDetailsService.mins || 0} mins</strong>
+              </div>
+              <div className="clSvcDetailsBlock wide">
+                <span>Allowed Arrival Times</span>
+                <strong>{getArrivalPreview(selectedDetailsService)}</strong>
+              </div>
+            </div>
+            {renderPriceBreakdown(selectedDetailsService)}
+            <div className="clSvcModalActions">
+              <button className="clSvcTextBtn" type="button" onClick={() => setSelectedDetailsService(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedService && (
         <div className="clSvcModalOverlay" onClick={closeModal}>

@@ -133,6 +133,11 @@
   cursor: pointer;
 }
 
+.clTrackPager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .clTrackViewBtn {
   height: 22px;
   padding: 0 12px;

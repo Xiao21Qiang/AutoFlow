@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import CustomerBookings from "./screens/customer/CustomerBookings";
 import CustomerServices from "./screens/customer/CustomerServices";
+import CustomerTracking from "./screens/customer/CustomerTracking";
 
 const mockCreateBooking = jest.fn();
 
@@ -18,8 +19,12 @@ const services = [
     id: "SVC-1",
     name: "Car Wash",
     enabled: true,
+    desc: "Admin-entered wash description.",
+    category: "Wash",
+    serviceType: "Basic Service",
     mins: 60,
     price: 500,
+    priceBySize: { sedanSmallCar: 500, midsizePickupMpv: 600, suv: 700, xlVanSemiTruck: 800 },
     allowedArrivalTimes: ["10:00", "13:00"],
   },
 ];
@@ -326,6 +331,54 @@ describe("Customer Bookings list, filters, pagination, and details", () => {
 });
 
 describe("Customer Services contextual booking", () => {
+  test("View Details opens a read-only service details modal with admin service data", () => {
+    mockData = {
+      services: [{
+        ...services[0],
+        name: "Ceramic Protection",
+        desc: "Admin ceramic protection description.",
+        category: "Protection",
+        serviceType: "Package",
+        mins: 180,
+        priceBySize: { sedanSmallCar: 7000, midsizePickupMpv: 8000, suv: 9000, xlVanSemiTruck: 10000 },
+      }],
+    };
+
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+    const dialog = screen.getByRole("dialog", { name: "Service Details" });
+
+    expect(dialog).toHaveTextContent("Ceramic Protection");
+    expect(dialog).toHaveTextContent("Package");
+    expect(dialog).toHaveTextContent("Protection");
+    expect(dialog).toHaveTextContent("Admin ceramic protection description.");
+    expect(dialog).toHaveTextContent("P 7,000 - P 10,000");
+    expect(dialog).toHaveTextContent("180 mins");
+    expect(dialog).toHaveTextContent("10:00 / 10:00 AM");
+    expect(dialog).toHaveTextContent("13:00 / 1:00 PM");
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Book" })).not.toBeInTheDocument();
+  });
+
+  test("missing service descriptions use the customer empty state without fabricated fallback copy", () => {
+    mockData = { services: [{ ...services[0], desc: "   " }] };
+
+    render(<CustomerServices />);
+
+    expect(screen.getByText("No description available.")).toBeInTheDocument();
+    expect(screen.queryByText("Premium auto care service from All Pro-Tec.")).not.toBeInTheDocument();
+  });
+
+  test("inactive services are unavailable to Customer service browsing and booking", () => {
+    mockData = { services: [{ ...services[0], enabled: false }] };
+
+    render(<CustomerServices />);
+
+    expect(screen.queryByText("Car Wash")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Book" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Details" })).not.toBeInTheDocument();
+  });
+
   test("opening from a service keeps that service context preselected", () => {
     render(<CustomerServices />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
@@ -333,5 +386,64 @@ describe("Customer Services contextual booking", () => {
     expect(screen.getAllByText("Car Wash").length).toBeGreaterThan(1);
     const timeField = screen.getByText("Time Slot").closest("label").querySelector("select");
     expect(timeField).toBeEnabled();
+  });
+});
+
+describe("Customer Tracking list, details, and pagination", () => {
+  const trackingBookings = Array.from({ length: 6 }, (_, index) => ({
+    id: `B-T${index + 1}`,
+    customer: "Customer One",
+    customerEmail: "customer@example.com",
+    vehicle: index === 5 ? "City" : "Civic",
+    plate: `ABC12${index}`,
+    carSize: "Sedan / Small Car",
+    service: "Car Wash",
+    date: "2099-12-31",
+    time: "10:00",
+    status: index === 5 ? "Completed" : "In Progress",
+    assigned: "Junior One",
+    issueNote: "Paint chip documented at intake.",
+    issueTypes: ["Paint Crack / Chip"],
+    issueMarkers: [{ id: 1, x: 42, y: 58, issueType: "Paint Crack / Chip" }],
+    warrantyReleased: index === 5,
+    trackingAccessToken: `track-${index + 1}`,
+    warrantyAccessToken: `warranty-${index + 1}`,
+  }));
+
+  test("pagination disables first and final boundaries and resets cleanly for zero-result search", () => {
+    mockData = { bookings: trackingBookings };
+    render(<CustomerTracking />);
+
+    expect(screen.getByRole("button", { name: "<" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ">" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+
+    expect(screen.getByText("B-T6")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "<" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: ">" })).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Search Bookings..."), { target: { value: "missing booking" } });
+
+    expect(screen.getByText("No records found.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "<" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: ">" })).toBeDisabled();
+  });
+
+  test("View details keeps tracking issue and warranty information read-only", () => {
+    mockData = { bookings: trackingBookings };
+    render(<CustomerTracking />);
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(dialog).toHaveTextContent("Tracking Details");
+    expect(dialog).toHaveTextContent("B-T6");
+    expect(dialog).toHaveTextContent("Ready for release");
+    expect(dialog).toHaveTextContent("Problem Location");
+    expect(dialog).toHaveTextContent("Paint Crack / Chip");
+    expect(within(dialog).getByDisplayValue("Paint chip documented at intake.")).toHaveAttribute("readonly");
+    expect(dialog).toHaveTextContent("Warranty Checklist");
+    expect(within(dialog).getByRole("link", { name: "Open warranty document" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /save|assign|release|edit/i })).not.toBeInTheDocument();
   });
 });

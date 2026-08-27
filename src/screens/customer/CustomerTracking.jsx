@@ -1,8 +1,9 @@
 import "../../styles/css/customer/customerTrackingStyle.css";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
+import VehicleIssueViewer from "../../components/common/VehicleIssueViewer";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 
@@ -107,6 +108,11 @@ export default function CustomerTracking() {
   const pageSize = 5;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
+  useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage);
+    }
+  }, [page, safePage]);
   const pageRows = useMemo(() => {
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
@@ -183,11 +189,11 @@ export default function CustomerTracking() {
       </div>
 
       <div className="clTrackPager">
-        <button type="button" onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
+        <button type="button" disabled={safePage <= 1} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>
           {"<"}
         </button>
-        <div>{safePage}</div>
-        <button type="button" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
+        <div aria-current="page">{safePage}</div>
+        <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>
           {">"}
         </button>
       </div>
@@ -215,6 +221,7 @@ export default function CustomerTracking() {
                 </div>
               ))}
             </div>
+            <VehicleIssueViewer booking={selectedRow} className="clTrackIssueView" />
             <div className="clTrackQrCard">
               <div className="clTrackQrHead">
                 <div className="clTrackQrTitle">QR Access</div>

@@ -2677,6 +2677,14 @@ function canViewBooking(user, booking, users = []) {
   return true;
 }
 
+function canReadTrackingRecord(user, booking, users = []) {
+  const userType = normalizeUserType(user?.userType, user?.role);
+  if (userType === "customer") {
+    return canViewBooking(user, booking, users);
+  }
+  return canPerformAction(user, ACTION_KEYS.trackingView) && canViewBooking(user, booking, users);
+}
+
 function canViewBookingModuleRecord(user, booking, users = []) {
   if (isAdmin(user)) return true;
   const userType = normalizeUserType(user?.userType, user?.role);
@@ -7746,7 +7754,7 @@ app.get("/api/tracking/:id/warranty", authenticateApi, async (req, res, next) =>
     }
 
     const users = await User.find().lean();
-    if (!canPerformAction(req.authUser, ACTION_KEYS.trackingView) || !canViewBooking(req.authUser, booking, users)) {
+    if (!canReadTrackingRecord(req.authUser, booking, users)) {
       res.status(403).json({ message: "You do not have permission to view this warranty record." });
       return;
     }
@@ -7767,7 +7775,7 @@ app.get("/api/tracking/:id", authenticateApi, async (req, res, next) => {
     }
 
     const users = await User.find().lean();
-    if (!canPerformAction(req.authUser, ACTION_KEYS.trackingView) || !canViewBooking(req.authUser, booking, users)) {
+    if (!canReadTrackingRecord(req.authUser, booking, users)) {
       res.status(403).json({ message: "You do not have permission to view this tracking record." });
       return;
     }

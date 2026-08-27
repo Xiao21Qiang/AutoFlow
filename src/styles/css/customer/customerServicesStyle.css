@@ -278,10 +278,9 @@
 }
 
 .clSvcBookBtn {
-  margin-top: auto;
   align-self: stretch;
   height: 32px;
-  padding: 0 20px;
+  padding: 0 12px;
   border: none;
   border-radius: 12px;
   background: #d8b53b;
@@ -292,7 +291,28 @@
   transition: filter 0.2s ease, transform 0.2s ease;
 }
 
-.clSvcBookBtn:hover {
+.clSvcCardActions {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.clSvcDetailsBtn {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #d5deed;
+  border-radius: 12px;
+  background: #fff;
+  color: #111827;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.clSvcBookBtn:hover,
+.clSvcDetailsBtn:hover {
   filter: brightness(0.98);
   transform: translateY(-1px);
 }
@@ -323,6 +343,11 @@
   font-size: 10px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.clSvcPager button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .clSvcModalOverlay {
@@ -364,6 +389,86 @@
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
+}
+
+.clSvcDetailsCard {
+  width: min(720px, 92vw);
+}
+
+.clSvcDetailsHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.clSvcDetailsName {
+  font-size: 20px;
+  font-weight: 950;
+  color: #111827;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.clSvcDetailsDesc {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.clSvcDetailsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.clSvcDetailsBlock,
+.clSvcDetailsPriceItem {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 11px;
+  min-width: 0;
+}
+
+.clSvcDetailsBlock.wide {
+  grid-column: 1 / -1;
+}
+
+.clSvcDetailsBlock span,
+.clSvcDetailsPriceItem span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.clSvcDetailsBlock strong,
+.clSvcDetailsPriceItem strong {
+  display: block;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.clSvcDetailsPriceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .clSvcSummary {
@@ -604,6 +709,12 @@
   }
 
   .clSvcInfoGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .clSvcCardActions,
+  .clSvcDetailsGrid,
+  .clSvcDetailsPriceGrid {
     grid-template-columns: 1fr;
   }
 
