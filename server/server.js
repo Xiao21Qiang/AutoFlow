@@ -126,9 +126,18 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
   downPaymentReference: 1,
   downPaymentProofName: 1,
   downPaymentProofSubmittedAt: 1,
+  downPaymentFirstSubmittedAt: 1,
+  downPaymentCorrectionSubmittedAt: 1,
+  downPaymentSubmissionClosed: 1,
+  downPaymentSubmissionClosedAt: 1,
+  downPaymentClosureReasonCode: 1,
+  downPaymentCorrectionDueAt: 1,
+  downPaymentNoSubmissionStrikeRecordedAt: 1,
   downPaymentReferenceCheckStatus: 1,
   downPaymentReferenceCheckedAt: 1,
   downPaymentOcrAdvisoryStatus: 1,
+  downPaymentOcrDetectedReference: 1,
+  downPaymentPossibleDuplicateReference: 1,
   downPaymentReviewStatus: 1,
   downPaymentVerifiedAt: 1,
   downPaymentVerifiedBy: 1,
@@ -143,6 +152,7 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
   downPaymentVerifiedNotificationSentAt: 1,
   autoCancelledForNoDownPaymentProof: 1,
   cancellationReason: 1,
+  cancellationCode: 1,
   totalAmount: 1,
   amountPaid: 1,
   remainingBalance: 1,
@@ -154,6 +164,8 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
   finalPaymentReferenceCheckStatus: 1,
   finalPaymentReferenceCheckedAt: 1,
   finalPaymentOcrAdvisoryStatus: 1,
+  finalPaymentOcrDetectedReference: 1,
+  finalPaymentPossibleDuplicateReference: 1,
   finalPaymentReviewStatus: 1,
   finalPaymentVerifiedAt: 1,
   finalPaymentVerifiedBy: 1,
@@ -601,9 +613,18 @@ const SHOP_OPEN_MINUTES = 8 * 60;
 const SHOP_CLOSE_MINUTES = 17 * 60;
 const SHOP_DAY_MINUTES = SHOP_CLOSE_MINUTES - SHOP_OPEN_MINUTES;
 const DOWN_PAYMENT_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const DOWN_PAYMENT_CORRECTION_MS = 12 * 60 * 60 * 1000;
+const BOOKING_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DOWN_PAYMENT_ONE_HOUR_MS = 60 * 60 * 1000;
 const DOWN_PAYMENT_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
+const DOWN_PAYMENT_TIMEOUT_CODE = "DOWN_PAYMENT_TIMEOUT";
+const DOWN_PAYMENT_CORRECTION_TIMEOUT_CODE = "DOWN_PAYMENT_CORRECTION_TIMEOUT";
+const DOWN_PAYMENT_CORRECTION_REJECTED_CODE = "DOWN_PAYMENT_CORRECTION_REJECTED";
 const DOWN_PAYMENT_AUTO_CANCEL_REASON = "Automatically cancelled because no down-payment proof was submitted within 24 hours.";
+const DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON = "Automatically cancelled because corrected down-payment proof was not submitted within 12 hours.";
+const DOWN_PAYMENT_CORRECTION_REJECTED_REASON = "Cancelled because the corrected down-payment proof was rejected.";
+const MAX_PAYMENT_PROOF_BYTES = 4 * 1024 * 1024;
+let testPaymentOcrRecognizer = null;
 
 function timeToMinutes(value) {
   const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -3981,6 +4002,164 @@ function sanitizeOcrAdvisoryText(value) {
     .slice(0, 500);
 }
 
+function normalizeReferenceForComparison(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function isValidImageSignature(buffer, mimeType) {
+  if (!Buffer.isBuffer(buffer) || !buffer.length) return false;
+  const mime = String(mimeType || "").trim().toLowerCase();
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (mime === "image/png") return isPng;
+  if (mime === "image/jpeg" || mime === "image/jpg") return isJpeg;
+  if (mime === "image/webp") return isWebp;
+  return false;
+}
+
+function decodePaymentProofDataUrl(proofImage) {
+  const image = String(proofImage || "").trim();
+  const match = image.match(/^data:(image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) {
+    if (/^data:image\//i.test(image)) {
+      const error = new Error("Payment proof image data is malformed.");
+      error.statusCode = 400;
+      throw error;
+    }
+    return null;
+  }
+  const mimeType = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase();
+  const base64 = match[2].replace(/\s+/g, "");
+  if (!base64 || base64.length % 4 !== 0) {
+    const error = new Error("Payment proof image data is malformed.");
+    error.statusCode = 400;
+    throw error;
+  }
+  let buffer;
+  try {
+    buffer = Buffer.from(base64, "base64");
+  } catch (_error) {
+    const error = new Error("Payment proof image data is malformed.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!buffer.length || buffer.toString("base64").replace(/=+$/, "") !== base64.replace(/=+$/, "")) {
+    const error = new Error("Payment proof image data is malformed.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (buffer.length > MAX_PAYMENT_PROOF_BYTES) {
+    const error = new Error("Payment proof image is too large.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!isValidImageSignature(buffer, mimeType)) {
+    const error = new Error("Payment proof must be a valid PNG, JPEG, or WebP image.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return { mimeType, buffer };
+}
+
+function buildReferenceCandidatesFromText(text) {
+  const source = String(text || "").replace(/\r/g, "\n");
+  const labels = [
+    "Reference\\s*(?:No\\.?|Number|#)",
+    "Ref\\s*(?:No\\.?|Number|#)?",
+    "Transaction\\s*(?:No\\.?|Number|ID|Reference)",
+    "Trace\\s*Number",
+  ];
+  const candidates = [];
+  const labelPattern = new RegExp(`(?:${labels.join("|")})\\s*[:#-]?\\s*([A-Z0-9][A-Z0-9 .:_-]{3,80})`, "giu");
+  let match;
+  while ((match = labelPattern.exec(source))) {
+    const candidate = String(match[1] || "")
+      .split(/\n/)
+      .shift()
+      .replace(/\s{2,}.*/, "")
+      .trim()
+      .replace(/[^\p{L}\p{N}\s._:-]/gu, "")
+      .slice(0, 80);
+    if (normalizeReferenceForComparison(candidate).length >= 4) candidates.push(candidate);
+  }
+  return [...new Set(candidates)];
+}
+
+function compareEnteredReferenceToOcrText(reference, detectedText) {
+  const normalizedReference = normalizeReferenceForComparison(reference);
+  const candidates = buildReferenceCandidatesFromText(detectedText);
+  if (!normalizedReference || !candidates.length) {
+    return {
+      status: "unreadable_advisory",
+      detectedReference: "",
+      text: sanitizeOcrAdvisoryText(detectedText),
+    };
+  }
+  const matchedCandidate = candidates.find((candidate) => normalizeReferenceForComparison(candidate) === normalizedReference);
+  return {
+    status: matchedCandidate ? "matched_advisory" : "not_matched_advisory",
+    detectedReference: matchedCandidate || candidates[0] || "",
+    text: sanitizeOcrAdvisoryText(detectedText),
+  };
+}
+
+async function recognizePaymentProofText(proofImage) {
+  const data = decodePaymentProofDataUrl(proofImage);
+  if (!data) return { text: "", skipped: true };
+  if (typeof testPaymentOcrRecognizer === "function") {
+    return { text: String(await testPaymentOcrRecognizer(proofImage, data) || ""), skipped: false };
+  }
+  const tesseract = require("tesseract.js");
+  const recognize = tesseract.recognize || tesseract.default?.recognize;
+  if (typeof recognize !== "function") throw new Error("Tesseract.js OCR is unavailable.");
+  const result = await recognize(proofImage, "eng", { logger: () => {} });
+  return { text: String(result?.data?.text || result?.text || "").trim(), skipped: false };
+}
+
+async function buildServerOcrAdvisory({ proofImage, reference }) {
+  try {
+    const result = await recognizePaymentProofText(proofImage);
+    if (result.skipped) {
+      return { status: "unreadable_advisory", text: "", detectedReference: "" };
+    }
+    return compareEnteredReferenceToOcrText(reference, result.text);
+  } catch (_error) {
+    return { status: "ocr_error_advisory", text: "", detectedReference: "" };
+  }
+}
+
+function getVerifiedReferenceValues(payment = {}) {
+  const values = [];
+  if (normalizePaymentStageStatus(payment.downPaymentStatus, "") === "Paid") {
+    values.push(payment.downPaymentReference, payment.downPaymentOcrDetectedReference);
+  }
+  if (normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "") === "Paid" || isPaidStatus(payment.status)) {
+    values.push(payment.finalPaymentReference, payment.finalPaymentOcrDetectedReference, payment.reference);
+  }
+  return values.map(normalizeReferenceForComparison).filter(Boolean);
+}
+
+async function hasPossibleDuplicatePaymentReference({ paymentId, reference, detectedReference }) {
+  const targets = [reference, detectedReference].map(normalizeReferenceForComparison).filter(Boolean);
+  if (!targets.length) return false;
+  const verifiedPayments = await Payment.find({
+    $or: [
+      { downPaymentStatus: "Paid" },
+      { finalPaymentStatus: "Paid" },
+      { status: "Paid" },
+    ],
+  }).limit(500).lean();
+  return verifiedPayments.some((payment) => {
+    if (String(payment.id || "") === String(paymentId || "")) return false;
+    const verifiedReferences = getVerifiedReferenceValues(payment);
+    return targets.some((target) => verifiedReferences.includes(target));
+  });
+}
+
 function validateProofImageInput(proofImage, proofFileName, required) {
   const image = String(proofImage || "").trim();
   const fileName = sanitizeProofFileName(proofFileName);
@@ -3995,9 +4174,15 @@ function validateProofImageInput(proofImage, proofFileName, required) {
     error.statusCode = 400;
     throw error;
   }
-  const isSupportedDataUri = /^data:image\/(png|jpe?g|webp);base64,/i.test(image);
-  const isStoredOrRemoteImage = /^https?:\/\/[^<>\s]+$/i.test(image) || /^\/?uploads\/[^<>\s]+$/i.test(image);
-  if (!isSupportedDataUri && !isStoredOrRemoteImage) {
+  const isDataUri = /^data:image\/(png|jpe?g|webp);base64,/i.test(image);
+  const isStoredImage = /^\/?uploads\/[^<>\s]+$/i.test(image);
+  if (/^https?:\/\//i.test(image)) {
+    const error = new Error("Remote payment proof URLs are not allowed for customer submission.");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (isDataUri) decodePaymentProofDataUrl(image);
+  if (!isDataUri && !isStoredImage) {
     const error = new Error("Payment proof must be a supported image file.");
     error.statusCode = 400;
     throw error;
@@ -4060,9 +4245,147 @@ function shouldWarnOrCancelForDownPaymentDeadline(payment = {}, booking = {}) {
   if (!payment || payment.downPaymentRequired !== true) return false;
   if (!payment.downPaymentDueAt) return false;
   if (!booking || !isPendingDownPaymentDeadlineStatus(booking.status)) return false;
+  if (payment.downPaymentSubmissionClosed) return false;
   const status = normalizePaymentStageStatus(payment.downPaymentStatus, "Pending");
   if (status === "Paid" || status === "For Verification" || status === "Not Required") return false;
   return !hasDownPaymentSubmission(payment);
+}
+
+function getPaymentCustomerQuery(payment = {}) {
+  const customerEmail = String(payment.customerEmail || "").trim().toLowerCase();
+  const customerName = String(payment.customer || "").trim();
+  if (customerEmail) return { email: customerEmail };
+  if (customerName) return { name: customerName };
+  return null;
+}
+
+async function mutateCustomerNoDpState(payment = {}, mutator) {
+  const query = getPaymentCustomerQuery(payment);
+  if (!query) return null;
+  const customer = await User.findOne(query);
+  if (!customer) return null;
+  mutator(customer);
+  if (typeof customer.save === "function") await customer.save();
+  return customer;
+}
+
+async function resetNoDpTimeoutStreak(payment = {}) {
+  await mutateCustomerNoDpState(payment, (customer) => {
+    customer.noDownPaymentTimeoutStreak = 0;
+  });
+}
+
+async function recordNoDpTimeoutStrike(payment = {}, now = new Date()) {
+  if (payment.downPaymentNoSubmissionStrikeRecordedAt) return null;
+  payment.downPaymentNoSubmissionStrikeRecordedAt = now;
+  const customer = await mutateCustomerNoDpState(payment, (record) => {
+    const nextStreak = Math.max(0, Number(record.noDownPaymentTimeoutStreak || 0) || 0) + 1;
+    record.noDownPaymentTimeoutStreak = nextStreak;
+    if (nextStreak >= 3) {
+      record.bookingCooldownUntil = new Date(now.getTime() + BOOKING_COOLDOWN_MS);
+    }
+  });
+  if (customer && Number(customer.noDownPaymentTimeoutStreak || 0) >= 3) {
+    await recordAudit("system", "Customer booking cooldown activated", payment.customerEmail || payment.customer || "", {
+      type: "booking-cooldown-activated",
+      customerEmail: payment.customerEmail || "",
+      streak: Number(customer.noDownPaymentTimeoutStreak || 0),
+      bookingCooldownUntil: customer.bookingCooldownUntil instanceof Date ? customer.bookingCooldownUntil.toISOString() : customer.bookingCooldownUntil || "",
+    });
+  }
+  return customer;
+}
+
+async function closeDownPaymentSubmission({ payment, booking, code, reason, now = new Date(), strike = false }) {
+  if (!payment) return null;
+  let targetBooking = booking;
+  const bookingId = String(booking?.id || payment.bookingId || "").trim();
+  if (bookingId) {
+    targetBooking = await Booking.findOne({ id: bookingId }) || booking;
+  }
+  const alreadyClosedWithCode = payment.downPaymentSubmissionClosed && payment.downPaymentClosureReasonCode === code;
+  payment.downPaymentSubmissionClosed = true;
+  payment.downPaymentSubmissionClosedAt = payment.downPaymentSubmissionClosedAt || now;
+  payment.downPaymentClosureReasonCode = payment.downPaymentClosureReasonCode || code;
+  payment.cancellationCode = payment.cancellationCode || code;
+  payment.cancellationReason = payment.cancellationReason || reason;
+  payment.downPaymentStatus = "Rejected";
+  payment.downPaymentReviewStatus = payment.downPaymentReviewStatus || "Closed";
+  payment.status = "Rejected";
+  if (code === DOWN_PAYMENT_TIMEOUT_CODE) {
+    payment.downPaymentExpiredAt = payment.downPaymentExpiredAt || now;
+    payment.autoCancelledForNoDownPaymentProof = true;
+  }
+
+  if (targetBooking && !isCancelledStatus(targetBooking.status)) {
+    targetBooking.status = "Cancelled";
+    targetBooking.cancellationReason = reason;
+    targetBooking.cancelReason = reason;
+    targetBooking.cancellationCode = code;
+    if (code === DOWN_PAYMENT_TIMEOUT_CODE) targetBooking.autoCancelledForNoDownPaymentProof = true;
+    if (typeof targetBooking.save === "function") {
+      await targetBooking.save();
+    } else if (targetBooking.id) {
+      await Booking.findOneAndUpdate({ id: targetBooking.id }, {
+        status: "Cancelled",
+        cancellationReason: reason,
+        cancelReason: reason,
+        cancellationCode: code,
+        ...(code === DOWN_PAYMENT_TIMEOUT_CODE ? { autoCancelledForNoDownPaymentProof: true } : {}),
+      });
+    }
+  }
+
+  if (strike && !alreadyClosedWithCode) await recordNoDpTimeoutStrike(payment, now);
+  if (typeof payment.save === "function") await payment.save();
+  else if (payment.id) await Payment.findOneAndUpdate({ id: payment.id }, payment);
+  return payment;
+}
+
+async function progressBookingAfterDownPaymentVerification(payment = {}, booking = null) {
+  const bookingId = String(booking?.id || payment.bookingId || "").trim();
+  const targetBooking = bookingId ? await Booking.findOne({ id: bookingId }) : booking;
+  if (!targetBooking) return null;
+  const status = String(targetBooking.status || "").trim().toLowerCase();
+  if (status !== "pending") return targetBooking;
+  const hasCanonicalSchedule = Boolean(
+    String(targetBooking.date || "").trim() &&
+    String(targetBooking.time || "").trim() &&
+    isRealPlaceSlot(targetBooking.placeSlot) &&
+    (String(targetBooking.assigned || "").trim() || String(targetBooking.assignedDetailerId || "").trim())
+  );
+  if (!hasCanonicalSchedule) return targetBooking;
+  targetBooking.status = "Scheduled";
+  if (typeof targetBooking.save === "function") await targetBooking.save();
+  else if (targetBooking.id) await Booking.findOneAndUpdate({ id: targetBooking.id }, { status: "Scheduled" });
+  await recordAudit("system", "Booking scheduled after down payment verification", targetBooking.id || payment.bookingId || "", {
+    bookingId: targetBooking.id || payment.bookingId || "",
+    paymentId: payment.id || "",
+    source: "down-payment-human-verification",
+  });
+  return targetBooking;
+}
+
+async function applyDownPaymentTimeoutCancellation(payment, booking, now = new Date()) {
+  return closeDownPaymentSubmission({
+    payment,
+    booking,
+    code: DOWN_PAYMENT_TIMEOUT_CODE,
+    reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+    now,
+    strike: true,
+  });
+}
+
+async function applyCorrectionTimeoutCancellation(payment, booking, now = new Date()) {
+  return closeDownPaymentSubmission({
+    payment,
+    booking,
+    code: DOWN_PAYMENT_CORRECTION_TIMEOUT_CODE,
+    reason: DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON,
+    now,
+    strike: false,
+  });
 }
 
 async function recordCustomerNotification(title, bookingOrPayment = {}, message, extraMeta = {}) {
@@ -4074,6 +4397,22 @@ async function recordCustomerNotification(title, bookingOrPayment = {}, message,
   });
 }
 
+async function enforceCustomerBookingCooldown(req, now = new Date()) {
+  const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+  if (actorType !== "customer") return;
+  const user = await User.findOne({ id: req.authUser?.id });
+  const cooldownUntil = user?.bookingCooldownUntil ? new Date(user.bookingCooldownUntil) : null;
+  if (cooldownUntil && !Number.isNaN(cooldownUntil.getTime()) && cooldownUntil > now) {
+    const error = new Error("Booking is temporarily unavailable because your account is in a 24-hour cooldown after repeated down-payment timeouts.");
+    error.statusCode = 429;
+    throw error;
+  }
+  if (cooldownUntil && cooldownUntil <= now && user) {
+    user.bookingCooldownUntil = null;
+    if (typeof user.save === "function") await user.save();
+  }
+}
+
 async function runDownPaymentDeadlineWorkflow() {
   const now = new Date();
   const oneHourFromNow = new Date(now.getTime() + DOWN_PAYMENT_ONE_HOUR_MS);
@@ -4083,15 +4422,14 @@ async function runDownPaymentDeadlineWorkflow() {
     downPaymentDueAt: { $ne: null, $gt: now, $lte: oneHourFromNow },
     downPaymentReminderSentAt: null,
     autoCancelledForNoDownPaymentProof: { $ne: true },
-  }).limit(100);
+  }).limit(100).lean();
 
   for (const payment of reminderCandidates) {
     const normalizedPayment = normalizePaymentStageFields(payment);
     const booking = await Booking.findOne({ id: normalizedPayment.bookingId }).lean();
     if (!shouldWarnOrCancelForDownPaymentDeadline(normalizedPayment, booking)) continue;
 
-    payment.downPaymentReminderSentAt = now;
-    await payment.save();
+    await Payment.findOneAndUpdate({ id: normalizedPayment.id }, { downPaymentReminderSentAt: now });
     await recordCustomerNotification(
       "1 hour left to submit down payment",
       normalizedPayment,
@@ -4104,7 +4442,7 @@ async function runDownPaymentDeadlineWorkflow() {
     downPaymentRequired: true,
     downPaymentDueAt: { $ne: null, $lte: now },
     autoCancelledForNoDownPaymentProof: { $ne: true },
-  }).limit(100);
+  }).limit(100).lean();
 
   for (const payment of expiredCandidates) {
     const normalizedPayment = normalizePaymentStageFields(payment);
@@ -4112,18 +4450,7 @@ async function runDownPaymentDeadlineWorkflow() {
     const bookingObject = booking?.toObject ? booking.toObject() : booking;
     if (!shouldWarnOrCancelForDownPaymentDeadline(normalizedPayment, bookingObject)) continue;
 
-    booking.status = "Cancelled";
-    booking.cancellationReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
-    booking.cancelReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
-    booking.autoCancelledForNoDownPaymentProof = true;
-    await booking.save();
-
-    payment.downPaymentStatus = "Rejected";
-    payment.downPaymentExpiredAt = now;
-    payment.autoCancelledForNoDownPaymentProof = true;
-    payment.cancellationReason = DOWN_PAYMENT_AUTO_CANCEL_REASON;
-    payment.status = "Rejected";
-    await payment.save();
+    await applyDownPaymentTimeoutCancellation(payment, booking, now);
     if (booking.promoId) {
       await decrementPromoUsage(booking.promoId);
     }
@@ -4151,8 +4478,42 @@ async function runDownPaymentDeadlineWorkflow() {
       customer: booking.customer,
       customerEmail: booking.customerEmail || "",
       status: "Cancelled",
+      cancellationCode: DOWN_PAYMENT_TIMEOUT_CODE,
       reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
       autoCancelledForNoDownPaymentProof: true,
+    });
+  }
+
+  const correctionExpiredCandidates = await Payment.find({
+    downPaymentRequired: true,
+    downPaymentCorrectionDueAt: { $ne: null, $lte: now },
+    downPaymentCorrectionSubmittedAt: null,
+    downPaymentSubmissionClosed: { $ne: true },
+  }).limit(100).lean();
+
+  for (const payment of correctionExpiredCandidates) {
+    const normalizedPayment = normalizePaymentStageFields(payment);
+    const booking = await Booking.findOne({ id: normalizedPayment.bookingId });
+    if (!booking || isCancelledStatus(booking.status)) continue;
+    if (normalizePaymentStageStatus(normalizedPayment.downPaymentStatus, "Pending") !== "Rejected") continue;
+
+    await applyCorrectionTimeoutCancellation(payment, booking, now);
+    await recordCustomerNotification(
+      "Booking cancelled",
+      normalizedPayment,
+      "Your booking was cancelled because corrected down-payment proof was not submitted within 12 hours.",
+      {
+        type: "down-payment-correction-timeout",
+        bookingId: normalizedPayment.bookingId,
+        reason: DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON,
+      }
+    );
+    await recordAudit("system", "Correction timeout cancelled booking", booking.id, {
+      customer: booking.customer,
+      customerEmail: booking.customerEmail || "",
+      status: "Cancelled",
+      cancellationCode: DOWN_PAYMENT_CORRECTION_TIMEOUT_CODE,
+      reason: DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON,
     });
   }
 }
@@ -4640,10 +5001,19 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     downPaymentProofUrl: source.downPaymentProofUrl || "",
     downPaymentProofName: source.downPaymentProofName || "",
     downPaymentProofSubmittedAt: source.downPaymentProofSubmittedAt || null,
+    downPaymentFirstSubmittedAt: source.downPaymentFirstSubmittedAt || null,
+    downPaymentCorrectionSubmittedAt: source.downPaymentCorrectionSubmittedAt || null,
+    downPaymentSubmissionClosed: Boolean(source.downPaymentSubmissionClosed),
+    downPaymentSubmissionClosedAt: source.downPaymentSubmissionClosedAt || null,
+    downPaymentClosureReasonCode: source.downPaymentClosureReasonCode || "",
+    downPaymentCorrectionDueAt: source.downPaymentCorrectionDueAt || null,
+    downPaymentNoSubmissionStrikeRecordedAt: source.downPaymentNoSubmissionStrikeRecordedAt || null,
     downPaymentReferenceCheckStatus: source.downPaymentReferenceCheckStatus || "",
     downPaymentReferenceCheckedAt: source.downPaymentReferenceCheckedAt || null,
     downPaymentOcrAdvisoryStatus: source.downPaymentOcrAdvisoryStatus || "",
     downPaymentOcrAdvisoryText: source.downPaymentOcrAdvisoryText || "",
+    downPaymentOcrDetectedReference: source.downPaymentOcrDetectedReference || "",
+    downPaymentPossibleDuplicateReference: Boolean(source.downPaymentPossibleDuplicateReference),
     downPaymentReviewStatus: source.downPaymentReviewStatus || "",
     downPaymentVerifiedAt: source.downPaymentVerifiedAt || null,
     downPaymentVerifiedBy: source.downPaymentVerifiedBy || "",
@@ -4658,6 +5028,7 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     downPaymentVerifiedNotificationSentAt: source.downPaymentVerifiedNotificationSentAt || null,
     autoCancelledForNoDownPaymentProof: Boolean(source.autoCancelledForNoDownPaymentProof),
     cancellationReason: source.cancellationReason || "",
+    cancellationCode: source.cancellationCode || "",
     finalPaymentMethod: source.finalPaymentMethod || source.method || "",
     finalPaymentReference: source.finalPaymentReference || source.reference || "",
     finalPaymentProofUrl: source.finalPaymentProofUrl || source.proofImage || "",
@@ -4667,6 +5038,8 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     finalPaymentReferenceCheckedAt: source.finalPaymentReferenceCheckedAt || null,
     finalPaymentOcrAdvisoryStatus: source.finalPaymentOcrAdvisoryStatus || "",
     finalPaymentOcrAdvisoryText: source.finalPaymentOcrAdvisoryText || "",
+    finalPaymentOcrDetectedReference: source.finalPaymentOcrDetectedReference || "",
+    finalPaymentPossibleDuplicateReference: Boolean(source.finalPaymentPossibleDuplicateReference),
     finalPaymentReviewStatus: source.finalPaymentReviewStatus || "",
     finalPaymentVerifiedAt: source.finalPaymentVerifiedAt || (isPaidStatus(source.status) ? source.reviewedAt || null : null),
     finalPaymentVerifiedBy: source.finalPaymentVerifiedBy || (isPaidStatus(source.status) ? source.reviewedBy || "" : ""),
@@ -4820,6 +5193,8 @@ function getPaymentProofPayload(payment = {}, stage = "downPayment") {
       referenceCheckStatus: payment.finalPaymentReferenceCheckStatus || "",
       referenceCheckedAt: payment.finalPaymentReferenceCheckedAt || null,
       ocrAdvisoryStatus: payment.finalPaymentOcrAdvisoryStatus || "",
+      ocrDetectedReference: payment.finalPaymentOcrDetectedReference || "",
+      possibleDuplicateReference: Boolean(payment.finalPaymentPossibleDuplicateReference),
     };
   }
 
@@ -4836,6 +5211,8 @@ function getPaymentProofPayload(payment = {}, stage = "downPayment") {
     referenceCheckStatus: payment.downPaymentReferenceCheckStatus || "",
     referenceCheckedAt: payment.downPaymentReferenceCheckedAt || null,
     ocrAdvisoryStatus: payment.downPaymentOcrAdvisoryStatus || "",
+    ocrDetectedReference: payment.downPaymentOcrDetectedReference || "",
+    possibleDuplicateReference: Boolean(payment.downPaymentPossibleDuplicateReference),
   };
 }
 
@@ -8170,6 +8547,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     const auditUser = getAuthenticatedAuditUser(req);
     const bookingDate = String(req.body.date || "").trim();
     const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
+    await enforceCustomerBookingCooldown(req);
     if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.bookingCreate)) {
       denyForbidden(res);
       return;
@@ -9526,12 +9904,17 @@ app.get("/api/admin/payments/:id/proof", requireRoles("admin", "staff", "custome
 
 app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), async (req, res, next) => {
   try {
-    const foundPayment = await Payment.findOne({ id: req.params.id }).lean();
+    const paymentDocument = await Payment.findOne({ id: req.params.id });
+    const foundPayment = paymentDocument?.toObject ? paymentDocument.toObject() : paymentDocument;
     if (!foundPayment) {
       res.status(404).json({ message: "Payment not found" });
       return;
     }
     const existingPayment = normalizePaymentStageFields(foundPayment);
+    const linkedBookingForPayment = existingPayment.bookingId
+      ? await Booking.findOne({ id: existingPayment.bookingId })
+      : null;
+    const linkedBookingObject = linkedBookingForPayment?.toObject ? linkedBookingForPayment.toObject() : linkedBookingForPayment;
 
     if (
       isPaidStatus(existingPayment.status) &&
@@ -9549,11 +9932,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const customerEmail = String(existingPayment.customerEmail || "").trim().toLowerCase();
     let isCustomerSubmittingOwnPayment = actorType === "customer" && Boolean(actorEmail && customerEmail && actorEmail === customerEmail);
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
-      const linkedBooking = existingPayment.bookingId
-        ? await Booking.findOne({ id: existingPayment.bookingId }).lean()
-        : null;
-      const bookingEmail = String(linkedBooking?.customerEmail || "").trim().toLowerCase();
-      const bookingCustomerId = String(linkedBooking?.customerId || "").trim();
+      const bookingEmail = String(linkedBookingObject?.customerEmail || "").trim().toLowerCase();
+      const bookingCustomerId = String(linkedBookingObject?.customerId || "").trim();
       isCustomerSubmittingOwnPayment = Boolean(
         (actorEmail && bookingEmail && actorEmail === bookingEmail) ||
         (actorId && bookingCustomerId && actorId === bookingCustomerId)
@@ -9626,12 +10006,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       return;
     }
     if (isCustomerDownPaymentSubmission) {
+      const now = new Date();
       const currentDownPaymentStatus = normalizePaymentStageStatus(
         existingPayment.downPaymentStatus,
         existingPayment.downPaymentRequired === false ? "Not Required" : "Pending"
       );
-      if (existingPayment.autoCancelledForNoDownPaymentProof) {
-        res.status(400).json({ message: "This booking was cancelled because the down-payment deadline expired." });
+      if (existingPayment.downPaymentSubmissionClosed || existingPayment.autoCancelledForNoDownPaymentProof) {
+        res.status(400).json({ message: "Down payment submission is closed for this booking." });
         return;
       }
       if (existingPayment.downPaymentRequired === false || currentDownPaymentStatus === "Not Required") {
@@ -9645,6 +10026,57 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       if (currentDownPaymentStatus === "Paid") {
         res.status(400).json({ message: "Down payment has already been verified as paid." });
         return;
+      }
+      const dueAt = existingPayment.downPaymentDueAt ? new Date(existingPayment.downPaymentDueAt) : null;
+      const firstSubmittedAt = existingPayment.downPaymentFirstSubmittedAt || existingPayment.downPaymentProofSubmittedAt || existingPayment.proofSubmittedAt;
+      const isCorrectionSubmission = currentDownPaymentStatus === "Rejected" || Boolean(existingPayment.downPaymentCorrectionDueAt);
+      if (!isCorrectionSubmission && dueAt && !Number.isNaN(dueAt.getTime()) && now >= dueAt && !firstSubmittedAt) {
+        await applyDownPaymentTimeoutCancellation(paymentDocument || foundPayment, linkedBookingForPayment, now);
+        await recordCustomerNotification(
+          "Booking cancelled",
+          existingPayment,
+          "Your booking was cancelled because no down-payment proof was submitted within 24 hours.",
+          { type: "down-payment-auto-cancelled", bookingId: existingPayment.bookingId, reason: DOWN_PAYMENT_AUTO_CANCEL_REASON }
+        );
+        await recordAudit("system", "Auto-cancelled booking", existingPayment.bookingId, {
+          customer: existingPayment.customer,
+          customerEmail: existingPayment.customerEmail || "",
+          status: "Cancelled",
+          cancellationCode: DOWN_PAYMENT_TIMEOUT_CODE,
+          reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+          autoCancelledForNoDownPaymentProof: true,
+        });
+        res.status(400).json({ message: "This booking was cancelled because the down-payment deadline expired." });
+        return;
+      }
+      if (isCorrectionSubmission) {
+        const correctionDueAt = existingPayment.downPaymentCorrectionDueAt ? new Date(existingPayment.downPaymentCorrectionDueAt) : null;
+        if (!correctionDueAt || Number.isNaN(correctionDueAt.getTime())) {
+          res.status(400).json({ message: "Corrected down-payment proof is not available for this booking." });
+          return;
+        }
+        if (existingPayment.downPaymentCorrectionSubmittedAt) {
+          res.status(400).json({ message: "Corrected down-payment proof has already been submitted." });
+          return;
+        }
+        if (now >= correctionDueAt) {
+          await applyCorrectionTimeoutCancellation(paymentDocument || foundPayment, linkedBookingForPayment, now);
+          await recordCustomerNotification(
+            "Booking cancelled",
+            existingPayment,
+            "Your booking was cancelled because corrected down-payment proof was not submitted within 12 hours.",
+            { type: "down-payment-correction-timeout", bookingId: existingPayment.bookingId, reason: DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON }
+          );
+          await recordAudit("system", "Correction timeout cancelled booking", existingPayment.bookingId, {
+            customer: existingPayment.customer,
+            customerEmail: existingPayment.customerEmail || "",
+            status: "Cancelled",
+            cancellationCode: DOWN_PAYMENT_CORRECTION_TIMEOUT_CODE,
+            reason: DOWN_PAYMENT_CORRECTION_TIMEOUT_REASON,
+          });
+          res.status(400).json({ message: "This booking was cancelled because the correction window expired." });
+          return;
+        }
       }
       if (!String(req.body.downPaymentMethod || req.body.method || "").trim()) {
         res.status(400).json({ message: "Down payment method is required." });
@@ -9837,45 +10269,102 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       req.body.finalPaymentProofName || existingPayment.finalPaymentProofName || "",
       isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission && !customerSubmittedFinalPaymentIsCash
     );
-    const downPaymentOcrAdvisoryStatus = sanitizeOcrAdvisoryStatus(req.body.downPaymentOcrAdvisoryStatus || req.body.downPaymentReferenceCheckStatus || req.body.referenceValidationResult || "");
-    const finalPaymentOcrAdvisoryStatus = sanitizeOcrAdvisoryStatus(req.body.finalPaymentOcrAdvisoryStatus || req.body.finalPaymentReferenceCheckStatus || req.body.referenceValidationResult || "");
+    const serverDownPaymentOcrAdvisory = isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission && !customerSubmittedDownPaymentIsCash
+      ? await buildServerOcrAdvisory({
+          proofImage: sanitizedDownPaymentProof.proofImage,
+          reference: req.body.downPaymentReference || req.body.reference || "",
+        })
+      : null;
+    const serverFinalPaymentOcrAdvisory = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission && !customerSubmittedFinalPaymentIsCash
+      ? await buildServerOcrAdvisory({
+          proofImage: sanitizedFinalPaymentProof.proofImage,
+          reference: req.body.finalPaymentReference || "",
+        })
+      : null;
+    const downPaymentOcrAdvisoryStatus = customerSubmittedDownPaymentIsCash
+      ? "cash_not_required"
+      : serverDownPaymentOcrAdvisory?.status || existingPayment.downPaymentOcrAdvisoryStatus || "";
+    const finalPaymentOcrAdvisoryStatus = customerSubmittedFinalPaymentIsCash
+      ? "cash_not_required"
+      : serverFinalPaymentOcrAdvisory?.status || existingPayment.finalPaymentOcrAdvisoryStatus || "";
+    const downPaymentDetectedReference = sanitizePaymentReference(serverDownPaymentOcrAdvisory?.detectedReference || "");
+    const finalPaymentDetectedReference = sanitizePaymentReference(serverFinalPaymentOcrAdvisory?.detectedReference || "");
+    const downPaymentPossibleDuplicateReference = isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission && !customerSubmittedDownPaymentIsCash
+      ? await hasPossibleDuplicatePaymentReference({
+          paymentId: existingPayment.id,
+          reference: req.body.downPaymentReference || req.body.reference || "",
+          detectedReference: downPaymentDetectedReference,
+        })
+      : Boolean(existingPayment.downPaymentPossibleDuplicateReference);
+    const finalPaymentPossibleDuplicateReference = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission && !customerSubmittedFinalPaymentIsCash
+      ? await hasPossibleDuplicatePaymentReference({
+          paymentId: existingPayment.id,
+          reference: req.body.finalPaymentReference || "",
+          detectedReference: finalPaymentDetectedReference,
+        })
+      : Boolean(existingPayment.finalPaymentPossibleDuplicateReference);
     const preservedReviewerDownPaymentMethod = normalizePaymentMethodLabel(existingPayment.downPaymentMethod || existingPayment.method || "");
     const preservedReviewerFinalPaymentMethod = normalizePaymentMethodLabel(existingPayment.finalPaymentMethod || existingPayment.method || "");
     const proofSubmissionServerDate = isCustomerSubmittingOwnPayment && (isCustomerDownPaymentSubmission || isCustomerFinalPaymentSubmission)
       ? new Date()
       : null;
-    const proofSubmissionIso = proofSubmissionServerDate ? proofSubmissionServerDate.toISOString() : "";
-    const reviewFields =
-      actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
-        ? {
-            reviewedAt: new Date().toISOString(),
-            reviewedBy: req.authUser?.email || req.body.auditUser || "",
-          }
-        : {};
-    const verifier = req.authUser?.email || req.body.auditUser || "";
-    const stageReviewFields = actorType !== "customer"
-      ? {
-          ...(isMarkingDownPaymentPaid ? {
-            downPaymentVerifiedAt: existingPayment.downPaymentVerifiedAt || new Date(),
-            downPaymentVerifiedBy: existingPayment.downPaymentVerifiedBy || verifier,
-            downPaymentReviewStatus: "Verified",
-          } : {}),
-          ...(isRejectingDownPayment ? {
-            downPaymentRejectedAt: new Date(),
-            downPaymentRejectedBy: verifier,
-            downPaymentRejectionReason: String(req.body.downPaymentRejectionReason || req.body.rejectionReason || req.body.downPaymentNotes || req.body.notes || "").trim().slice(0, 240),
-            downPaymentReviewStatus: "Rejected",
-          } : {}),
-          ...(isMarkingFinalPaymentPaid || isMarkingPaid ? {
-            finalPaymentVerifiedAt: existingPayment.finalPaymentVerifiedAt || new Date(),
-            finalPaymentVerifiedBy: existingPayment.finalPaymentVerifiedBy || verifier,
-            finalPaymentReviewStatus: "Verified",
-          } : {}),
-          ...(isRejectingFinalPayment ? {
-            finalPaymentRejectedAt: new Date(),
-            finalPaymentRejectedBy: verifier,
-            finalPaymentRejectionReason: String(req.body.finalPaymentRejectionReason || req.body.rejectionReason || req.body.finalPaymentNotes || req.body.notes || "").trim().slice(0, 240),
-            finalPaymentReviewStatus: "Rejected",
+	    const proofSubmissionIso = proofSubmissionServerDate ? proofSubmissionServerDate.toISOString() : "";
+	    const reviewFields =
+	      actorType !== "customer" && (nextStatus === "Paid" || nextStatus === "Rejected" || nextFinalPaymentStatus === "Paid" || nextFinalPaymentStatus === "Rejected")
+	        ? {
+	            reviewedAt: new Date().toISOString(),
+	            reviewedBy: req.authUser?.email || req.body.auditUser || "",
+	          }
+	        : {};
+	    const verifier = req.authUser?.email || req.body.auditUser || "";
+	    const reviewNow = new Date();
+	    const firstDownPaymentSubmittedAt = existingPayment.downPaymentFirstSubmittedAt || existingPayment.downPaymentProofSubmittedAt || existingPayment.proofSubmittedAt || "";
+	    const firstDownPaymentSubmissionDate = firstDownPaymentSubmittedAt ? new Date(firstDownPaymentSubmittedAt) : null;
+	    const downPaymentDueDate = existingPayment.downPaymentDueAt ? new Date(existingPayment.downPaymentDueAt) : null;
+	    const hasTimelyOriginalDownPaymentSubmission = Boolean(
+	      firstDownPaymentSubmissionDate &&
+	      !Number.isNaN(firstDownPaymentSubmissionDate.getTime()) &&
+	      (!downPaymentDueDate || Number.isNaN(downPaymentDueDate.getTime()) || firstDownPaymentSubmissionDate < downPaymentDueDate)
+	    );
+	    const isSecondDownPaymentRejection = isRejectingDownPayment && Boolean(existingPayment.downPaymentCorrectionSubmittedAt);
+	    const shouldOpenDownPaymentCorrectionWindow =
+	      isRejectingDownPayment &&
+	      !isSecondDownPaymentRejection &&
+	      hasTimelyOriginalDownPaymentSubmission &&
+	      !existingPayment.downPaymentCorrectionDueAt;
+	    const stageReviewFields = actorType !== "customer"
+	      ? {
+	          ...(isMarkingDownPaymentPaid ? {
+	            downPaymentVerifiedAt: existingPayment.downPaymentVerifiedAt || reviewNow,
+	            downPaymentVerifiedBy: existingPayment.downPaymentVerifiedBy || verifier,
+	            downPaymentReviewStatus: "Verified",
+	          } : {}),
+	          ...(isRejectingDownPayment ? {
+	            downPaymentRejectedAt: existingPayment.downPaymentRejectedAt || reviewNow,
+	            downPaymentRejectedBy: verifier,
+	            downPaymentRejectionReason: String(req.body.downPaymentRejectionReason || req.body.rejectionReason || req.body.downPaymentNotes || req.body.notes || "").trim().slice(0, 240),
+	            downPaymentReviewStatus: "Rejected",
+	            ...(shouldOpenDownPaymentCorrectionWindow ? {
+	              downPaymentCorrectionDueAt: new Date(reviewNow.getTime() + DOWN_PAYMENT_CORRECTION_MS),
+	            } : {}),
+	            ...(isSecondDownPaymentRejection ? {
+	              downPaymentSubmissionClosed: true,
+	              downPaymentSubmissionClosedAt: reviewNow,
+	              downPaymentClosureReasonCode: DOWN_PAYMENT_CORRECTION_REJECTED_CODE,
+	              cancellationCode: DOWN_PAYMENT_CORRECTION_REJECTED_CODE,
+	              cancellationReason: DOWN_PAYMENT_CORRECTION_REJECTED_REASON,
+	            } : {}),
+	          } : {}),
+	          ...(isMarkingFinalPaymentPaid || isMarkingPaid ? {
+	            finalPaymentVerifiedAt: existingPayment.finalPaymentVerifiedAt || reviewNow,
+	            finalPaymentVerifiedBy: existingPayment.finalPaymentVerifiedBy || verifier,
+	            finalPaymentReviewStatus: "Verified",
+	          } : {}),
+	          ...(isRejectingFinalPayment ? {
+	            finalPaymentRejectedAt: reviewNow,
+	            finalPaymentRejectedBy: verifier,
+	            finalPaymentRejectionReason: String(req.body.finalPaymentRejectionReason || req.body.rejectionReason || req.body.finalPaymentNotes || req.body.notes || "").trim().slice(0, 240),
+	            finalPaymentReviewStatus: "Rejected",
           } : {}),
         }
       : {};
@@ -9903,7 +10392,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentReferenceCheckStatus: customerSubmittedFinalPaymentIsCash ? "cash_not_required" : "submitted",
           finalPaymentReferenceCheckedAt: proofSubmissionServerDate,
           finalPaymentOcrAdvisoryStatus,
-          finalPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(req.body.finalPaymentOcrAdvisoryText || req.body.detectedText || ""),
+          finalPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(serverFinalPaymentOcrAdvisory?.text || ""),
+          finalPaymentOcrDetectedReference: finalPaymentDetectedReference,
+          finalPaymentPossibleDuplicateReference,
           finalPaymentReviewStatus: "Submitted",
           finalPaymentNotes: existingPayment.finalPaymentNotes || "",
           auditUser: actorEmail,
@@ -9924,10 +10415,16 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofImage,
           downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofFileName,
           downPaymentProofSubmittedAt: proofSubmissionServerDate,
+          downPaymentFirstSubmittedAt: existingPayment.downPaymentFirstSubmittedAt || proofSubmissionServerDate,
+          downPaymentCorrectionSubmittedAt: normalizePaymentStageStatus(existingPayment.downPaymentStatus, "Pending") === "Rejected"
+            ? proofSubmissionServerDate
+            : existingPayment.downPaymentCorrectionSubmittedAt || null,
           downPaymentReferenceCheckStatus: customerSubmittedDownPaymentIsCash ? "cash_not_required" : "submitted",
           downPaymentReferenceCheckedAt: proofSubmissionServerDate,
           downPaymentOcrAdvisoryStatus,
-          downPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(req.body.downPaymentOcrAdvisoryText || req.body.detectedText || ""),
+          downPaymentOcrAdvisoryText: sanitizeOcrAdvisoryText(serverDownPaymentOcrAdvisory?.text || ""),
+          downPaymentOcrDetectedReference: downPaymentDetectedReference,
+          downPaymentPossibleDuplicateReference,
           downPaymentReviewStatus: "Submitted",
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: existingPayment.finalPaymentStatus || existingPayment.status || "Pending",
@@ -9955,10 +10452,19 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentProofUrl: existingPayment.downPaymentProofUrl || existingPayment.proofImage || "",
           downPaymentProofName: existingPayment.downPaymentProofName || existingPayment.proofFileName || "",
           downPaymentProofSubmittedAt: existingPayment.downPaymentProofSubmittedAt || existingPayment.proofSubmittedAt || null,
+          downPaymentFirstSubmittedAt: existingPayment.downPaymentFirstSubmittedAt || null,
+          downPaymentCorrectionSubmittedAt: existingPayment.downPaymentCorrectionSubmittedAt || null,
+          downPaymentSubmissionClosed: stageReviewFields.downPaymentSubmissionClosed ?? Boolean(existingPayment.downPaymentSubmissionClosed),
+          downPaymentSubmissionClosedAt: stageReviewFields.downPaymentSubmissionClosedAt || existingPayment.downPaymentSubmissionClosedAt || null,
+          downPaymentClosureReasonCode: stageReviewFields.downPaymentClosureReasonCode || existingPayment.downPaymentClosureReasonCode || "",
+          downPaymentCorrectionDueAt: stageReviewFields.downPaymentCorrectionDueAt || existingPayment.downPaymentCorrectionDueAt || null,
+          downPaymentNoSubmissionStrikeRecordedAt: existingPayment.downPaymentNoSubmissionStrikeRecordedAt || null,
           downPaymentReferenceCheckStatus: existingPayment.downPaymentReferenceCheckStatus || "",
           downPaymentReferenceCheckedAt: existingPayment.downPaymentReferenceCheckedAt || null,
           downPaymentOcrAdvisoryStatus: existingPayment.downPaymentOcrAdvisoryStatus || "",
           downPaymentOcrAdvisoryText: existingPayment.downPaymentOcrAdvisoryText || "",
+          downPaymentOcrDetectedReference: existingPayment.downPaymentOcrDetectedReference || "",
+          downPaymentPossibleDuplicateReference: Boolean(existingPayment.downPaymentPossibleDuplicateReference),
           finalPaymentMethod: preservedReviewerFinalPaymentMethod,
           finalPaymentReference: existingPayment.finalPaymentReference || existingPayment.reference || "",
           finalPaymentProofUrl: existingPayment.finalPaymentProofUrl || "",
@@ -9968,6 +10474,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentReferenceCheckedAt: existingPayment.finalPaymentReferenceCheckedAt || null,
           finalPaymentOcrAdvisoryStatus: existingPayment.finalPaymentOcrAdvisoryStatus || "",
           finalPaymentOcrAdvisoryText: existingPayment.finalPaymentOcrAdvisoryText || "",
+          finalPaymentOcrDetectedReference: existingPayment.finalPaymentOcrDetectedReference || "",
+          finalPaymentPossibleDuplicateReference: Boolean(existingPayment.finalPaymentPossibleDuplicateReference),
         };
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
     let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
@@ -10069,6 +10577,35 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         finalAmount: Number(payment.finalAmount || payment.amount || 0),
       }
     );
+    if (isMarkingDownPaymentPaid) {
+      await resetNoDpTimeoutStreak(payment);
+      await progressBookingAfterDownPaymentVerification(payment, linkedBookingForPayment);
+    }
+    if (isSecondDownPaymentRejection) {
+      await closeDownPaymentSubmission({
+        payment,
+        booking: linkedBookingForPayment,
+        code: DOWN_PAYMENT_CORRECTION_REJECTED_CODE,
+        reason: DOWN_PAYMENT_CORRECTION_REJECTED_REASON,
+        now: reviewNow,
+        strike: false,
+      });
+      await recordAudit("system", "Cancelled booking after corrected down payment rejection", payment.bookingId || "", {
+        paymentId: payment.id || "",
+        bookingId: payment.bookingId || "",
+        cancellationCode: DOWN_PAYMENT_CORRECTION_REJECTED_CODE,
+        reason: DOWN_PAYMENT_CORRECTION_REJECTED_REASON,
+      });
+    }
+    if (
+      isCustomerSubmittingOwnPayment &&
+      isCustomerDownPaymentSubmission &&
+      payment.downPaymentRequired === true &&
+      !existingPayment.downPaymentFirstSubmittedAt &&
+      !existingPayment.downPaymentCorrectionDueAt
+    ) {
+      await resetNoDpTimeoutStreak(payment);
+    }
     if (isPaidStatus(payment.status) && payment.rewardId) {
       await markCustomerRewardUsedForPayment(payment, req.authUser?.email || req.body.auditUser || "system");
     } else if ((isRejectingDownPayment || isRejectingFinalPayment) && payment.rewardId) {
@@ -11679,6 +12216,10 @@ module.exports = {
   isBookingAccessRevoked,
   isActiveAccount,
   parseBookingAccessToken,
+  runDownPaymentDeadlineWorkflow,
+  setTestPaymentOcrRecognizer: (recognizer) => {
+    testPaymentOcrRecognizer = typeof recognizer === "function" ? recognizer : null;
+  },
   setTestBootstrapDataOverride: (loader) => {
     testBootstrapDataOverride = typeof loader === "function" ? loader : null;
   },

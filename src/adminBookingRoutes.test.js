@@ -12,7 +12,7 @@ global.TextEncoder = global.TextEncoder || TextEncoder;
 const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
-const { __testModels, app, signJwt } = require("../server/server");
+const { __testModels, app, signJwt, runDownPaymentDeadlineWorkflow, setTestPaymentOcrRecognizer } = require("../server/server");
 
 jest.setTimeout(15000);
 
@@ -201,7 +201,14 @@ function resetData(seedBookings = []) {
   bookings = seedBookings.map(clone);
   payments = [];
   auditLogs = [];
+  customerUser.noDownPaymentTimeoutStreak = 0;
+  customerUser.bookingCooldownUntil = null;
 }
+
+const VALID_PNG_PROOF = "data:image/png;base64,iVBORw0KGgo=";
+const VALID_JPEG_PROOF = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+const VALID_WEBP_PROOF = "data:image/webp;base64,UklGRgAAAABXRUJQ";
+const FAKE_IMAGE_PROOF = "data:image/png;base64,SGVsbG8=";
 
 function seedDeletedBooking(status = "Cancelled") {
   resetData([
@@ -586,6 +593,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  setTestPaymentOcrRecognizer(null);
   originals.reverse().forEach(([model, method, original]) => {
     model[method] = original;
   });
@@ -595,6 +603,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetData();
+  setTestPaymentOcrRecognizer(null);
   expenseCreateMock.mockClear();
 });
 
@@ -2810,6 +2819,385 @@ describe("Payment verification state remains separate from booking status", () =
     expect(response.status).toBe(200);
     expect(payments[0].finalPaymentStatus).toBe("For Verification");
     expect(bookings[0].status).toBe("In Progress");
+  });
+});
+
+describe("Phase 6B payment/OCR backend state machine", () => {
+  function seedRequiredDownPaymentState({
+    bookingPatch = {},
+    paymentPatch = {},
+    paymentId = "PAY-6B",
+    bookingId = "B-6B",
+  } = {}) {
+    resetData([
+      {
+        id: bookingId,
+        customer: "Customer One",
+        customerEmail: "customer@example.com",
+        customerId: "CUS-1",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        carSize: "Sedan / Small Car",
+        assigned: "",
+        assignedDetailerId: "",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 0,
+        status: "Pending",
+        amount: 1000,
+        originalAmount: 1000,
+        ...bookingPatch,
+      },
+    ]);
+    payments.push({
+      id: paymentId,
+      bookingId,
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      service: "Ceramic Coating",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      amount: 1000,
+      downPaymentRequired: true,
+      downPaymentAmount: 300,
+      downPaymentStatus: "Pending",
+      downPaymentMethod: "",
+      downPaymentReference: "",
+      downPaymentDueAt: "2099-01-02T00:00:00.000Z",
+      finalPaymentStatus: "Pending",
+      status: "Pending",
+      ...paymentPatch,
+    });
+  }
+
+  function dpProofBody(patch = {}) {
+    return {
+      downPaymentStatus: "For Verification",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "ABC-123",
+      downPaymentProofUrl: VALID_PNG_PROOF,
+      downPaymentProofName: "../proof.png",
+      ...patch,
+    };
+  }
+
+  test("required-DP submission before deadline is accepted and resets no-DP streak", async () => {
+    seedRequiredDownPaymentState();
+    customerUser.noDownPaymentTimeoutStreak = 2;
+    setTestPaymentOcrRecognizer(() => "Reference No. ABC-123");
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ downPaymentOcrAdvisoryStatus: "forged" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentStatus: "For Verification",
+      downPaymentReviewStatus: "Submitted",
+      downPaymentOcrAdvisoryStatus: "matched_advisory",
+      downPaymentOcrDetectedReference: "ABC-123",
+      downPaymentPossibleDuplicateReference: false,
+    });
+    expect(payments[0].downPaymentFirstSubmittedAt).toBeTruthy();
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+    expect(bookings[0].status).toBe("Pending");
+  });
+
+  test("required-DP submission after deadline is rejected before monitor runs and records one strike", async () => {
+    seedRequiredDownPaymentState({ paymentPatch: { downPaymentDueAt: "2000-01-01T00:00:00.000Z" } });
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+
+    expect(response.status).toBe(400);
+    expect(bookings[0]).toMatchObject({ status: "Cancelled", cancellationCode: "DOWN_PAYMENT_TIMEOUT" });
+    expect(payments[0]).toMatchObject({
+      downPaymentSubmissionClosed: true,
+      downPaymentClosureReasonCode: "DOWN_PAYMENT_TIMEOUT",
+      autoCancelledForNoDownPaymentProof: true,
+    });
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(1);
+  });
+
+  test("monitor and request-time timeout paths do not duplicate strike effects", async () => {
+    seedRequiredDownPaymentState({ paymentPatch: { downPaymentDueAt: "2000-01-01T00:00:00.000Z" } });
+
+    await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+    await runDownPaymentDeadlineWorkflow();
+
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(1);
+    expect(payments[0].downPaymentNoSubmissionStrikeRecordedAt).toBeTruthy();
+    expect(auditLogs.filter((log) => log.action === "Customer booking cooldown activated")).toHaveLength(0);
+  });
+
+  test("timely submitted proof is not cancelled after deadline while awaiting review", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        downPaymentDueAt: "2000-01-02T00:00:00.000Z",
+        downPaymentFirstSubmittedAt: "2000-01-01T00:00:00.000Z",
+        downPaymentProofSubmittedAt: "2000-01-01T00:00:00.000Z",
+        downPaymentStatus: "For Verification",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+      },
+    });
+
+    await runDownPaymentDeadlineWorkflow();
+
+    expect(bookings[0].status).toBe("Pending");
+    expect(payments[0].downPaymentStatus).toBe("For Verification");
+    expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+  });
+
+  test("third consecutive timeout activates 24-hour cooldown for required-DP and no-DP bookings", async () => {
+    seedRequiredDownPaymentState({ paymentPatch: { downPaymentDueAt: "2000-01-01T00:00:00.000Z" } });
+    customerUser.noDownPaymentTimeoutStreak = 2;
+
+    await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(3);
+    expect(new Date(customerUser.bookingCooldownUntil).getTime()).toBeGreaterThan(Date.now());
+
+    const blockedDp = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { ...basePayload, customerEmail: "forged@example.com", service: "Ceramic Coating" },
+    });
+    const blockedNoDp = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { ...basePayload, service: "Car Wash" },
+    });
+
+    expect(blockedDp.status).toBe(429);
+    expect(blockedNoDp.status).toBe(429);
+  });
+
+  test("cooldown expiry restores customer booking and no-DP booking does not reset streak", async () => {
+    customerUser.noDownPaymentTimeoutStreak = 2;
+    customerUser.bookingCooldownUntil = "2000-01-01T00:00:00.000Z";
+
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { ...basePayload, service: "Car Wash" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(2);
+    expect(customerUser.bookingCooldownUntil).toBeNull();
+  });
+
+  test("first human rejection creates fixed 12-hour correction window that does not restart", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        downPaymentStatus: "For Verification",
+        downPaymentMethod: "GCash",
+        downPaymentReference: "ABC-123",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+        downPaymentFirstSubmittedAt: "2099-01-01T00:00:00.000Z",
+      },
+    });
+
+    const first = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { downPaymentStatus: "Rejected", downPaymentNotes: "Needs clearer proof.", specialPin: "654321", accountName: "Sales Associate" },
+    });
+    const firstDue = payments[0].downPaymentCorrectionDueAt;
+    payments[0].downPaymentStatus = "For Verification";
+
+    const replay = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { downPaymentStatus: "Rejected", downPaymentNotes: "Still unclear.", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(firstDue).toBeTruthy();
+    expect(payments[0].downPaymentCorrectionDueAt).toBe(firstDue);
+  });
+
+  test("one correction is accepted within window and late/third corrections are closed", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        downPaymentStatus: "Rejected",
+        downPaymentMethod: "GCash",
+        downPaymentReference: "ABC-123",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+        downPaymentFirstSubmittedAt: "2099-01-01T00:00:00.000Z",
+        downPaymentCorrectionDueAt: "2099-01-01T12:00:00.000Z",
+      },
+    });
+    setTestPaymentOcrRecognizer(() => "Transaction ID ABC-123");
+
+    const correction = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ downPaymentProofUrl: VALID_JPEG_PROOF }),
+    });
+    const third = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ downPaymentProofUrl: VALID_WEBP_PROOF }),
+    });
+
+    expect(correction.status).toBe(200);
+    expect(payments[0].downPaymentCorrectionSubmittedAt).toBeTruthy();
+    expect(third.status).toBe(400);
+  });
+
+  test("late correction cancels without no-DP strike and second rejection cancels without strike", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        downPaymentStatus: "Rejected",
+        downPaymentFirstSubmittedAt: "2000-01-01T00:00:00.000Z",
+        downPaymentCorrectionDueAt: "2000-01-01T12:00:00.000Z",
+      },
+    });
+
+    const late = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+    expect(late.status).toBe(400);
+    expect(payments[0].downPaymentClosureReasonCode).toBe("DOWN_PAYMENT_CORRECTION_TIMEOUT");
+    expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+
+    seedRequiredDownPaymentState({
+      paymentId: "PAY-SECOND-REJECT",
+      bookingId: "B-SECOND-REJECT",
+      paymentPatch: {
+        downPaymentStatus: "For Verification",
+        downPaymentFirstSubmittedAt: "2099-01-01T00:00:00.000Z",
+        downPaymentCorrectionDueAt: "2099-01-01T12:00:00.000Z",
+        downPaymentCorrectionSubmittedAt: "2099-01-01T01:00:00.000Z",
+        downPaymentMethod: "GCash",
+        downPaymentReference: "ABC-123",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+      },
+    });
+    const rejected = await request("/api/admin/payments/PAY-SECOND-REJECT", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { downPaymentStatus: "Rejected", downPaymentNotes: "Invalid correction.", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(rejected.status).toBe(200);
+    expect(bookings[0].status).toBe("Cancelled");
+    expect(payments[0].downPaymentClosureReasonCode).toBe("DOWN_PAYMENT_CORRECTION_REJECTED");
+    expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+  });
+
+  test("server OCR computes advisory, ignores forged customer OCR, and flags duplicate verified references", async () => {
+    seedRequiredDownPaymentState();
+    payments.push({
+      id: "PAY-VERIFIED",
+      bookingId: "B-VERIFIED",
+      customerEmail: "other@example.com",
+      downPaymentStatus: "Paid",
+      downPaymentReference: "ABC123",
+      finalPaymentStatus: "Pending",
+      status: "Pending",
+    });
+    setTestPaymentOcrRecognizer(() => "Trace Number ABC-123");
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ downPaymentOcrAdvisoryStatus: "matched", downPaymentOcrAdvisoryText: "forged" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentOcrAdvisoryStatus: "matched_advisory",
+      downPaymentOcrDetectedReference: "ABC-123",
+      downPaymentPossibleDuplicateReference: true,
+      downPaymentStatus: "For Verification",
+    });
+  });
+
+  test("OCR mismatch, unreadable, and OCR error preserve submission for manual review", async () => {
+    for (const [paymentId, ocrText, expectedStatus] of [
+      ["PAY-MISMATCH", "Reference No. DIFFERENT", "not_matched_advisory"],
+      ["PAY-UNREADABLE", "Paid successfully", "unreadable_advisory"],
+      ["PAY-OCR-ERROR", new Error("OCR failed"), "ocr_error_advisory"],
+    ]) {
+      seedRequiredDownPaymentState({ paymentId, bookingId: `B-${paymentId}` });
+      setTestPaymentOcrRecognizer(() => {
+        if (ocrText instanceof Error) throw ocrText;
+        return ocrText;
+      });
+
+      const response = await request(`/api/admin/payments/${paymentId}`, {
+        method: "PUT",
+        token: auth(customerUser),
+        body: dpProofBody(),
+      });
+
+      expect(response.status).toBe(200);
+      expect(payments[0].downPaymentStatus).toBe("For Verification");
+      expect(payments[0].downPaymentOcrAdvisoryStatus).toBe(expectedStatus);
+    }
+  });
+
+  test("proof validation rejects malformed, oversized, fake, and remote customer proofs", async () => {
+    const oversizedProof = `data:image/png;base64,${Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4 * 1024 * 1024 + 1)]).toString("base64")}`;
+    for (const [paymentId, proof] of [
+      ["PAY-BAD64", "data:image/png;base64,not-valid"],
+      ["PAY-FAKE", FAKE_IMAGE_PROOF],
+      ["PAY-REMOTE", "https://example.com/proof.png"],
+      ["PAY-LARGE", oversizedProof],
+    ]) {
+      seedRequiredDownPaymentState({ paymentId, bookingId: `B-${paymentId}` });
+      const response = await request(`/api/admin/payments/${paymentId}`, {
+        method: "PUT",
+        token: auth(customerUser),
+        body: dpProofBody({ downPaymentProofUrl: proof }),
+      });
+      expect({ paymentId, status: response.status, body: response.body }).toMatchObject({ paymentId, status: 400 });
+      expect(payments[0].downPaymentStatus).toBe("Pending");
+    }
+  });
+
+  test("OCR match alone does not verify, authorized human verify is required, and pending booking scheduling invariant is respected", async () => {
+    seedRequiredDownPaymentState({
+      bookingPatch: { assigned: "Detailer One", assignedDetailerId: "STF-1", placeSlot: 1 },
+    });
+    setTestPaymentOcrRecognizer(() => "Reference Number ABC-123");
+
+    await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+    expect(payments[0].downPaymentStatus).toBe("For Verification");
+    expect(bookings[0].status).toBe("Pending");
+
+    const verified = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { downPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(verified.status).toBe(200);
+    expect(payments[0].downPaymentStatus).toBe("Paid");
+    expect(bookings[0].status).toBe("Scheduled");
   });
 });
 
