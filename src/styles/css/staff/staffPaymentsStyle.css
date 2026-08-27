@@ -418,6 +418,41 @@
   margin-bottom: 10px;
 }
 
+.stPayReviewQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.stPayReviewBtn {
+  min-width: 72px;
+  height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.stPayReviewBtn:hover {
+  background: #f8fafc;
+}
+
+.stPayReviewWarning {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
 .stPayReferenceChecker {
   margin-top: 12px;
   padding: 12px;
@@ -487,9 +522,21 @@
   color: #166534;
 }
 
+.stPayReferenceBadge.matched_advisory {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .stPayReferenceBadge.not-matched {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.stPayReferenceBadge.not_matched_advisory,
+.stPayReferenceBadge.unreadable_advisory,
+.stPayReferenceBadge.ocr_error_advisory {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .stPayReferenceBadge.unreadable,
@@ -498,6 +545,8 @@
 .stPayReferenceBadge.ready,
 .stPayReferenceBadge.checking,
 .stPayReferenceBadge.cash,
+.stPayReferenceBadge.cash_not_required,
+.stPayReferenceBadge.submitted,
 .stPayReferenceBadge.legacy-not-checked {
   background: #f8fafc;
   color: #475569;

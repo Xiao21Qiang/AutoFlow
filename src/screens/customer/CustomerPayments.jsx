@@ -15,7 +15,6 @@ import {
   getRemainingBalance,
   normalizeStageStatus,
 } from "../../utils/paymentStages";
-import { checkPaymentReference } from "../../utils/paymentReferenceChecker";
 
 const SALES_TAX_RATE = 0.12;
 
@@ -55,8 +54,8 @@ function isCashPaymentMethod(value) {
 }
 
 function getCustomerProofAction(payment = {}) {
-  if (payment.autoCancelledForNoDownPaymentProof) {
-    return { label: "Cancelled", disabled: true, mode: "" };
+  if (payment.downPaymentSubmissionClosed || payment.autoCancelledForNoDownPaymentProof) {
+    return { label: "Closed", disabled: true, mode: "" };
   }
   const legacyStatus = normalizeStageStatus(payment.status, "Pending");
   const downPaymentStatus = normalizeStageStatus(
@@ -71,8 +70,14 @@ function getCustomerProofAction(payment = {}) {
   if (finalPaymentStatus === "For Verification") {
     return { label: "Pending Review", disabled: true, mode: "" };
   }
-  if (payment.downPaymentRequired === true && ["Pending", "Rejected"].includes(downPaymentStatus)) {
+  if (payment.downPaymentRequired === true && downPaymentStatus === "Pending") {
     return { label: "Upload", disabled: false, mode: "downPayment" };
+  }
+  if (payment.downPaymentRequired === true && downPaymentStatus === "Rejected") {
+    const correctionOpen = Boolean(payment.downPaymentCorrectionDueAt) && !payment.downPaymentCorrectionSubmittedAt;
+    return correctionOpen
+      ? { label: "Upload Correction", disabled: false, mode: "downPayment" }
+      : { label: "Closed", disabled: true, mode: "" };
   }
   if (payment.downPaymentRequired === true && downPaymentStatus === "For Verification") {
     return { label: "Pending Review", disabled: true, mode: "" };
@@ -86,6 +91,61 @@ function getCustomerProofAction(payment = {}) {
   }
 
   return { label: "Upload", disabled: false, mode: "downPayment" };
+}
+
+function getDownPaymentStatus(payment = {}) {
+  return normalizeStageStatus(
+    payment.downPaymentStatus,
+    payment.downPaymentRequired === false ? "Not Required" : "Pending"
+  );
+}
+
+function getFinalPaymentStatus(payment = {}) {
+  return normalizeStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+}
+
+function getClosureMessage(payment = {}) {
+  const code = String(payment.downPaymentClosureReasonCode || payment.cancellationCode || "").trim();
+  if (payment.autoCancelledForNoDownPaymentProof || code === "DOWN_PAYMENT_TIMEOUT") {
+    return "This booking was cancelled because down-payment proof was not submitted within 24 hours. Please create a new booking.";
+  }
+  if (code === "DOWN_PAYMENT_CORRECTION_TIMEOUT") {
+    return "This booking was cancelled because the corrected down-payment proof was not submitted within the 12-hour window. Please create a new booking.";
+  }
+  if (code === "DOWN_PAYMENT_CORRECTION_REJECTED") {
+    return "The corrected down-payment proof was rejected. This booking is closed, and a new booking is required.";
+  }
+  if (payment.downPaymentSubmissionClosed) {
+    return "Down-payment submission is closed for this booking. Please create a new booking.";
+  }
+  return "";
+}
+
+function getCustomerPaymentNotice(payment = {}) {
+  const closureMessage = getClosureMessage(payment);
+  if (closureMessage) return closureMessage;
+  const downPaymentStatus = getDownPaymentStatus(payment);
+  const finalPaymentStatus = getFinalPaymentStatus(payment);
+  if (downPaymentStatus === "For Verification" || finalPaymentStatus === "For Verification") {
+    return "Payment submitted for verification.";
+  }
+  if (downPaymentStatus === "Paid" || finalPaymentStatus === "Paid") {
+    return "Payment verified.";
+  }
+  if (downPaymentStatus === "Rejected" && payment.downPaymentCorrectionDueAt && !payment.downPaymentCorrectionSubmittedAt) {
+    return "Payment rejected. You have one correction opportunity before the deadline shown below.";
+  }
+  if (downPaymentStatus === "Rejected" || finalPaymentStatus === "Rejected") {
+    return "Payment rejected.";
+  }
+  return "";
+}
+
+function getDeadlineText(label, dateStr) {
+  if (!dateStr) return "";
+  const timeLeft = formatApproxTimeLeft(dateStr);
+  const prefix = label ? `${label}: ` : "";
+  return `${prefix}${formatDateTime(dateStr)}${timeLeft ? ` (${timeLeft} left)` : ""}`;
 }
 
 function getInvoiceBreakdown(payment) {
@@ -248,6 +308,12 @@ export default function CustomerPayments() {
   };
 
   const openProofModal = (payment, mode) => {
+    const action = getCustomerProofAction(payment);
+    if (action.disabled || !mode) {
+      setSelectedPayment(payment);
+      setModal("invoice");
+      return;
+    }
     const isFinalPaymentMode = mode === "finalPayment";
     setSelectedPayment(payment);
     setProofMode(mode);
@@ -293,8 +359,15 @@ export default function CustomerPayments() {
     downloadAuthenticatedFile(`/api/admin/invoices/${encodeURIComponent(payment.id || payment.bookingId)}/pdf`, `autoflow-invoice-${payment.bookingId || payment.id}.pdf`)
       .catch((error) => window.alert(error.message || "Could not download invoice."));
 
+  const cooldownMessage = currentUser?.bookingCooldownUntil
+    ? `Booking is temporarily unavailable until ${formatDateTime(currentUser.bookingCooldownUntil)} after repeated down-payment timeouts.`
+    : "";
+
   return (
     <div className="clPayWrap">
+      {cooldownMessage && (
+        <div className="clPayNotice clPayNoticeWarning">{cooldownMessage}</div>
+      )}
       <div className="clPayTop">
         <div className="clPaySearchWrap">
           <div className="clPaySearchBox">
@@ -336,41 +409,46 @@ export default function CustomerPayments() {
             const stageClass = getPaymentStageClass(row);
             const proofAction = getCustomerProofAction(row);
             return (
-              <div className="clPayRow" key={row.id}>
-                <div>{row.id}</div>
-                <div>{formatDate(row.date)}</div>
-                <div>{row.customer}</div>
-                <div>{row.service}</div>
-                <div>{formatCurrency(getPaymentTotal(row))}</div>
-                <div>
-                  <span className={`clPayBadge ${stageClass}`}>{stageLabel}</span>
+              <div className="clPayRowGroup" key={row.id}>
+                <div className="clPayRow">
+                  <div>{row.id}</div>
+                  <div>{formatDate(row.date)}</div>
+                  <div>{row.customer}</div>
+                  <div>{row.service}</div>
+                  <div>{formatCurrency(getPaymentTotal(row))}</div>
+                  <div>
+                    <span className={`clPayBadge ${stageClass}`}>{stageLabel}</span>
+                  </div>
+                  <div>{row.finalPaymentMethod || row.downPaymentMethod || row.method || "-"}</div>
+                  <div>
+                    <button
+                      className="clPayViewBtn"
+                      type="button"
+                      onClick={() => {
+                        setSelectedPayment(row);
+                        setProofPreview({ paymentId: row.id || row.bookingId || "", loading: false, error: "", downPayment: null });
+                        setModal("invoice");
+                      }}
+                    >
+                      View
+                    </button>
+                  </div>
+                  <div>
+                    <button
+                      className="clPayProofBtn"
+                      type="button"
+                      onClick={() => {
+                        openProofModal(row, proofAction.mode || "downPayment");
+                      }}
+                      disabled={proofAction.disabled}
+                    >
+                      {proofAction.label}
+                    </button>
+                  </div>
                 </div>
-                <div>{row.finalPaymentMethod || row.downPaymentMethod || row.method || "-"}</div>
-                <div>
-                  <button
-                    className="clPayViewBtn"
-                    type="button"
-                    onClick={() => {
-                      setSelectedPayment(row);
-                      setProofPreview({ paymentId: row.id || row.bookingId || "", loading: false, error: "", downPayment: null });
-                      setModal("invoice");
-                    }}
-                  >
-                    View
-                  </button>
-                </div>
-                <div>
-                  <button
-                    className="clPayProofBtn"
-                    type="button"
-                    onClick={() => {
-                      openProofModal(row, proofAction.mode || "downPayment");
-                    }}
-                    disabled={proofAction.disabled}
-                  >
-                    {proofAction.label}
-                  </button>
-                </div>
+                {getCustomerPaymentNotice(row) && (
+                  <div className="clPayRowNotice">{getCustomerPaymentNotice(row)}</div>
+                )}
               </div>
             );
           })
@@ -492,6 +570,11 @@ export default function CustomerPayments() {
                   </div>
 
                   <div className="clPayDetailList clPayDetailListCompact">
+                    {getCustomerPaymentNotice(selectedPayment) && (
+                      <div className={getClosureMessage(selectedPayment) ? "clPayNotice clPayNoticeWarning" : "clPayNotice"}>
+                        {getCustomerPaymentNotice(selectedPayment)}
+                      </div>
+                    )}
                     {selectedPayment.downPaymentDueAt && selectedPayment.downPaymentRequired === true && (
                       <div>
                         <strong>Down payment due:</strong> {formatDateTime(selectedPayment.downPaymentDueAt)}
@@ -499,6 +582,15 @@ export default function CustomerPayments() {
                       </div>
                     )}
                     {(selectedPayment.downPaymentReference || selectedPayment.reference) && <div><strong>Reference:</strong> {selectedPayment.downPaymentReference || selectedPayment.reference}</div>}
+                    {selectedPayment.downPaymentCorrectionDueAt && (
+                      <div><strong>Correction deadline:</strong> {formatDateTime(selectedPayment.downPaymentCorrectionDueAt)}</div>
+                    )}
+                    {selectedPayment.downPaymentRejectionReason && (
+                      <div><strong>Rejection reason:</strong> {selectedPayment.downPaymentRejectionReason}</div>
+                    )}
+                    {selectedPayment.cancellationReason && (
+                      <div><strong>Booking status:</strong> {selectedPayment.cancellationReason}</div>
+                    )}
                     {selectedPayment.rewardId && <div><strong>Reward Used:</strong> {selectedPayment.rewardName || "-"} ({selectedPayment.rewardValue || selectedPayment.rewardType || "-"})</div>}
                     {(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt) && (
                       <div><strong>Down Payment Proof Submitted:</strong> {formatDateTime(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt)}</div>
@@ -562,27 +654,6 @@ export default function CustomerPayments() {
                     setProofError("Proof of payment is required for this payment method.");
                     return;
                   }
-                  if (!isCashMethod) {
-                    setProofSubmitting(true);
-                    setProofError("Checking proof reference...");
-                    const referenceCheck = await checkPaymentReference({
-                      method: proofForm.method,
-                      reference,
-                      proofImage: proofForm.proofImage,
-                    });
-                    if (referenceCheck.status === "unreadable") {
-                      setProofSubmitting(false);
-                      setProofError("Validation error: Unable to read the proof of payment. Please upload a clearer image.");
-                      return;
-                    }
-                    if (referenceCheck.status !== "matched") {
-                      setProofSubmitting(false);
-                      setProofError("Validation error: Reference number does not match the uploaded proof of payment.");
-                      return;
-                    }
-                    setProofError("");
-                  }
-                  const ocrStatus = isCashMethod ? "cash_not_required" : "matched";
                   const proofPayload = isFinalPaymentMode
                     ? {
                         finalPaymentStatus: "For Verification",
@@ -590,7 +661,6 @@ export default function CustomerPayments() {
                         finalPaymentReference: isCashMethod ? "" : reference,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        finalPaymentOcrAdvisoryStatus: ocrStatus,
                       }
                     : {
                         downPaymentStatus: "For Verification",
@@ -598,10 +668,9 @@ export default function CustomerPayments() {
                         downPaymentReference: isCashMethod ? "" : reference,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        downPaymentOcrAdvisoryStatus: ocrStatus,
                       };
                   try {
-                    if (isCashMethod) setProofSubmitting(true);
+                    setProofSubmitting(true);
                     await submitPaymentProof(selectedPayment, proofPayload);
                     closeModal();
                   } catch (error) {
@@ -611,6 +680,11 @@ export default function CustomerPayments() {
                 }}
               >
                 <div className="clPayModalTitle">{proofMode === "finalPayment" ? "Submit Remaining Balance Proof" : "Submit Down Payment Proof"}</div>
+                {getCustomerPaymentNotice(selectedPayment) && (
+                  <div className={getClosureMessage(selectedPayment) ? "clPayNotice clPayNoticeWarning" : "clPayNotice"}>
+                    {getCustomerPaymentNotice(selectedPayment)}
+                  </div>
+                )}
                 <div className="clPayStageSummary clPayStageSummaryCompact">
                   <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
                   {proofMode === "finalPayment" ? (
@@ -618,15 +692,25 @@ export default function CustomerPayments() {
                   ) : (
                     <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
                   )}
+                  <div><span>Payment Method</span><strong>{proofForm.method || selectedPayment.downPaymentMethod || selectedPayment.method || "-"}</strong></div>
                   <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
                   <div>
                     <span>{proofMode === "finalPayment" ? "Full Payment Status" : "Current DP Status"}</span>
                     <strong>
                       {proofMode === "finalPayment"
-                        ? normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")
-                        : normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}
+                        ? getFinalPaymentStatus(selectedPayment)
+                        : getDownPaymentStatus(selectedPayment)}
                     </strong>
                   </div>
+                  {proofMode !== "finalPayment" && selectedPayment.downPaymentDueAt && (
+                    <div><span>Original 24h Deadline</span><strong>{getDeadlineText("", selectedPayment.downPaymentDueAt)}</strong></div>
+                  )}
+                  {proofMode !== "finalPayment" && selectedPayment.downPaymentCorrectionDueAt && (
+                    <div><span>Correction Deadline</span><strong>{getDeadlineText("", selectedPayment.downPaymentCorrectionDueAt)}</strong></div>
+                  )}
+                  {proofMode !== "finalPayment" && selectedPayment.downPaymentRejectionReason && (
+                    <div><span>Rejection Reason</span><strong>{selectedPayment.downPaymentRejectionReason}</strong></div>
+                  )}
                 </div>
 
                 <label className="clPayField">
@@ -710,7 +794,7 @@ export default function CustomerPayments() {
                     Cancel
                   </button>
                   <button className="clPayPrimaryBtn" type="submit" disabled={proofSubmitting}>
-                    {proofSubmitting ? "Checking proof reference..." : proofMode === "finalPayment" ? "Submit Balance Proof" : "Submit"}
+                    {proofSubmitting ? "Submitting..." : proofMode === "finalPayment" ? "Submit Balance Proof" : "Submit"}
                   </button>
                 </div>
               </form>

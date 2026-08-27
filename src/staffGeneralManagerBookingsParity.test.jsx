@@ -873,7 +873,7 @@ describe("General Manager Payment Tracking parity shell", () => {
     expect(await screen.findByText("Review Payment")).toBeInTheDocument();
     expect(screen.getAllByText("Down Payment").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("DP-REF-1")).toBeInTheDocument();
-    expect(screen.getByText("Submitted with customer-side OCR advisory metadata.")).toBeInTheDocument();
+    expect(screen.getByText("OCR Check: Match")).toBeInTheDocument();
   });
 
   test("validates General Manager payment verification with Staff credential scope", async () => {
@@ -922,7 +922,7 @@ describe("General Manager Payment Tracking parity shell", () => {
     expect(screen.getByDisplayValue("GCash")).toBeInTheDocument();
     expect(screen.getByDisplayValue("DP-REF-1")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/December 1, 2099/)).toBeInTheDocument();
-    expect(screen.getByText("Submitted with customer-side OCR advisory metadata.")).toBeInTheDocument();
+    expect(screen.getByText("OCR Check: Match")).toBeInTheDocument();
     fireEvent.change(screen.getAllByLabelText("Status")[0], { target: { value: "Paid" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });

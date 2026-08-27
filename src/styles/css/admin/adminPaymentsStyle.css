@@ -504,6 +504,41 @@
   margin-bottom: 10px;
 }
 
+.payReviewQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.payReviewBtn {
+  min-width: 72px;
+  height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.payReviewBtn:hover {
+  background: #f8fafc;
+}
+
+.payReviewWarning {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
 .payReferenceChecker {
   margin-top: 12px;
   padding: 12px;
@@ -573,9 +608,21 @@
   color: #166534;
 }
 
+.payReferenceBadge.matched_advisory {
+  background: #dcfce7;
+  color: #166534;
+}
+
 .payReferenceBadge.not-matched {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.payReferenceBadge.not_matched_advisory,
+.payReferenceBadge.unreadable_advisory,
+.payReferenceBadge.ocr_error_advisory {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .payReferenceBadge.unreadable,
@@ -584,6 +631,8 @@
 .payReferenceBadge.ready,
 .payReferenceBadge.checking,
 .payReferenceBadge.cash,
+.payReferenceBadge.cash_not_required,
+.payReferenceBadge.submitted,
 .payReferenceBadge.legacy-not-checked {
   background: #f8fafc;
   color: #475569;

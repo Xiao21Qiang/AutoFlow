@@ -13,6 +13,7 @@ import {
   getPaymentStageLabel,
   getPaymentTotal,
   getRemainingBalance,
+  normalizeStageStatus,
   canReviewFinalPaymentStage,
   isDownPaymentSatisfied,
   isPaidStatus,
@@ -75,6 +76,9 @@ const CLASS_NAMES = {
     checkerBtn: "payReferenceCheckBtn",
     checkerBadge: "payReferenceBadge",
     checkerMeta: "payReferenceMeta",
+    quickActions: "payReviewQuickActions",
+    reviewBtn: "payReviewBtn",
+    warning: "payReviewWarning",
   },
   staff: {
     wrap: "stPayWrap",
@@ -118,6 +122,9 @@ const CLASS_NAMES = {
     checkerBtn: "stPayReferenceCheckBtn",
     checkerBadge: "stPayReferenceBadge",
     checkerMeta: "stPayReferenceMeta",
+    quickActions: "stPayReviewQuickActions",
+    reviewBtn: "stPayReviewBtn",
+    warning: "stPayReviewWarning",
   },
 };
 
@@ -181,6 +188,11 @@ function mergeProofIntoPayment(payment, proof, stage) {
       ...payment,
       finalPaymentProofUrl: proof.proofImage || proof.proofUrl || payment.finalPaymentProofUrl || "",
       finalPaymentProofName: proof.proofFileName || proof.proofName || payment.finalPaymentProofName || "",
+      finalPaymentReferenceCheckStatus: proof.referenceCheckStatus || payment.finalPaymentReferenceCheckStatus || "",
+      finalPaymentReferenceCheckedAt: proof.referenceCheckedAt || payment.finalPaymentReferenceCheckedAt || null,
+      finalPaymentOcrAdvisoryStatus: proof.ocrAdvisoryStatus || payment.finalPaymentOcrAdvisoryStatus || "",
+      finalPaymentOcrDetectedReference: proof.ocrDetectedReference || payment.finalPaymentOcrDetectedReference || "",
+      finalPaymentPossibleDuplicateReference: Boolean(proof.possibleDuplicateReference || payment.finalPaymentPossibleDuplicateReference),
     };
   }
   return {
@@ -189,7 +201,44 @@ function mergeProofIntoPayment(payment, proof, stage) {
     downPaymentProofUrl: proof.proofImage || proof.proofUrl || payment.downPaymentProofUrl || "",
     proofFileName: proof.proofFileName || proof.proofName || payment.proofFileName || "",
     downPaymentProofName: proof.proofFileName || proof.proofName || payment.downPaymentProofName || "",
+    downPaymentReferenceCheckStatus: proof.referenceCheckStatus || payment.downPaymentReferenceCheckStatus || "",
+    downPaymentReferenceCheckedAt: proof.referenceCheckedAt || payment.downPaymentReferenceCheckedAt || null,
+    downPaymentOcrAdvisoryStatus: proof.ocrAdvisoryStatus || payment.downPaymentOcrAdvisoryStatus || "",
+    downPaymentOcrDetectedReference: proof.ocrDetectedReference || payment.downPaymentOcrDetectedReference || "",
+    downPaymentPossibleDuplicateReference: Boolean(proof.possibleDuplicateReference || payment.downPaymentPossibleDuplicateReference),
   };
+}
+
+function getOcrCheckLabel(status) {
+  switch (String(status || "").trim()) {
+    case "matched_advisory":
+      return "OCR Check: Match";
+    case "not_matched_advisory":
+      return "OCR Check: Mismatch";
+    case "unreadable_advisory":
+      return "OCR Check: Unable to Read";
+    case "ocr_error_advisory":
+      return "OCR Check: Error";
+    case "cash_not_required":
+      return "OCR Check: Cash not required";
+    case "submitted":
+      return "OCR Check: Pending";
+    default:
+      return "";
+  }
+}
+
+function getClosureLabel(code) {
+  switch (String(code || "").trim()) {
+    case "DOWN_PAYMENT_TIMEOUT":
+      return "Closed: missed original 24-hour down-payment deadline";
+    case "DOWN_PAYMENT_CORRECTION_TIMEOUT":
+      return "Closed: missed 12-hour correction deadline";
+    case "DOWN_PAYMENT_CORRECTION_REJECTED":
+      return "Closed: corrected proof rejected";
+    default:
+      return "";
+  }
 }
 
 export default function PaymentTrackingView({ role = "admin" }) {
@@ -271,6 +320,9 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const finalPaymentEnabled = selectedWithForm ? isDownPaymentSatisfied(selectedWithForm) : false;
   const finalPaymentReviewable = selectedPayment ? canReviewFinalPaymentStage(selectedPayment) : false;
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
+  const downPaymentReviewable = selectedPayment
+    ? normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending") === "For Verification"
+    : false;
   const selectedPaymentWithProof = useMemo(() => {
     if (!selectedPayment) return null;
     return mergeProofIntoPayment(
@@ -334,36 +386,41 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const getReferenceValidationDisplay = ({ method, reference, proofImage, proofAvailable, status, advisoryStatus }) => {
     const normalizedMethod = String(method || "").trim().toLowerCase();
     if (normalizedMethod === "cash" || status === "cash_not_required") {
-      return { status: "cash", message: "Cash payment - reference check not required." };
+      return { status: "cash", message: "OCR Check: Cash not required" };
     }
     if (!String(proofImage || "").trim() && !proofAvailable) {
-      return { status: "no-proof", message: "No payment proof available for reference checking." };
+      return { status: "no-proof", message: "No payment proof available for OCR check." };
     }
     if (!String(reference || "").trim()) {
       return { status: "no-reference", message: "No reference number provided by customer." };
     }
-    if (advisoryStatus === "matched_advisory" || status === "submitted") {
-      return { status: "submitted", message: "Submitted with customer-side OCR advisory metadata." };
-    }
-    return { status: "legacy-not-checked", message: "Reference validation not available for legacy records." };
+    const ocrLabel = getOcrCheckLabel(advisoryStatus || status);
+    if (ocrLabel) return { status: advisoryStatus || status, message: ocrLabel };
+    return { status: "legacy-not-checked", message: "OCR Check: Not available for legacy records" };
   };
 
-  const renderReferenceValidation = ({ method, reference, proofImage, proofAvailable, status, advisoryStatus, checkedAt }) => {
+  const renderReferenceValidation = ({ method, reference, proofImage, proofAvailable, status, advisoryStatus, checkedAt, detectedReference, possibleDuplicateReference }) => {
     const result = getReferenceValidationDisplay({ method, reference, proofImage, proofAvailable, status, advisoryStatus });
 
     return (
       <div className={classes.referenceChecker}>
         <div className={classes.referenceCheckerTop}>
           <div>
-            <strong>Reference Validation</strong>
-            <span>Browser OCR is advisory. Admin or authorized staff review is authoritative.</span>
+            <strong>OCR Advisory</strong>
+            <span>OCR helps compare the submitted proof and reference. Manual verification is still required.</span>
           </div>
         </div>
         <div className={`${classes.checkerBadge} ${result.status}`}>
           {result.message}
         </div>
+        {detectedReference ? (
+          <div className={classes.checkerMeta}>Detected reference: {detectedReference}</div>
+        ) : null}
+        {possibleDuplicateReference ? (
+          <div className={classes.warning}>Possible duplicate transaction reference - manual verification required.</div>
+        ) : null}
         {checkedAt ? (
-          <div className={classes.checkerMeta}>Checked on {formatDateTime(checkedAt)}</div>
+          <div className={classes.checkerMeta}>Submitted on {formatDateTime(checkedAt)}</div>
         ) : null}
       </div>
     );
@@ -505,6 +562,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <div><strong>Billing Date:</strong> {formatDate(selectedPayment.date)}</div>
                 <div><strong>Service:</strong> {selectedPayment.service || "-"}</div>
                 <div><strong>Current Stage:</strong> {getPaymentStageLabel(selectedPayment)}</div>
+                <div><strong>Booking Status:</strong> {selectedPayment.bookingStatus || selectedPayment.booking?.status || selectedPayment.status || "-"}</div>
               </div>
 
               <div className={classes.amountGrid}>
@@ -516,6 +574,30 @@ export default function PaymentTrackingView({ role = "admin" }) {
 
               <div className={classes.section}>
                 <div className={classes.sectionTitle}>Down Payment</div>
+                <div className={classes.hint}>
+                  Stage/type: Required down payment. Expected amount: {formatCurrency(selectedPayment.downPaymentAmount || 0)}. Human verification state: {selectedPayment.downPaymentReviewStatus || normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}.
+                </div>
+                {selectedPayment.downPaymentDueAt ? (
+                  <div className={classes.hint}>Original 24-hour deadline: {formatDateTime(selectedPayment.downPaymentDueAt)}</div>
+                ) : null}
+                {selectedPayment.downPaymentCorrectionDueAt ? (
+                  <div className={classes.hint}>Correction deadline: {formatDateTime(selectedPayment.downPaymentCorrectionDueAt)}</div>
+                ) : null}
+                {selectedPayment.downPaymentRejectionReason ? (
+                  <div className={classes.hint}>Rejection reason: {selectedPayment.downPaymentRejectionReason}</div>
+                ) : null}
+                {getClosureLabel(selectedPayment.downPaymentClosureReasonCode || selectedPayment.cancellationCode) ? (
+                  <div className={classes.warning}>{getClosureLabel(selectedPayment.downPaymentClosureReasonCode || selectedPayment.cancellationCode)}</div>
+                ) : null}
+                {form.downPaymentStatus === "Rejected" && downPaymentReviewable && !selectedPayment.downPaymentCorrectionDueAt && !selectedPayment.downPaymentCorrectionSubmittedAt ? (
+                  <div className={classes.warning}>Rejecting this first down-payment submission opens one 12-hour customer correction window.</div>
+                ) : null}
+                {canVerifyPayments && downPaymentReviewable && !finalPaymentLocked ? (
+                  <div className={classes.quickActions}>
+                    <button className={classes.reviewBtn} type="button" onClick={() => setForm((prev) => ({ ...prev, downPaymentStatus: "Paid" }))}>Verify</button>
+                    <button className={classes.reviewBtn} type="button" onClick={() => setForm((prev) => ({ ...prev, downPaymentStatus: "Rejected" }))}>Reject</button>
+                  </div>
+                ) : null}
                 <div className={classes.grid}>
                   <label className={classes.field}>
                     <span>Status</span>
@@ -536,6 +618,14 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <input value={selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt ? formatDateTime(selectedPayment.downPaymentProofSubmittedAt || selectedPayment.proofSubmittedAt) : "Not submitted"} readOnly disabled />
                   </label>
                   <label className={classes.field}>
+                    <span>Human Verification State</span>
+                    <input value={selectedPayment.downPaymentReviewStatus || normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")} readOnly disabled />
+                  </label>
+                  <label className={classes.field}>
+                    <span>Correction Submitted</span>
+                    <input value={selectedPayment.downPaymentCorrectionSubmittedAt ? formatDateTime(selectedPayment.downPaymentCorrectionSubmittedAt) : "Not submitted"} readOnly disabled />
+                  </label>
+                  <label className={classes.field}>
                     <span>Notes</span>
                     <textarea rows="3" value={form.downPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentNotes: event.target.value }))} disabled={finalPaymentLocked} />
                   </label>
@@ -551,9 +641,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   reference: selectedPayment.downPaymentReference || selectedPayment.reference,
                   proofImage: selectedPaymentWithProof?.downPaymentProofUrl || selectedPaymentWithProof?.proofImage,
                   proofAvailable: hasProofMetadata(selectedPayment, "downPayment"),
-                  status: selectedPayment.downPaymentReferenceCheckStatus,
-                  advisoryStatus: selectedPayment.downPaymentOcrAdvisoryStatus,
-                  checkedAt: selectedPayment.downPaymentReferenceCheckedAt,
+                  status: selectedPaymentWithProof?.downPaymentReferenceCheckStatus || selectedPayment.downPaymentReferenceCheckStatus,
+                  advisoryStatus: selectedPaymentWithProof?.downPaymentOcrAdvisoryStatus || selectedPayment.downPaymentOcrAdvisoryStatus,
+                  checkedAt: selectedPaymentWithProof?.downPaymentReferenceCheckedAt || selectedPayment.downPaymentReferenceCheckedAt,
+                  detectedReference: selectedPaymentWithProof?.downPaymentOcrDetectedReference || selectedPayment.downPaymentOcrDetectedReference,
+                  possibleDuplicateReference: selectedPaymentWithProof?.downPaymentPossibleDuplicateReference || selectedPayment.downPaymentPossibleDuplicateReference,
                 })}
               </div>
 
@@ -561,6 +653,15 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <div className={classes.sectionTitle}>Full Payment / Remaining Balance</div>
                 {!finalPaymentEnabled && <div className={classes.hint}>Full payment can only be updated after the down payment is verified as paid.</div>}
                 {finalPaymentEnabled && !finalPaymentReviewable && <div className={classes.hint}>Full payment can only be reviewed after the customer submits remaining balance proof.</div>}
+                <div className={classes.hint}>
+                  Stage/type: Final payment / remaining balance. Expected amount: {formatCurrency(getRemainingBalance(selectedPayment))}. Human verification state: {selectedPayment.finalPaymentReviewStatus || normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")}.
+                </div>
+                {canVerifyPayments && finalPaymentReviewable && !finalPaymentLocked ? (
+                  <div className={classes.quickActions}>
+                    <button className={classes.reviewBtn} type="button" onClick={() => setForm((prev) => ({ ...prev, finalPaymentStatus: "Paid" }))}>Verify</button>
+                    <button className={classes.reviewBtn} type="button" onClick={() => setForm((prev) => ({ ...prev, finalPaymentStatus: "Rejected" }))}>Reject</button>
+                  </div>
+                ) : null}
                 <div className={classes.grid}>
                   <label className={classes.field}>
                     <span>Status</span>
@@ -581,6 +682,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     <input value={selectedPayment.finalPaymentProofSubmittedAt ? formatDateTime(selectedPayment.finalPaymentProofSubmittedAt) : "Not submitted"} readOnly disabled />
                   </label>
                   <label className={classes.field}>
+                    <span>Human Verification State</span>
+                    <input value={selectedPayment.finalPaymentReviewStatus || normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")} readOnly disabled />
+                  </label>
+                  <label className={classes.field}>
                     <span>Notes</span>
                     <textarea rows="3" value={form.finalPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, finalPaymentNotes: event.target.value }))} disabled={!finalPaymentReviewable || finalPaymentLocked} />
                   </label>
@@ -596,9 +701,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   reference: selectedPayment.finalPaymentReference,
                   proofImage: selectedPaymentWithProof?.finalPaymentProofUrl,
                   proofAvailable: hasProofMetadata(selectedPayment, "finalPayment"),
-                  status: selectedPayment.finalPaymentReferenceCheckStatus,
-                  advisoryStatus: selectedPayment.finalPaymentOcrAdvisoryStatus,
-                  checkedAt: selectedPayment.finalPaymentReferenceCheckedAt,
+                  status: selectedPaymentWithProof?.finalPaymentReferenceCheckStatus || selectedPayment.finalPaymentReferenceCheckStatus,
+                  advisoryStatus: selectedPaymentWithProof?.finalPaymentOcrAdvisoryStatus || selectedPayment.finalPaymentOcrAdvisoryStatus,
+                  checkedAt: selectedPaymentWithProof?.finalPaymentReferenceCheckedAt || selectedPayment.finalPaymentReferenceCheckedAt,
+                  detectedReference: selectedPaymentWithProof?.finalPaymentOcrDetectedReference || selectedPayment.finalPaymentOcrDetectedReference,
+                  possibleDuplicateReference: selectedPaymentWithProof?.finalPaymentPossibleDuplicateReference || selectedPayment.finalPaymentPossibleDuplicateReference,
                 })}
                 {proofDetails.error ? <div className={classes.hint}>{proofDetails.error}</div> : null}
               </div>
