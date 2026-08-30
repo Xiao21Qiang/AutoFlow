@@ -16,7 +16,8 @@ function App() {
       <AuthSessionManager />
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+        <Route path="/login" element={<PublicRoute><Login mode="signin" /></PublicRoute>} />
+        <Route path="/register" element={<PublicRoute><Login mode="signup" /></PublicRoute>} />
         <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><AdminMain /></ProtectedRoute>} />
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["staff"]}><StaffMain /></ProtectedRoute>} />
         <Route path="/client" element={<ProtectedRoute allowedRoles={["customer"]}><CustomerMain /></ProtectedRoute>} />

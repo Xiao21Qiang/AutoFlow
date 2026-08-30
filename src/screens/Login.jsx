@@ -57,10 +57,10 @@ const sanitizeNameInput = (value) =>
 
 const normalizeNameForSubmit = (value) => sanitizeNameInput(value).trim().replace(/\s+/g, " ");
 
-export default function Login() {
+export default function Login({ mode = "signin" }) {
   const navigate = useNavigate();
+  const isSignIn = mode !== "signup";
 
-  const [tab, setTab] = useState("signin");
   const [showPass, setShowPass] = useState(false);
   const [showPass2, setShowPass2] = useState(false);
 
@@ -108,18 +108,16 @@ export default function Login() {
   const [signupCooldownSeconds, setSignupCooldownSeconds] = useState(0);
   const [signupIsCooldown, setSignupIsCooldown] = useState(false);
   const [signupOtpError, setSignupOtpError] = useState("");
-	  const [signupOtpInfo, setSignupOtpInfo] = useState("");
-	  const signupOtpRefs = useRef([]);
+  const [signupOtpInfo, setSignupOtpInfo] = useState("");
+  const signupOtpRefs = useRef([]);
 
   useEffect(() => {
     const message = consumeAuthMessage();
     if (message) {
-      setTab("signin");
+      if (!isSignIn) navigate("/login", { replace: true });
       setAuthError(message);
     }
-  }, []);
-
-  const isSignIn = tab === "signin";
+  }, [isSignIn, navigate]);
 
   const signInErrors = useMemo(() => {
     const e = {};
@@ -297,11 +295,11 @@ export default function Login() {
   }, [fpIsCooldown, fpCooldownSeconds]);
 
   const onTab = (next) => {
-    setTab(next);
     setShowPass(false);
     setShowPass2(false);
     setAuthError("");
     setSignUpServerErrors({});
+    navigate(next === "signup" ? "/register" : "/login");
   };
 
   const updateSignUpField = (field, value) => {
@@ -756,9 +754,11 @@ export default function Login() {
           </p>
 
           <div className="authCard">
-            <div className="authTabs">
+            <div className="authTabs" role="tablist" aria-label="Authentication mode">
               <button
                 type="button"
+                role="tab"
+                aria-selected={isSignIn}
                 className={`authTab ${isSignIn ? "active" : ""}`}
                 onClick={() => onTab("signin")}
               >
@@ -767,6 +767,8 @@ export default function Login() {
 
               <button
                 type="button"
+                role="tab"
+                aria-selected={!isSignIn}
                 className={`authTab ${!isSignIn ? "active" : ""}`}
                 onClick={() => onTab("signup")}
               >
