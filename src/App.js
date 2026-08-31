@@ -18,6 +18,9 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<PublicRoute><Login mode="signin" /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Login mode="signup" /></PublicRoute>} />
+        <Route path="/forgot-password/verify" element={<PublicRoute><Login mode="forgotPasswordVerify" /></PublicRoute>} />
+        <Route path="/forgot-password" element={<PublicRoute><Login mode="forgotPassword" /></PublicRoute>} />
+        <Route path="/reset-password" element={<PublicRoute><Login mode="resetPassword" /></PublicRoute>} />
         <Route path="/admin" element={<ProtectedRoute allowedRoles={["admin"]}><AdminMain /></ProtectedRoute>} />
         <Route path="/staff" element={<ProtectedRoute allowedRoles={["staff"]}><StaffMain /></ProtectedRoute>} />
         <Route path="/client" element={<ProtectedRoute allowedRoles={["customer"]}><CustomerMain /></ProtectedRoute>} />

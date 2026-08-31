@@ -1,7 +1,7 @@
 import "../styles/css/login.css";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiRequest } from "../services/api";
 import { consumeAuthMessage, getDashboardRoute, writeAuthSession } from "../utils/auth";
 
@@ -57,9 +57,27 @@ const sanitizeNameInput = (value) =>
 
 const normalizeNameForSubmit = (value) => sanitizeNameInput(value).trim().replace(/\s+/g, " ");
 
-export default function Login({ mode = "signin" }) {
+export default function Login({ mode: routeMode = "signin" }) {
   const navigate = useNavigate();
-  const isSignIn = mode !== "signup";
+  const location = useLocation();
+  const mode = useMemo(() => {
+    switch (location.pathname) {
+      case "/register":
+        return "signup";
+      case "/forgot-password":
+        return "forgotPassword";
+      case "/forgot-password/verify":
+        return "forgotPasswordVerify";
+      case "/reset-password":
+        return "resetPassword";
+      default:
+        return routeMode;
+    }
+  }, [location.pathname, routeMode]);
+  const isSignIn = mode === "signin";
+  const isSignUp = mode === "signup";
+  const isPasswordRecovery = ["forgotPassword", "forgotPasswordVerify", "resetPassword"].includes(mode);
+  const fpStep = mode === "forgotPasswordVerify" ? "otp" : mode === "resetPassword" ? "reset" : "email";
 
   const [showPass, setShowPass] = useState(false);
   const [showPass2, setShowPass2] = useState(false);
@@ -80,14 +98,11 @@ export default function Login({ mode = "signin" }) {
   const [authError, setAuthError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [fpOpen, setFpOpen] = useState(false);
-  const [fpStep, setFpStep] = useState("email");
   const [fp, setFp] = useState({ email: "", otp: "", newPass: "", confirmNew: "" });
   const [fpTouched, setFpTouched] = useState({});
   const [fpError, setFpError] = useState("");
   const [fpInfo, setFpInfo] = useState("");
   const [fpOtpSession, setFpOtpSession] = useState({ verificationId: "", destination: "", channel: "" });
-  const [fpOtpEmail, setFpOtpEmail] = useState("");
   const [fpOtpTimerSeconds, setFpOtpTimerSeconds] = useState(0);
   const [fpCanResendOtp, setFpCanResendOtp] = useState(false);
   const [fpResendCount, setFpResendCount] = useState(0);
@@ -95,6 +110,9 @@ export default function Login({ mode = "signin" }) {
   const [fpIsCooldown, setFpIsCooldown] = useState(false);
   const [fpShowNew, setFpShowNew] = useState(false);
   const [fpShowConfirm, setFpShowConfirm] = useState(false);
+  const [fpResetAuthorized, setFpResetAuthorized] = useState(false);
+  const fpRecoveryRef = useRef({ verificationId: "", resetAuthorized: false });
+  const fpResetCompleteRef = useRef(false);
   const fpOtpRefs = useRef([]);
   const [signupOtpOpen, setSignupOtpOpen] = useState(false);
   const [signupOtpStep, setSignupOtpStep] = useState("channel");
@@ -118,6 +136,25 @@ export default function Login({ mode = "signin" }) {
       setAuthError(message);
     }
   }, [isSignIn, navigate]);
+
+  const hasFpOtpSession = Boolean(fpOtpSession.verificationId || fpRecoveryRef.current.verificationId);
+  const hasFpResetAuthorization = fpResetAuthorized || fpRecoveryRef.current.resetAuthorized;
+  const shouldBlockRecoveryRoute =
+    !fpResetCompleteRef.current &&
+    ((mode === "forgotPasswordVerify" && !hasFpOtpSession) ||
+      (mode === "resetPassword" && (!hasFpOtpSession || !hasFpResetAuthorization)));
+
+  useEffect(() => {
+    if (mode !== "resetPassword") {
+      fpResetCompleteRef.current = false;
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    if (shouldBlockRecoveryRoute) {
+      navigate("/forgot-password", { replace: true });
+    }
+  }, [navigate, shouldBlockRecoveryRoute]);
 
   const signInErrors = useMemo(() => {
     const e = {};
@@ -362,33 +399,30 @@ export default function Login({ mode = "signin" }) {
   };
 
   const openForgot = () => {
-    const emailToUse = String(signIn.email || fp.email || "").trim().toLowerCase();
-    const hasActiveOtp = fpOtpSession.verificationId && fpOtpEmail === emailToUse && fpStep === "otp";
-
-    setFpOpen(true);
     setFpTouched({});
     setFpError("");
     setFpShowNew(false);
     setFpShowConfirm(false);
 
-    if (hasActiveOtp) {
-      setFpStep("otp");
-      setFp((prev) => ({ ...prev, email: emailToUse, otp: "" }));
-      return;
-    }
-
-    setFpStep("email");
     setFp({ email: signIn.email || "", otp: "", newPass: "", confirmNew: "" });
     setFpInfo("");
     setFpOtpSession({ verificationId: "", destination: "", channel: "" });
-    setFpOtpEmail("");
+    setFpResetAuthorized(false);
+    fpResetCompleteRef.current = false;
+    fpRecoveryRef.current = { verificationId: "", resetAuthorized: false };
     resetFpOtpResendSystem();
+    navigate("/forgot-password");
   };
 
   const closeForgot = () => {
-    setFpOpen(false);
     setFpError("");
     setFpInfo("");
+    setFpOtpSession({ verificationId: "", destination: "", channel: "" });
+    setFpResetAuthorized(false);
+    fpResetCompleteRef.current = false;
+    fpRecoveryRef.current = { verificationId: "", resetAuthorized: false };
+    resetFpOtpResendSystem();
+    navigate("/login");
   };
 
   const fpMarkAll = () => {
@@ -449,11 +483,12 @@ export default function Login({ mode = "signin" }) {
         destination: payload.destination,
         channel: payload.channel,
       });
-      setFpOtpEmail(email);
+      fpRecoveryRef.current = { verificationId: payload.verificationId, resetAuthorized: false };
       setFpInfo(payload.message || "");
       setFp((prev) => ({ ...prev, otp: "" }));
-      setFpStep("otp");
+      setFpResetAuthorized(false);
       setFpTouched({});
+      navigate("/forgot-password/verify");
 
       if (isResend) {
         const nextResendCount = fpResendCount + 1;
@@ -494,8 +529,13 @@ export default function Login({ mode = "signin" }) {
             otp: fp.otp.trim(),
           }),
         });
-        setFpStep("reset");
+        fpRecoveryRef.current = {
+          verificationId: fpOtpSession.verificationId,
+          resetAuthorized: true,
+        };
+        setFpResetAuthorized(true);
         setFpTouched({});
+        navigate("/reset-password");
       } catch (error) {
         setFpError(error.message || "Failed to verify OTP.");
       } finally {
@@ -515,12 +555,23 @@ export default function Login({ mode = "signin" }) {
             password: fp.newPass,
           }),
         });
+        fpResetCompleteRef.current = true;
         setFpOtpSession({ verificationId: "", destination: "", channel: "" });
-        setFpOtpEmail("");
+        setFpResetAuthorized(false);
+        fpRecoveryRef.current = { verificationId: "", resetAuthorized: false };
         resetFpOtpResendSystem();
-        closeForgot();
+        setFp({ email: "", otp: "", newPass: "", confirmNew: "" });
+        navigate("/login", { replace: true });
       } catch (error) {
-        setFpError(error.message || "Failed to reset password.");
+        const message = error.message || "Failed to reset password.";
+        setFpError(message);
+        if (error.status === 410 || message === "Please verify the OTP first.") {
+          setFpOtpSession({ verificationId: "", destination: "", channel: "" });
+          setFpResetAuthorized(false);
+          fpRecoveryRef.current = { verificationId: "", resetAuthorized: false };
+          resetFpOtpResendSystem();
+          navigate("/forgot-password", { replace: true });
+        }
       } finally {
         setIsSubmitting(false);
       }
@@ -753,55 +804,56 @@ export default function Login({ mode = "signin" }) {
             Quality is our top priority, and customer satisfaction is our ultimate goal.
           </p>
 
-          <div className="authCard">
-            <div className="authTabs" role="tablist" aria-label="Authentication mode">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={isSignIn}
-                className={`authTab ${isSignIn ? "active" : ""}`}
-                onClick={() => onTab("signin")}
-              >
-                Sign In
-              </button>
+          {!isPasswordRecovery && (
+            <div className="authCard">
+              <div className="authTabs" role="tablist" aria-label="Authentication mode">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isSignIn}
+                  className={`authTab ${isSignIn ? "active" : ""}`}
+                  onClick={() => onTab("signin")}
+                >
+                  Sign In
+                </button>
 
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!isSignIn}
-                className={`authTab ${!isSignIn ? "active" : ""}`}
-                onClick={() => onTab("signup")}
-              >
-                Sign Up
-              </button>
-            </div>
-
-            <div className="authBody">
-              <div className="authWelcome">{isSignIn ? "Welcome back" : "Create Account"}</div>
-
-              <div className="authDesc">
-                {isSignIn
-                  ? "Sign in to your account to manage your car service appointments."
-                  : "Sign up to start booking your car service appointment"}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isSignUp}
+                  className={`authTab ${isSignUp ? "active" : ""}`}
+                  onClick={() => onTab("signup")}
+                >
+                  Sign Up
+                </button>
               </div>
 
-              {/* ── SIGN IN ── */}
-              {isSignIn && (
-                <form onSubmit={handleSignIn}>
-                  <div className="authField">
-                    <label className="authLabel">Email</label>
-                    <input
-                      className={`authInput ${touchedIn.email && signInErrors.email ? "inputError" : ""}`}
-                      value={signIn.email}
-                      onChange={(e) => setSignIn((p) => ({ ...p, email: e.target.value }))}
-                      onBlur={() => setTouchedIn((p) => ({ ...p, email: true }))}
-                      type="email"
-                      placeholder="Enter your email"
-                    />
-                    {touchedIn.email && signInErrors.email && (
-                      <div className="fieldError">{signInErrors.email}</div>
-                    )}
-                  </div>
+              <div className="authBody">
+                <div className="authWelcome">{isSignIn ? "Welcome back" : "Create Account"}</div>
+
+                <div className="authDesc">
+                  {isSignIn
+                    ? "Sign in to your account to manage your car service appointments."
+                    : "Sign up to start booking your car service appointment"}
+                </div>
+
+                {/* ── SIGN IN ── */}
+                {isSignIn && (
+                  <form onSubmit={handleSignIn}>
+                    <div className="authField">
+                      <label className="authLabel">Email</label>
+                      <input
+                        className={`authInput ${touchedIn.email && signInErrors.email ? "inputError" : ""}`}
+                        value={signIn.email}
+                        onChange={(e) => setSignIn((p) => ({ ...p, email: e.target.value }))}
+                        onBlur={() => setTouchedIn((p) => ({ ...p, email: true }))}
+                        type="email"
+                        placeholder="Enter your email"
+                      />
+                      {touchedIn.email && signInErrors.email && (
+                        <div className="fieldError">{signInErrors.email}</div>
+                      )}
+                    </div>
 
                   <div className="authField">
                     <label className="authLabel">Password</label>
@@ -846,7 +898,7 @@ export default function Login({ mode = "signin" }) {
               )}
 
               {/* ── SIGN UP ── */}
-              {!isSignIn && (
+              {isSignUp && (
                 <form onSubmit={handleSignUp}>
                   <div className="authRow2">
                     <div className="authField">
@@ -982,6 +1034,7 @@ export default function Login({ mode = "signin" }) {
               )}
             </div>
           </div>
+          )}
 
           <button
             type="button"
@@ -993,7 +1046,7 @@ export default function Login({ mode = "signin" }) {
         </div>
 
         {/* ── FORGOT PASSWORD MODAL ── */}
-        {fpOpen && (
+        {isPasswordRecovery && !shouldBlockRecoveryRoute && (
           <div
             className="fpOverlay"
             onMouseDown={(e) => {
