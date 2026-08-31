@@ -3,7 +3,7 @@ import ConfirmModal from "../../components/common/ConfirmModal";
 import NotificationCenter from "../../components/common/NotificationCenter";
 
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { AdminDataProvider, useAdminData } from "../../context/AdminDataContext";
 import { clearAuthStorage, getStoredAuth, getUserType, isAuthExpired, readStoredUser } from "../../utils/auth";
@@ -36,47 +36,83 @@ import icoProfile from "../../styles/icons/profile.png";
 import icoSearch from "../../styles/icons/search.png";
 import logo from "../../styles/images/aptlogo.png";
 
+export const ADMIN_MODULE_ROUTES = [
+  { key: "dashboard", path: "/admin", label: "Dashboard", title: "Dashboard", sub: "Overview and quick stats." },
+  { key: "analytics", path: "/admin/analytics", label: "Analytics", title: "Analytics", sub: "Trends and performance insights." },
+  { key: "audit", path: "/admin/audit-logs", label: "Audit Logs", title: "Audit Logs", sub: "Track actions for accountability." },
+  { key: "bookings", path: "/admin/bookings", label: "Bookings", title: "Bookings", sub: "Manage appointments and schedules." },
+  { key: "services", path: "/admin/services", label: "Services", title: "Services", sub: "Service catalog and booking." },
+  { key: "tracking", path: "/admin/service-tracking", label: "Service Tracking", title: "Service Tracking", sub: "Monitor job progress per vehicle." },
+  { key: "stock-monitoring", path: "/admin/stock-monitoring", label: "Stock Monitoring", title: "Stock Monitoring", sub: "Track supplies and low-stock alerts." },
+  { key: "payments", path: "/admin/payment-tracking", label: "Payment Tracking", title: "Payments", sub: "Payments and billing records." },
+  { key: "financial-tracker", path: "/admin/financial-tracker", label: "Financial Tracker", title: "Financial Tracker", sub: "Revenue, expenses, and worker commissions." },
+  { key: "engagement", path: "/admin/engagement", label: "Engagement", title: "Engagement", sub: "Reviews, promos, and messaging." },
+  { key: "users", path: "/admin/user-management", label: "User Management", title: "User Management", sub: "Manage admin, staff, and customer accounts." },
+  { key: "detailer-management", path: "/admin/detailer-management", label: "Detailer Management", title: "Detailer Management", sub: "Supervise detailer work, workload, and commissions." },
+  { key: "profile", path: "/admin/profile", label: "Profile", title: "Profile", sub: "Account details and settings." },
+];
+
+const ADMIN_ROUTE_BY_KEY = new Map(ADMIN_MODULE_ROUTES.map((route) => [route.key, route]));
+const ADMIN_ROUTE_BY_PATH = new Map(ADMIN_MODULE_ROUTES.map((route) => [route.path, route]));
+const LEGACY_ADMIN_ROUTE_REDIRECTS = new Map([
+  ["/admin/dashboard", "/admin"],
+]);
+
 const NAV_SECTIONS = [
   {
     title: "Overview",
     items: [
-      { key: "dashboard", label: "Dashboard", icon: icoDashboard },
-      { key: "analytics", label: "Analytics", icon: icoAnalytics },
-      { key: "audit", label: "Audit Logs", icon: icoAudit },
+      { key: "dashboard", icon: icoDashboard },
+      { key: "analytics", icon: icoAnalytics },
+      { key: "audit", icon: icoAudit },
     ],
   },
   {
     title: "Operations",
     items: [
-      { key: "bookings", label: "Bookings", icon: icoBookings },
-      { key: "services", label: "Services", icon: icoServices },
-      { key: "tracking", label: "Service Tracking", icon: icoTracking },
-      { key: "stock-monitoring", label: "Stock Monitoring", icon: icoStockMonitoring },
+      { key: "bookings", icon: icoBookings },
+      { key: "services", icon: icoServices },
+      { key: "tracking", icon: icoTracking },
+      { key: "stock-monitoring", icon: icoStockMonitoring },
     ],
   },
   {
     title: "Finance",
     items: [
-      { key: "payments", label: "Payment Tracking", icon: icoPayments },
-      { key: "financial-tracker", label: "Financial Tracker", icon: icoFinancialTracker },
+      { key: "payments", icon: icoPayments },
+      { key: "financial-tracker", icon: icoFinancialTracker },
     ],
   },
   {
     title: "Engagement",
-    items: [{ key: "engagement", label: "Engagement", icon: icoEngagement }],
+    items: [{ key: "engagement", icon: icoEngagement }],
   },
   {
     title: "Account",
     items: [
-      { key: "users", label: "User Management", icon: icoUsers },
-      { key: "detailer-management", label: "Detailer Management", icon: icoTracking },
-      { key: "profile", label: "Profile", icon: icoProfile },
+      { key: "users", icon: icoUsers },
+      { key: "detailer-management", icon: icoTracking },
+      { key: "profile", icon: icoProfile },
     ],
   },
 ];
 
+function normalizeAdminPath(pathname) {
+  const cleaned = String(pathname || "").replace(/\/+$/, "") || "/admin";
+  return cleaned === "/admin" ? "/admin" : cleaned.toLowerCase();
+}
+
+function getAdminRouteForLocation(pathname) {
+  return ADMIN_ROUTE_BY_PATH.get(normalizeAdminPath(pathname)) || null;
+}
+
+function getAdminPathForKey(key) {
+  return ADMIN_ROUTE_BY_KEY.get(String(key || "").trim().toLowerCase())?.path || "/admin";
+}
+
 function AdminMainContent({ session }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     loading,
     error,
@@ -87,15 +123,19 @@ function AdminMainContent({ session }) {
     markNotificationsRead,
   } = useAdminData();
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const normalizedPath = normalizeAdminPath(location.pathname);
+  const legacyRedirectPath = LEGACY_ADMIN_ROUTE_REDIRECTS.get(normalizedPath);
+  const activeRoute = getAdminRouteForLocation(normalizedPath);
+  const activeTab = activeRoute?.key || "dashboard";
+
   const [pendingTabAction, setPendingTabAction] = useState(null);
   const [query, setQuery] = useState("");
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   const goTo = (key, options = {}) => {
-    setActiveTab(String(key || "").trim().toLowerCase());
     setPendingTabAction(options?.action || null);
+    navigate(getAdminPathForKey(key));
   };
 
   useEffect(() => {
@@ -115,28 +155,23 @@ function AdminMainContent({ session }) {
 
   const filteredNav = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
-    if (!q) return NAV_SECTIONS;
-    return NAV_SECTIONS.map((section) => ({
+    const sections = NAV_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.map((item) => ({
+        ...item,
+        ...ADMIN_ROUTE_BY_KEY.get(item.key),
+      })).filter((item) => item.path),
+    }));
+    if (!q) return sections;
+    return sections.map((section) => ({
       ...section,
       items: section.items.filter((item) => item.label.toLowerCase().includes(q)),
     })).filter((section) => section.items.length > 0);
   }, [query]);
 
   const header = useMemo(() => {
-    if (activeTab === "bookings") return { title: "Bookings", sub: "Manage appointments and schedules." };
-    if (activeTab === "services") return { title: "Services", sub: "Service catalog and booking." };
-    if (activeTab === "stock-monitoring") return { title: "Stock Monitoring", sub: "Track supplies and low-stock alerts." };
-    if (activeTab === "tracking") return { title: "Service Tracking", sub: "Monitor job progress per vehicle." };
-    if (activeTab === "payments") return { title: "Payments", sub: "Payments and billing records." };
-    if (activeTab === "financial-tracker") return { title: "Financial Tracker", sub: "Revenue, expenses, and worker commissions." };
-    if (activeTab === "analytics") return { title: "Analytics", sub: "Trends and performance insights." };
-    if (activeTab === "engagement") return { title: "Engagement", sub: "Reviews, promos, and messaging." };
-    if (activeTab === "users") return { title: "User Management", sub: "Manage admin, staff, and customer accounts." };
-    if (activeTab === "detailer-management") return { title: "Detailer Management", sub: "Supervise detailer work, workload, and commissions." };
-    if (activeTab === "audit") return { title: "Audit Logs", sub: "Track actions for accountability." };
-    if (activeTab === "profile") return { title: "Profile", sub: "Account details and settings." };
-    return { title: "Dashboard", sub: "Overview and quick stats." };
-  }, [activeTab]);
+    return activeRoute || ADMIN_ROUTE_BY_KEY.get("dashboard");
+  }, [activeRoute]);
 
   const initialLetter = useMemo(() => {
     const first = session?.first || session?.firstName || session?.name || "A";
@@ -183,6 +218,14 @@ function AdminMainContent({ session }) {
     if (activeTab === "profile") return <AdminProfile session={session} />;
     return null;
   };
+
+  if (legacyRedirectPath) {
+    return <Navigate to={legacyRedirectPath} replace />;
+  }
+
+  if (!activeRoute) {
+    return <Navigate to="/admin" replace />;
+  }
 
   return (
     <div className="adminShell">
