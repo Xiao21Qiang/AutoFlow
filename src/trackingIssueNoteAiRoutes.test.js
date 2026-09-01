@@ -104,14 +104,25 @@ function findUser(query = {}) {
   return null;
 }
 
-function mockProviderJson(payload, { ok = true, status = 200, headers = {} } = {}) {
-  global.fetch = jest.fn().mockResolvedValue({
+function providerResponse(payload, { ok = true, status = 200, headers = {} } = {}) {
+  return {
     ok,
     status,
     headers: {
       get: (name) => headers[String(name || "").toLowerCase()],
     },
     json: async () => payload,
+  };
+}
+
+function mockProviderJson(payload, options = {}) {
+  global.fetch = jest.fn().mockResolvedValue(providerResponse(payload, options));
+}
+
+function mockProviderSequence(...responses) {
+  global.fetch = jest.fn();
+  responses.forEach((response) => {
+    global.fetch.mockResolvedValueOnce(providerResponse(response.payload, response.options || {}));
   });
 }
 
@@ -208,8 +219,9 @@ describe("tracking issue note AI route", () => {
     expect(requestBody).toMatchObject({
       model: "openai/gpt-oss-20b",
       temperature: 0.2,
-      max_completion_tokens: 360,
+      max_completion_tokens: 1024,
       include_reasoning: false,
+      reasoning_effort: "low",
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -229,11 +241,36 @@ describe("tracking issue note AI route", () => {
         },
       },
     });
+    expect(Object.keys(requestBody).sort()).toEqual([
+      "include_reasoning",
+      "max_completion_tokens",
+      "messages",
+      "model",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+    ]);
+    expect(requestBody.messages).toHaveLength(1);
+    expect(requestBody.messages[0].role).toBe("user");
+    expect(requestBody.messages[0].content).toContain("Context JSON:");
+    expect(requestBody.messages[0].content).toContain("Fill every schema-required field with a string.");
+    expect(requestBody.messages[0].content).toContain("Paint blemish");
+    expect(requestBody.response_format.json_schema.schema.properties).toEqual({
+      cleanedUpIssueNote: { type: "string" },
+      technicianFriendlyNote: { type: "string" },
+      suggestedNextAction: { type: "string" },
+      customerSafeSummary: { type: "string" },
+      suggestion: { type: "string" },
+    });
     expect(requestBody).not.toHaveProperty("max_tokens");
     expect(requestBody).not.toHaveProperty("reasoning_format");
+    expect(requestBody).not.toHaveProperty("tools");
+    expect(requestBody).not.toHaveProperty("tool_choice");
+    expect(requestBody).not.toHaveProperty("stream");
+    expect(requestBody).not.toHaveProperty("n");
+    expect(requestBody).not.toHaveProperty("logprobs");
+    expect(requestBody).not.toHaveProperty("logit_bias");
     expect(JSON.stringify(requestBody)).not.toContain("test-groq-key");
-    expect(requestBody.messages[0].content).toContain("Return JSON matching the supplied schema only.");
-    expect(requestBody.messages[1].content).toContain("Paint blemish");
   });
 
   test("allows General Manager as Staff and attributes audit to the authenticated GM", async () => {
@@ -400,6 +437,117 @@ describe("tracking issue note AI route", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith("[ai] Groq response was not valid JSON", { feature: "tracking-issue-note" });
   });
 
+  test("retries json_validate_failed once and returns the successful structured retry", async () => {
+    mockProviderSequence(
+      {
+        payload: {
+          error: {
+            message: "Failed to generate JSON. Please adjust your prompt. See failed_generation for more details.",
+            code: "json_validate_failed",
+            type: "invalid_request_error",
+            failed_generation: {
+              reason: "schema_validation",
+              category: "structured_output",
+              attempted_output: "Customer One private note should not be logged",
+            },
+          },
+        },
+        options: { ok: false, status: 400, headers: { "x-request-id": "req-json-1" } },
+      },
+      {
+        payload: {
+          model: "openai/gpt-oss-20b",
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                cleanedUpIssueNote: "Deep scratches noted across marked panels.",
+                technicianFriendlyNote: "Inspect the marked panels for deep scratches before coating.",
+                suggestedNextAction: "Confirm paint correction scope before service.",
+                customerSafeSummary: "Marked areas need review before the service begins.",
+                suggestion: "Inspect the marked panels for deep scratches before coating.",
+              }),
+            },
+          }],
+        },
+      }
+    );
+
+    const response = await request("/api/ai/tracking/issue-note", {
+      token: auth(adminUser),
+      body: aiBody({
+        issueMarkers: [
+          { id: 1, x: 15, y: 20, issueType: "DSP = Deep Scratches all panels" },
+          { id: 2, x: 45, y: 55, issueType: "DS = Deep Scratches" },
+        ],
+        issueTypes: ["DSP = Deep Scratches all panels", "DS = Deep Scratches"],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      available: true,
+      feature: "tracking-issue-note",
+      technicianFriendlyNote: "Inspect the marked panels for deep scratches before coating.",
+      suggestedNextAction: "Confirm paint correction scope before service.",
+      customerSafeSummary: "Marked areas need review before the service begins.",
+      suggestion: "Inspect the marked panels for deep scratches before coating.",
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(bookings[0]).toEqual(booking);
+    const firstRequest = JSON.parse(global.fetch.mock.calls[0][1].body);
+    const retryRequest = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(firstRequest.response_format.json_schema.strict).toBe(true);
+    expect(retryRequest.response_format.json_schema.strict).toBe(true);
+    expect(retryRequest.include_reasoning).toBe(false);
+    expect(retryRequest.reasoning_effort).toBe("low");
+    expect(retryRequest.messages[0].content).toContain("Generate the requested structured response again.");
+    expect(consoleErrorSpy).toHaveBeenCalledWith("[ai] Groq request failed", expect.objectContaining({
+      feature: "tracking-issue-note",
+      providerErrorCode: "json_validate_failed",
+      providerFailedGenerationPresent: true,
+      providerFailedGenerationReason: "schema_validation",
+      providerFailedGenerationCategory: "structured_output",
+      willRetry: true,
+    }));
+    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("Customer One private note should not be logged");
+  });
+
+  test("returns the normal safe fallback after one unsuccessful json_validate_failed retry", async () => {
+    const validationFailure = {
+      error: {
+        message: "Failed to generate JSON. Please adjust your prompt.",
+        code: "json_validate_failed",
+        type: "invalid_request_error",
+        failed_generation: "raw generated content must stay out of logs",
+      },
+    };
+    mockProviderSequence(
+      { payload: validationFailure, options: { ok: false, status: 400 } },
+      { payload: validationFailure, options: { ok: false, status: 400 } }
+    );
+
+    const response = await request("/api/ai/tracking/issue-note", { token: auth(adminUser), body: aiBody() });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      available: false,
+      feature: "tracking-issue-note",
+      message: "Unable to generate analysis right now.",
+      errorCategory: "provider-http",
+      providerStatus: 400,
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(consoleErrorSpy).toHaveBeenNthCalledWith(1, "[ai] Groq request failed", expect.objectContaining({
+      providerErrorCode: "json_validate_failed",
+      willRetry: true,
+    }));
+    expect(consoleErrorSpy).toHaveBeenNthCalledWith(2, "[ai] Groq request failed", expect.objectContaining({
+      providerErrorCode: "json_validate_failed",
+      willRetry: false,
+    }));
+    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("raw generated content must stay out of logs");
+  });
+
   test.each([
     [400, "provider-http", "Unable to generate analysis right now."],
     [401, "provider-auth", "AI provider configuration needs attention."],
@@ -423,6 +571,7 @@ describe("tracking issue note AI route", () => {
     });
     const audit = auditLogs.find((log) => log.action === "AI request failed");
     expect(audit.meta.errorCategory).toBe(errorCategory);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(response.body)).not.toContain("test-groq-key");
     expect(JSON.stringify(audit)).not.toContain("test-groq-key");
   });
@@ -433,6 +582,10 @@ describe("tracking issue note AI route", () => {
         message: "Bad request with Bearer test-groq-key and gsk_fakeSecretValue12345",
         code: "invalid_request",
         type: "invalid_request_error",
+        failed_generation: {
+          reason: "invalid characters",
+          generated_text: "Customer private text should not appear",
+        },
       },
     }, {
       ok: false,
@@ -451,9 +604,12 @@ describe("tracking issue note AI route", () => {
       providerErrorCode: "invalid_request",
       providerErrorMessage: "Bad request with Bearer [redacted] and [redacted-secret]",
       providerRequestId: "req-test-1",
+      providerFailedGenerationPresent: true,
+      providerFailedGenerationReason: "invalid characters",
     }));
     expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("test-groq-key");
     expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("gsk_fakeSecretValue12345");
+    expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain("Customer private text should not appear");
   });
 
   test("handles empty markers and current issue notes safely", async () => {
@@ -469,7 +625,7 @@ describe("tracking issue note AI route", () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ available: true, feature: "tracking-issue-note" });
     const requestBody = JSON.parse(global.fetch.mock.calls[0][1].body);
-    const userPayload = JSON.parse(requestBody.messages[1].content);
+    const userPayload = JSON.parse(requestBody.messages[0].content.split("Context JSON:\n")[1]);
     expect(userPayload.issueMarkers).toEqual([]);
     expect(userPayload.currentIssueNote).toBe("Customer mentioned a visible line on the hood.");
   });
@@ -489,7 +645,7 @@ describe("tracking issue note AI route", () => {
     });
 
     const requestBody = JSON.parse(global.fetch.mock.calls[0][1].body);
-    const userPayload = JSON.parse(requestBody.messages[1].content);
+    const userPayload = JSON.parse(requestBody.messages[0].content.split("Context JSON:\n")[1]);
     expect(userPayload.issueMarkers).toHaveLength(3);
     expect(userPayload.markerSummaries).toEqual([
       "Marker 1: DSP = Deep Scratches all panels near 15.25% / 20.5%",
