@@ -43,7 +43,7 @@ const app = express();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 const CLIENT_APP_URL = String(process.env.CLIENT_APP_URL || "http://localhost:3000").trim();
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
-const BUILD_DIR = path.resolve(__dirname, "..", "build");
+const BUILD_DIR = path.resolve(process.env.AUTOFLOW_BUILD_DIR || path.join(__dirname, "..", "build"));
 const ALLOWED_CORS_ORIGINS = String(process.env.CORS_ORIGIN || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -179,6 +179,63 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
 const vehicleReferenceCache = new Map();
 let smtpMailTransportPromise = null;
 let testBootstrapDataOverride = null;
+
+const SECURITY_HEADER_VALUES = Object.freeze({
+  strictTransportSecurity: "max-age=31536000",
+  contentSecurityPolicy: [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https://api.qrserver.com",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "frame-src 'none'",
+    "manifest-src 'self'",
+  ].join("; "),
+  xFrameOptions: "DENY",
+  xContentTypeOptions: "nosniff",
+  referrerPolicy: "strict-origin-when-cross-origin",
+  permissionsPolicy: [
+    "accelerometer=()",
+    "ambient-light-sensor=()",
+    "autoplay=()",
+    "bluetooth=()",
+    "camera=()",
+    "display-capture=()",
+    "encrypted-media=()",
+    "geolocation=()",
+    "gyroscope=()",
+    "magnetometer=()",
+    "microphone=()",
+    "midi=()",
+    "payment=()",
+    "picture-in-picture=()",
+    "publickey-credentials-get=()",
+    "serial=()",
+    "usb=()",
+    "xr-spatial-tracking=()",
+  ].join(", "),
+});
+
+function applySecurityHeaders(_req, res, next) {
+  res.setHeader("Content-Security-Policy", SECURITY_HEADER_VALUES.contentSecurityPolicy);
+  res.setHeader("X-Frame-Options", SECURITY_HEADER_VALUES.xFrameOptions);
+  res.setHeader("X-Content-Type-Options", SECURITY_HEADER_VALUES.xContentTypeOptions);
+  res.setHeader("Referrer-Policy", SECURITY_HEADER_VALUES.referrerPolicy);
+  res.setHeader("Permissions-Policy", SECURITY_HEADER_VALUES.permissionsPolicy);
+
+  if (IS_PRODUCTION) {
+    res.setHeader("Strict-Transport-Security", SECURITY_HEADER_VALUES.strictTransportSecurity);
+  }
+
+  next();
+}
+
+app.use(applySecurityHeaders);
 
 function base64UrlEncode(value) {
   return Buffer.from(value)
@@ -12308,6 +12365,7 @@ module.exports = {
   ACTION_KEYS,
   MODULE_KEYS,
   QR_TOKEN_PURPOSES,
+  SECURITY_HEADER_VALUES,
   toTimestamp,
   __testSignupOtpStore: signupOtpStore,
   __testPasswordChangeOtpStore: passwordChangeOtpStore,
