@@ -7982,7 +7982,7 @@ app.get("/api/admin/invoices/:id/pdf", async (req, res, next) => {
             ["Final Payment Reference", sanitizePaymentReference(invoice.finalPaymentReference) || "-"],
             ["Proof Submitted", exportDomain.formatDateTime(invoice.proofSubmittedAt) || "-"],
             ["Generated", exportDomain.formatDateTime(new Date())],
-            ["Relevant Status", normalizeBookingStatus(booking.status || "", "Scheduled")],
+            ["Relevant Status", bookingDomain.normalizeBookingStatus(booking.status || "", "Scheduled")],
           ],
         },
       ],

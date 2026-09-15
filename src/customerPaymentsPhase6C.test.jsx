@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import CustomerPayments from "./screens/customer/CustomerPayments";
 import { useAdminData } from "./context/AdminDataContext";
 import { checkPaymentReference } from "./utils/paymentReferenceChecker";
+import { downloadAuthenticatedFile } from "./utils/downloadExport";
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: jest.fn(),
@@ -10,6 +11,10 @@ jest.mock("./context/AdminDataContext", () => ({
 
 jest.mock("./utils/paymentReferenceChecker", () => ({
   checkPaymentReference: jest.fn(),
+}));
+
+jest.mock("./utils/downloadExport", () => ({
+  downloadAuthenticatedFile: jest.fn().mockResolvedValue(undefined),
 }));
 
 const customer = {
@@ -53,6 +58,10 @@ function setContext({ payment = basePayment(), submitPaymentProof = jest.fn().mo
 }
 
 describe("CustomerPayments Phase 6C", () => {
+  beforeEach(() => {
+    downloadAuthenticatedFile.mockResolvedValue(undefined);
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -170,6 +179,19 @@ describe("CustomerPayments Phase 6C", () => {
     expect(screen.getByText("DP Paid / Balance Pending")).toBeInTheDocument();
     expect(screen.getByText("Payment verified.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pay Balance" })).toBeEnabled();
+  });
+
+  test("download button requests the authenticated invoice PDF", async () => {
+    setContext();
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "View" }));
+    await userEvent.click(screen.getByRole("button", { name: "Download PDF" }));
+
+    expect(downloadAuthenticatedFile).toHaveBeenCalledWith(
+      "/api/admin/invoices/PAY-6C/pdf",
+      "autoflow-invoice-BK-6C.pdf"
+    );
   });
 
   test("surfaces the authoritative booking cooldown timestamp from customer state", () => {

@@ -286,6 +286,39 @@ describe("Phase 5 export routes", () => {
     expect(auditEvents.some((event) => event.action === "Report exported" && event.meta?.reportType === "stock")).toBe(true);
   });
 
+  test("customer invoice PDF route generates across payment and booking status states", async () => {
+    const token = signJwt({ sub: "USR-CUST", email: "customer@example.com", userType: "Customer", role: "New" });
+    const originalBooking = { ...baseData.bookings[0] };
+    const originalPayment = { ...baseData.payments[0] };
+    const scenarios = [
+      { bookingStatus: "Scheduled", payment: { status: "Pending", downPaymentStatus: "Pending", finalPaymentStatus: "Pending" } },
+      { bookingStatus: "Scheduled", payment: { status: "Pending", downPaymentStatus: "For Verification", finalPaymentStatus: "Pending" } },
+      { bookingStatus: "Scheduled", payment: { status: "Paid", downPaymentStatus: "Paid", finalPaymentStatus: "Paid" } },
+      { bookingStatus: "Scheduled", payment: { status: "Rejected", downPaymentStatus: "Rejected", finalPaymentStatus: "Pending" } },
+      { bookingStatus: "Cancelled", payment: { status: "Pending", downPaymentStatus: "Pending", finalPaymentStatus: "Pending" } },
+      { bookingStatus: "Completed", payment: { status: "Pending", downPaymentStatus: "Paid", finalPaymentStatus: "For Verification" } },
+    ];
+
+    try {
+      for (const scenario of scenarios) {
+        baseData.bookings[0] = { ...originalBooking, status: scenario.bookingStatus };
+        baseData.payments[0] = { ...originalPayment, ...scenario.payment };
+
+        const response = await invokeApp("/api/admin/invoices/PAY-500/pdf", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        expect(response.status).toBe(200);
+        expect(String(response.headers["content-type"])).toContain("application/pdf");
+        expect(String(response.headers["content-disposition"])).toContain("attachment");
+        expect(response.body.slice(0, 4).toString()).toBe("%PDF");
+      }
+    } finally {
+      baseData.bookings[0] = originalBooking;
+      baseData.payments[0] = originalPayment;
+    }
+  });
+
   test("returns CSV attachment with formula injection protection", async () => {
     const token = signJwt({ sub: "USR-ADMIN", email: "admin@example.com", userType: "admin", role: "admin" });
     const response = await invokeApp("/api/admin/reports/stock/csv", {
