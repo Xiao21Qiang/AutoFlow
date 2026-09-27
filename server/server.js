@@ -4455,6 +4455,24 @@ function hasDownPaymentSubmission(payment = {}) {
   );
 }
 
+function hasFullPaymentSubmission(payment = {}) {
+  const status = normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "Pending");
+  return Boolean(
+    ["For Verification", "Paid", "Rejected"].includes(status) ||
+    payment.finalPaymentProofSubmittedAt ||
+    String(payment.finalPaymentProofUrl || "").trim() ||
+    String(payment.finalPaymentProofName || "").trim() ||
+    String(payment.finalPaymentReferenceCheckStatus || "").trim() ||
+    String(payment.finalPaymentOcrAdvisoryStatus || "").trim()
+  );
+}
+
+function hasInitialPaymentSubmission(payment = {}) {
+  return paymentDomain.isFullPaymentPlan(payment)
+    ? hasFullPaymentSubmission(payment)
+    : hasDownPaymentSubmission(payment);
+}
+
 function isPendingDownPaymentDeadlineStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   return normalized === "pending" || normalized === "pending confirmation" || normalized === "";
@@ -4467,7 +4485,7 @@ function shouldWarnOrCancelForDownPaymentDeadline(payment = {}, booking = {}) {
   if (payment.downPaymentSubmissionClosed) return false;
   const status = normalizePaymentStageStatus(payment.downPaymentStatus, "Pending");
   if (status === "Paid" || status === "For Verification" || status === "Not Required") return false;
-  return !hasDownPaymentSubmission(payment);
+  return !hasInitialPaymentSubmission(payment);
 }
 
 function getPaymentCustomerQuery(payment = {}) {
@@ -5135,6 +5153,10 @@ function isPaidStatus(status) {
   return paymentDomain.isPaidStatus(status);
 }
 
+function normalizePaymentPlan(plan, payment = {}) {
+  return paymentDomain.normalizePaymentPlan(plan, payment);
+}
+
 function normalizeWorkflowStatus(status, fallback = "Scheduled") {
   return bookingDomain.normalizeBookingStatus(status, fallback);
 }
@@ -5283,6 +5305,7 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
 
   return {
     ...source,
+    paymentPlan: normalizePaymentPlan(source.paymentPlan, source),
     downPaymentMethod: source.downPaymentMethod || "",
     downPaymentReference: source.downPaymentReference || "",
     downPaymentProofUrl: source.downPaymentProofUrl || "",
@@ -5374,6 +5397,7 @@ function getPaymentStageFields(payment = {}) {
   const normalized = normalizePaymentStageFields(payment);
   return {
     downPaymentRequired: normalized.downPaymentRequired,
+    paymentPlan: normalized.paymentPlan,
     downPaymentAmount: normalized.downPaymentAmount,
     downPaymentStatus: normalized.downPaymentStatus,
     downPaymentMethod: normalized.downPaymentMethod,
@@ -5431,6 +5455,7 @@ function isPaymentFullyPaid(payment = {}) {
 }
 
 function isDownPaymentSatisfiedForFinalReview(payment = {}) {
+  if (paymentDomain.isFullPaymentPlan(payment)) return true;
   const downPaymentStatus = normalizePaymentStageStatus(
     payment.downPaymentStatus,
     payment.downPaymentRequired === false ? "Not Required" : "Pending"
@@ -9004,6 +9029,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
       status: "Pending",
       method: "",
       ...paymentStageDefaults,
+      paymentPlan: normalizePaymentPlan("", { downPaymentRequired }),
       downPaymentDueAt,
     });
 
@@ -10231,6 +10257,11 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     const nextDownPaymentStatus = normalizePaymentStageStatus(req.body.downPaymentStatus, existingPayment.downPaymentStatus || "Pending");
     const nextFinalPaymentStatus = normalizePaymentStageStatus(req.body.finalPaymentStatus, existingPayment.finalPaymentStatus || existingPayment.status || "Pending");
     const hasBodyField = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+    const rawPaymentPlan = String(req.body.paymentPlan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+    const requestedPaymentPlan = hasBodyField("paymentPlan")
+      ? normalizePaymentPlan(req.body.paymentPlan, existingPayment)
+      : normalizePaymentPlan(existingPayment.paymentPlan, existingPayment);
+    const isFullPaymentPlanRequest = requestedPaymentPlan === "fullPayment";
     const isCustomerFinalPaymentSubmission = actorType === "customer" && [
       "finalPaymentStatus",
       "finalPaymentMethod",
@@ -10265,8 +10296,29 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         return;
       }
     }
+    if (
+      hasBodyField("paymentPlan") &&
+      !["full", "full payment", "pay in full", "pay full", "fullpayment", "down", "down payment", "dp", "downpayment"].includes(rawPaymentPlan)
+    ) {
+      res.status(400).json({ message: "Unsupported payment plan." });
+      return;
+    }
     if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
       res.status(403).json({ message: "You can only update your own payment records." });
+      return;
+    }
+    const existingPaymentPlan = normalizePaymentPlan(existingPayment.paymentPlan, existingPayment);
+    const hasExistingPaymentSubmission = hasDownPaymentSubmission(existingPayment) || hasFullPaymentSubmission(existingPayment);
+    if (
+      actorType === "customer" &&
+      hasExistingPaymentSubmission &&
+      requestedPaymentPlan !== existingPaymentPlan
+    ) {
+      res.status(400).json({ message: "Payment plan cannot be changed after payment proof is submitted." });
+      return;
+    }
+    if (actorType === "customer" && isCustomerDownPaymentSubmission && isFullPaymentPlanRequest) {
+      res.status(400).json({ message: "Pay in Full must be submitted as full payment proof." });
       return;
     }
     if (actorType === "staff" && !canPerformAction(req.authUser, ACTION_KEYS.paymentVerify)) {
@@ -10383,6 +10435,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       validateProofImageInput(req.body.downPaymentProofUrl || req.body.proofImage || "", req.body.downPaymentProofName || req.body.proofFileName || "", downPaymentProofRequired);
     }
     if (isCustomerFinalPaymentSubmission) {
+      const now = new Date();
       const currentDownPaymentStatus = normalizePaymentStageStatus(
         existingPayment.downPaymentStatus,
         existingPayment.downPaymentRequired === false ? "Not Required" : "Pending"
@@ -10391,8 +10444,48 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         existingPayment.downPaymentRequired === false ||
         currentDownPaymentStatus === "Not Required" ||
         currentDownPaymentStatus === "Paid";
-      if (!downPaymentSatisfied) {
+      if (isFullPaymentPlanRequest && currentDownPaymentStatus === "Paid") {
+        res.status(400).json({ message: "Pay in Full is only available before the down payment is verified." });
+        return;
+      }
+      if (!downPaymentSatisfied && !isFullPaymentPlanRequest) {
         res.status(400).json({ message: "Down payment must be verified before submitting remaining balance proof." });
+        return;
+      }
+      if (isFullPaymentPlanRequest && existingPayment.downPaymentSubmissionClosed) {
+        res.status(400).json({ message: "Payment submission is closed for this booking." });
+        return;
+      }
+      const dueAt = existingPayment.downPaymentDueAt ? new Date(existingPayment.downPaymentDueAt) : null;
+      const firstSubmittedAt =
+        existingPayment.downPaymentFirstSubmittedAt ||
+        existingPayment.downPaymentProofSubmittedAt ||
+        existingPayment.proofSubmittedAt ||
+        existingPayment.finalPaymentProofSubmittedAt;
+      if (
+        isFullPaymentPlanRequest &&
+        existingPayment.downPaymentRequired === true &&
+        dueAt &&
+        !Number.isNaN(dueAt.getTime()) &&
+        now >= dueAt &&
+        !firstSubmittedAt
+      ) {
+        await applyDownPaymentTimeoutCancellation(paymentDocument || foundPayment, linkedBookingForPayment, now);
+        await recordCustomerNotification(
+          "Booking cancelled",
+          existingPayment,
+          "Your booking was cancelled because no payment proof was submitted within 24 hours.",
+          { type: "down-payment-auto-cancelled", bookingId: existingPayment.bookingId, reason: DOWN_PAYMENT_AUTO_CANCEL_REASON }
+        );
+        await recordAudit("system", "Auto-cancelled booking", existingPayment.bookingId, {
+          customer: existingPayment.customer,
+          customerEmail: existingPayment.customerEmail || "",
+          status: "Cancelled",
+          cancellationCode: DOWN_PAYMENT_TIMEOUT_CODE,
+          reason: DOWN_PAYMENT_AUTO_CANCEL_REASON,
+          autoCancelledForNoDownPaymentProof: true,
+        });
+        res.status(400).json({ message: "This booking was cancelled because the payment deadline expired." });
         return;
       }
 
@@ -10699,6 +10792,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentPossibleDuplicateReference,
           finalPaymentReviewStatus: "Submitted",
           finalPaymentNotes: existingPayment.finalPaymentNotes || "",
+          paymentPlan: requestedPaymentPlan,
           auditUser: actorEmail,
           ...rewardPricing,
         }
@@ -10735,6 +10829,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentProofUrl: existingPayment.finalPaymentProofUrl || "",
           finalPaymentProofName: existingPayment.finalPaymentProofName || "",
           finalPaymentNotes: existingPayment.finalPaymentNotes || "",
+          paymentPlan: requestedPaymentPlan,
           auditUser: actorEmail,
           ...rewardPricing,
         }
@@ -10778,6 +10873,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentOcrAdvisoryText: existingPayment.finalPaymentOcrAdvisoryText || "",
           finalPaymentOcrDetectedReference: existingPayment.finalPaymentOcrDetectedReference || "",
           finalPaymentPossibleDuplicateReference: Boolean(existingPayment.finalPaymentPossibleDuplicateReference),
+          paymentPlan: hasBodyField("paymentPlan") ? requestedPaymentPlan : normalizePaymentPlan(existingPayment.paymentPlan, existingPayment),
         };
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
     let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
@@ -10806,6 +10902,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         status: syncedLegacyStatus,
         totalAmount: nextTotalAmount,
         amountPaid: nextAmountPaid,
+        paymentPlan: nextPayload.paymentPlan || requestedPaymentPlan,
         downPaymentStatus: isCustomerDownPaymentSubmission ? "For Verification" : nextDownPaymentStatus,
         downPaymentMethod: isPaymentReviewer
           ? preservedReviewerDownPaymentMethod
@@ -10883,6 +10980,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       await resetNoDpTimeoutStreak(payment);
       await progressBookingAfterDownPaymentVerification(payment, linkedBookingForPayment);
     }
+    if (isMarkingFinalPaymentPaid && paymentDomain.isFullPaymentPlan(payment)) {
+      await resetNoDpTimeoutStreak(payment);
+      await progressBookingAfterDownPaymentVerification(payment, linkedBookingForPayment);
+    }
     if (isSecondDownPaymentRejection) {
       await closeDownPaymentSubmission({
         payment,
@@ -10905,6 +11006,14 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       payment.downPaymentRequired === true &&
       !existingPayment.downPaymentFirstSubmittedAt &&
       !existingPayment.downPaymentCorrectionDueAt
+    ) {
+      await resetNoDpTimeoutStreak(payment);
+    }
+    if (
+      isCustomerSubmittingOwnPayment &&
+      isCustomerFinalPaymentSubmission &&
+      paymentDomain.isFullPaymentPlan(payment) &&
+      !existingPayment.finalPaymentProofSubmittedAt
     ) {
       await resetNoDpTimeoutStreak(payment);
     }

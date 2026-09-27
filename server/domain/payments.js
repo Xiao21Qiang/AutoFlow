@@ -14,6 +14,10 @@ const PAID_STAGE_STATUSES = new Set(["paid", "verified", "confirmed", "confirmed
 const REVIEW_STAGE_STATUSES = new Set(["for verification", "submitted", "under review", "pending review"]);
 const REJECTED_STAGE_STATUSES = new Set(["rejected", "declined"]);
 const FAILED_STAGE_STATUSES = new Set(["failed", "invalid"]);
+const PAYMENT_PLANS = Object.freeze({
+  downPayment: "downPayment",
+  fullPayment: "fullPayment",
+});
 
 function normalizePaymentStageStatus(status, fallback = "Pending") {
   const normalized = String(status || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
@@ -29,6 +33,21 @@ function normalizePaymentStageStatus(status, fallback = "Pending") {
 
 function isPaidStatus(status) {
   return normalizePaymentStageStatus(status, "") === "Paid";
+}
+
+function normalizePaymentPlan(plan, payment = {}) {
+  const normalized = String(plan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (["full", "full payment", "pay in full", "pay full", "fullpayment"].includes(normalized)) {
+    return PAYMENT_PLANS.fullPayment;
+  }
+  if (["down", "down payment", "dp", "downpayment"].includes(normalized)) {
+    return PAYMENT_PLANS.downPayment;
+  }
+  return payment.downPaymentRequired === true ? PAYMENT_PLANS.downPayment : PAYMENT_PLANS.fullPayment;
+}
+
+function isFullPaymentPlan(payment = {}) {
+  return normalizePaymentPlan(payment.paymentPlan, payment) === PAYMENT_PLANS.fullPayment;
 }
 
 function getPaymentFinalAmountDue(payment = {}, booking = {}) {
@@ -173,6 +192,7 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
 
   return {
     ...source,
+    paymentPlan: normalizePaymentPlan(source.paymentPlan, source),
     downPaymentRequired,
     downPaymentAmount,
     downPaymentStatus,
@@ -193,6 +213,7 @@ function isPaymentFullyPaid(payment = {}, booking = {}) {
 
 module.exports = {
   PAYMENT_STAGE_STATUSES,
+  PAYMENT_PLANS,
   getActiveRecognizedRevenue,
   getHistoricalRecognizedRevenue,
   getOutstandingBalance,
@@ -202,7 +223,9 @@ module.exports = {
   getVerifiedRevenueEventsForPayment,
   hasMeaningfulStagedPayment,
   isPaidStatus,
+  isFullPaymentPlan,
   isPaymentFullyPaid,
+  normalizePaymentPlan,
   normalizePaymentStageFields,
   normalizePaymentStageStatus,
 };

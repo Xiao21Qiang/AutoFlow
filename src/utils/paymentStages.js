@@ -11,6 +11,17 @@ export function normalizeStageStatus(status, fallback = "Pending") {
   return normalizePaymentStatus(status, fallback);
 }
 
+export function normalizePaymentPlan(plan, payment = {}) {
+  const normalized = String(plan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (["full", "full payment", "pay in full", "pay full", "fullpayment"].includes(normalized)) return "fullPayment";
+  if (["down", "down payment", "dp", "downpayment"].includes(normalized)) return "downPayment";
+  return payment.downPaymentRequired === true ? "downPayment" : "fullPayment";
+}
+
+export function isFullPaymentPlan(payment = {}) {
+  return normalizePaymentPlan(payment.paymentPlan, payment) === "fullPayment";
+}
+
 export function getPaymentTotal(payment = {}) {
   return Math.max(
     0,
@@ -28,6 +39,7 @@ export function getRemainingBalance(payment = {}) {
 
 export function isDownPaymentSatisfied(payment = {}) {
   return (
+    isFullPaymentPlan(payment) ||
     payment.downPaymentRequired === false ||
     normalizeStageStatus(payment.downPaymentStatus, "Pending") === "Not Required" ||
     normalizeStageStatus(payment.downPaymentStatus, "Pending") === "Paid"
@@ -62,6 +74,7 @@ export function getPaymentStageLabel(payment = {}) {
   if (isPaidStatus(payment.status) || finalPaymentStatus === "Paid") return "Paid";
   if (legacyStatus === "Rejected" && !payment.downPaymentStatus && !payment.finalPaymentStatus) return "Rejected";
   if (finalPaymentStatus === "For Verification") return "Full Payment For Verification";
+  if (payment.downPaymentRequired === true && isFullPaymentPlan(payment)) return "Full Payment Pending";
   if (payment.downPaymentRequired === false || downPaymentStatus === "Not Required") return "Balance Pending";
   if (downPaymentStatus === "For Verification") return "DP For Verification";
   if (downPaymentStatus === "Paid") return "DP Paid / Balance Pending";

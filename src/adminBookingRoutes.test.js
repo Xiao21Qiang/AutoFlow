@@ -3137,6 +3137,18 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     };
   }
 
+  function fullPaymentProofBody(patch = {}) {
+    return {
+      finalPaymentStatus: "For Verification",
+      finalPaymentMethod: "GCash",
+      finalPaymentReference: "FULL-123",
+      finalPaymentProofUrl: VALID_PNG_PROOF,
+      finalPaymentProofName: "full-payment.png",
+      paymentPlan: "fullPayment",
+      ...patch,
+    };
+  }
+
   test("required-DP submission before deadline is accepted and resets no-DP streak", async () => {
     seedRequiredDownPaymentState();
     customerUser.noDownPaymentTimeoutStreak = 2;
@@ -3211,6 +3223,208 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     expect(bookings[0].status).toBe("Pending");
     expect(payments[0].downPaymentStatus).toBe("For Verification");
     expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+  });
+
+  test("pay-in-full proof before deadline uses final-payment fields and survives DP timeout scan", async () => {
+    seedRequiredDownPaymentState();
+    customerUser.noDownPaymentTimeoutStreak = 2;
+    setTestPaymentOcrRecognizer(() => "Reference FULL-123");
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody(),
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      downPaymentStatus: "Pending",
+      downPaymentProofUrl: "",
+      finalPaymentStatus: "For Verification",
+      finalPaymentMethod: "GCash",
+      finalPaymentReference: "FULL-123",
+      finalPaymentProofName: "full-payment.png",
+    });
+    expect(payments[0].finalPaymentProofSubmittedAt).toBeTruthy();
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+
+    payments[0].downPaymentDueAt = "2000-01-02T00:00:00.000Z";
+    await runDownPaymentDeadlineWorkflow();
+
+    expect(bookings[0].status).toBe("Pending");
+    expect(payments[0].autoCancelledForNoDownPaymentProof || false).toBe(false);
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+  });
+
+  test("pay-in-full proof after initial deadline is treated as a no-submission timeout", async () => {
+    seedRequiredDownPaymentState({ paymentPatch: { downPaymentDueAt: "2000-01-01T00:00:00.000Z" } });
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody(),
+    });
+
+    expect(response.status).toBe(400);
+    expect(bookings[0]).toMatchObject({ status: "Cancelled", cancellationCode: "DOWN_PAYMENT_TIMEOUT" });
+    expect(payments[0]).toMatchObject({
+      downPaymentSubmissionClosed: true,
+      downPaymentClosureReasonCode: "DOWN_PAYMENT_TIMEOUT",
+      autoCancelledForNoDownPaymentProof: true,
+    });
+    expect(payments[0].finalPaymentStatus).toBe("Pending");
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(1);
+  });
+
+  test("payment plan is locked after DP proof activity and cannot bypass the original deadline", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        paymentPlan: "downPayment",
+        downPaymentStatus: "Rejected",
+        downPaymentMethod: "GCash",
+        downPaymentReference: "DP-123",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+        downPaymentProofName: "dp-proof.png",
+        downPaymentProofSubmittedAt: "2000-01-01T00:00:00.000Z",
+        downPaymentFirstSubmittedAt: "2000-01-01T00:00:00.000Z",
+        downPaymentDueAt: "2000-01-02T00:00:00.000Z",
+      },
+    });
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody(),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Payment plan cannot be changed after payment proof is submitted.");
+    expect(payments[0].paymentPlan).toBe("downPayment");
+    expect(payments[0].finalPaymentStatus).toBe("Pending");
+    expect(bookings[0].status).toBe("Pending");
+    expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+  });
+
+  test("payment plan is locked after full-payment proof activity and rejects DP-stage submissions", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        paymentPlan: "fullPayment",
+        finalPaymentStatus: "Rejected",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FULL-123",
+        finalPaymentProofUrl: VALID_PNG_PROOF,
+        finalPaymentProofName: "full-payment.png",
+        finalPaymentProofSubmittedAt: "2000-01-01T00:00:00.000Z",
+      },
+    });
+
+    const switched = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ paymentPlan: "downPayment" }),
+    });
+    const conflictingStage = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({ paymentPlan: "fullPayment" }),
+    });
+
+    expect(switched.status).toBe(400);
+    expect(switched.body.message).toBe("Payment plan cannot be changed after payment proof is submitted.");
+    expect(conflictingStage.status).toBe(400);
+    expect(conflictingStage.body.message).toBe("Pay in Full must be submitted as full payment proof.");
+    expect(payments[0].paymentPlan).toBe("fullPayment");
+    expect(payments[0].downPaymentStatus).toBe("Pending");
+    expect(payments[0].downPaymentProofUrl || "").toBe("");
+  });
+
+  test("rejected full-payment proof remains timely and can be resubmitted and rejected again without a DP strike", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        paymentPlan: "fullPayment",
+        downPaymentDueAt: "2099-01-02T00:00:00.000Z",
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FULL-123",
+        finalPaymentProofUrl: VALID_PNG_PROOF,
+        finalPaymentProofName: "full-payment.png",
+        finalPaymentProofSubmittedAt: "2099-01-01T00:00:00.000Z",
+        finalPaymentReferenceCheckStatus: "submitted",
+      },
+    });
+
+    const firstRejection = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { finalPaymentStatus: "Rejected", finalPaymentNotes: "Needs clearer proof.", specialPin: "654321", accountName: "Sales Associate" },
+    });
+    payments[0].downPaymentDueAt = "2000-01-02T00:00:00.000Z";
+    await runDownPaymentDeadlineWorkflow();
+    setTestPaymentOcrRecognizer(() => "Reference FULL-456");
+    const resubmission = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody({ finalPaymentReference: "FULL-456" }),
+    });
+    const secondRejection = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { finalPaymentStatus: "Rejected", finalPaymentNotes: "Still unclear.", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(firstRejection.status).toBe(200);
+    expect(resubmission.status).toBe(200);
+    expect(secondRejection.status).toBe(200);
+    expect(bookings[0].status).toBe("Pending");
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      finalPaymentStatus: "Rejected",
+      downPaymentStatus: "Pending",
+    });
+    expect(payments[0].downPaymentSubmissionClosed || false).toBe(false);
+    expect(payments[0].downPaymentClosureReasonCode || "").toBe("");
+    expect(payments[0].downPaymentNoSubmissionStrikeRecordedAt || null).toBeNull();
+    expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
+  });
+
+  test("human verification of pay-in-full proof fully pays and schedules a ready pending booking", async () => {
+    seedRequiredDownPaymentState({
+      bookingPatch: {
+        assigned: "Detailer One",
+        assignedDetailerId: "STF-1",
+        placeSlot: 1,
+      },
+      paymentPatch: {
+        paymentPlan: "fullPayment",
+        downPaymentStatus: "Pending",
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FULL-123",
+        finalPaymentProofUrl: VALID_PNG_PROOF,
+        finalPaymentProofName: "full-payment.png",
+        finalPaymentProofSubmittedAt: "2099-01-01T00:00:00.000Z",
+        finalPaymentReferenceCheckStatus: "submitted",
+      },
+    });
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { finalPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      status: "Paid",
+      finalPaymentStatus: "Paid",
+      downPaymentStatus: "Pending",
+      amountPaid: 1000,
+      remainingBalance: 0,
+    });
+    expect(payments[0].downPaymentProofUrl || "").toBe("");
+    expect(bookings[0].status).toBe("Scheduled");
   });
 
   test("third consecutive timeout activates 24-hour cooldown for required-DP and no-DP bookings", async () => {

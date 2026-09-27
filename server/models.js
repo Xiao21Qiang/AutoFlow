@@ -223,6 +223,7 @@ const paymentSchema = new mongoose.Schema(
     proofFileName: { type: String, default: "" },
     reviewedAt: { type: String, default: "" },
     reviewedBy: { type: String, default: "" },
+    paymentPlan: { type: String, default: "" },
     downPaymentRequired: { type: Boolean, default: false },
     downPaymentAmount: { type: Number, default: 0 },
     downPaymentStatus: { type: String, default: "Not Required" },

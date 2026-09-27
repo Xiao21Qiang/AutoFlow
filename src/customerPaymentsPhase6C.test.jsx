@@ -71,6 +71,10 @@ describe("CustomerPayments Phase 6C", () => {
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(screen.getByText("Choose Payment Option")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay Down Payment/i })).toHaveTextContent("P 1,000");
+    expect(screen.getByRole("button", { name: /Pay in Full/i })).toHaveTextContent("P 5,000");
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
 
     expect(screen.getByText("Submit Down Payment Proof")).toBeInTheDocument();
     expect(screen.getByText("Required Down Payment")).toBeInTheDocument();
@@ -92,6 +96,7 @@ describe("CustomerPayments Phase 6C", () => {
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
     await userEvent.type(screen.getByLabelText("Reference Number"), "MISMATCH-REF");
     await userEvent.click(screen.getByRole("button", { name: "Submit" }));
 
@@ -102,11 +107,42 @@ describe("CustomerPayments Phase 6C", () => {
           downPaymentStatus: "For Verification",
           downPaymentReference: "MISMATCH-REF",
           downPaymentProofUrl: "data:image/png;base64,proof",
+          paymentPlan: "downPayment",
         })
       );
     });
     expect(checkPaymentReference).not.toHaveBeenCalled();
     expect(submitPaymentProof.mock.calls[0][1]).not.toHaveProperty("downPaymentOcrAdvisoryStatus");
+  });
+
+  test("submits pay-in-full proof through final-payment fields with the full-payment plan", async () => {
+    const submitPaymentProof = jest.fn().mockResolvedValue({});
+    const payment = basePayment();
+    setContext({ payment, submitPaymentProof });
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await userEvent.click(screen.getByRole("button", { name: /Pay in Full/i }));
+
+    expect(screen.getByRole("button", { name: "Submit Full Payment Proof" })).toBeInTheDocument();
+    expect(screen.getByText("Amount Due")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Full Payment Method"), "Cash");
+    await userEvent.click(screen.getByRole("button", { name: "Submit Full Payment Proof" }));
+
+    await waitFor(() => {
+      expect(submitPaymentProof).toHaveBeenCalledWith(
+        payment,
+        expect.objectContaining({
+          finalPaymentStatus: "For Verification",
+          finalPaymentMethod: "Cash",
+          finalPaymentReference: "",
+          finalPaymentProofUrl: "",
+          paymentPlan: "fullPayment",
+        })
+      );
+    });
+    expect(submitPaymentProof.mock.calls[0][1]).not.toHaveProperty("downPaymentProofUrl");
   });
 
   test("closes upload for timeout, correction expiry, second rejection, and third-submission states", () => {
@@ -236,6 +272,7 @@ describe("CustomerPayments Phase 6C", () => {
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
     expect(screen.getByText("Selected: downpayment-proof.png")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "x" }));
@@ -282,6 +319,7 @@ describe("CustomerPayments Phase 6C", () => {
       render(<CustomerPayments />);
 
       await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+      await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
       const dpFile = new File(["dp-proof"], "pending-dp-proof.png", { type: "image/png" });
       userEvent.upload(screen.getByLabelText("Photo Proof"), dpFile);
       expect(pendingReaders).toHaveLength(1);
