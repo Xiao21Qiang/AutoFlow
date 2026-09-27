@@ -67,7 +67,7 @@ describe("CustomerPayments Phase 6C", () => {
   });
 
   test("shows the original required down-payment form before the server deadline", async () => {
-    setContext();
+    setContext({ payment: basePayment({ paymentPlan: "downPayment" }) });
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
@@ -85,6 +85,17 @@ describe("CustomerPayments Phase 6C", () => {
     expect(screen.getByText("Photo Proof")).toBeInTheDocument();
   });
 
+  test("shows payment choice for an untouched legacy record regardless of its normalized plan", async () => {
+    setContext({ payment: basePayment({ paymentPlan: "fullPayment" }) });
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    expect(screen.getByText("Choose Payment Option")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pay Down Payment/i })).toHaveTextContent("P 1,000");
+    expect(screen.getByRole("button", { name: /Pay in Full/i })).toHaveTextContent("P 5,000");
+  });
+
   test("submits normal proof input without blocking on browser OCR mismatch", async () => {
     checkPaymentReference.mockResolvedValue({ status: "not-matched", message: "Reference not found" });
     const submitPaymentProof = jest.fn().mockResolvedValue({});
@@ -96,7 +107,6 @@ describe("CustomerPayments Phase 6C", () => {
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
     await userEvent.type(screen.getByLabelText("Reference Number"), "MISMATCH-REF");
     await userEvent.click(screen.getByRole("button", { name: "Submit" }));
 
@@ -272,7 +282,6 @@ describe("CustomerPayments Phase 6C", () => {
     render(<CustomerPayments />);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload" }));
-    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
     expect(screen.getByText("Selected: downpayment-proof.png")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "x" }));

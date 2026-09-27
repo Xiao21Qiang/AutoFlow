@@ -3676,10 +3676,12 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     });
   });
 
-  test("OCR mismatch, unreadable, and OCR error preserve submission for manual review", async () => {
+  test("OCR match, mismatch, unreadable, and processing errors preserve submission for manual review", async () => {
     for (const [paymentId, ocrText, expectedStatus] of [
+      ["PAY-UNLABELED-MATCH", "GCash payment complete ABC 123", "matched_advisory"],
       ["PAY-MISMATCH", "Reference No. DIFFERENT", "not_matched_advisory"],
-      ["PAY-UNREADABLE", "Paid successfully", "unreadable_advisory"],
+      ["PAY-READABLE-NO-REF", "Paid successfully", "not_matched_advisory"],
+      ["PAY-UNREADABLE", "", "unreadable_advisory"],
       ["PAY-OCR-ERROR", new Error("OCR failed"), "ocr_error_advisory"],
     ]) {
       seedRequiredDownPaymentState({ paymentId, bookingId: `B-${paymentId}` });

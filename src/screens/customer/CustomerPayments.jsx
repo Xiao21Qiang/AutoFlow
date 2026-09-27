@@ -155,12 +155,23 @@ function getDeadlineText(label, dateStr) {
   return `${prefix}${formatDateTime(dateStr)}${timeLeft ? ` (${timeLeft} left)` : ""}`;
 }
 
-function needsInitialPaymentChoice(payment = {}, mode = "") {
+function hasPaymentProofActivity(payment = {}) {
+  const downPaymentStatus = getDownPaymentStatus(payment);
+  const finalPaymentStatus = getFinalPaymentStatus(payment);
   return (
-    mode === "downPayment" &&
+    ["For Verification", "Paid", "Rejected"].includes(downPaymentStatus) ||
+    ["For Verification", "Paid", "Rejected"].includes(finalPaymentStatus) ||
+    hasDownPaymentProofMetadata(payment) ||
+    hasFinalPaymentProofMetadata(payment)
+  );
+}
+
+function needsInitialPaymentChoice(payment = {}) {
+  return (
     payment.downPaymentRequired === true &&
-    getDownPaymentStatus(payment) === "Pending" &&
-    getFinalPaymentStatus(payment) === "Pending"
+    !payment.downPaymentSubmissionClosed &&
+    !payment.autoCancelledForNoDownPaymentProof &&
+    !hasPaymentProofActivity(payment)
   );
 }
 
@@ -379,7 +390,7 @@ export default function CustomerPayments() {
       return;
     }
     const paymentId = payment.id || payment.bookingId || "";
-    const nextMode = needsInitialPaymentChoice(payment, mode) ? "paymentChoice" : mode;
+    const nextMode = needsInitialPaymentChoice(payment) ? "paymentChoice" : mode;
     proofImageRequestRef.current += 1;
     setSelectedPayment(payment);
     setProofMode(nextMode);
@@ -546,6 +557,7 @@ export default function CustomerPayments() {
             <button className="clPayModalClose" type="button" onClick={closeModal}>
               x
             </button>
+            <div className="clPayModalBody">
 
             {modal === "invoice" && (
               <div>
@@ -932,6 +944,7 @@ export default function CustomerPayments() {
                 </div>
               </form>
             )}
+            </div>
           </div>
         </div>
       )}

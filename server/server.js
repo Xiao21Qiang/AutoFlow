@@ -4280,8 +4280,9 @@ function buildReferenceCandidatesFromText(text) {
 
 function compareEnteredReferenceToOcrText(reference, detectedText) {
   const normalizedReference = normalizeReferenceForComparison(reference);
+  const normalizedDetectedText = normalizeReferenceForComparison(detectedText);
   const candidates = buildReferenceCandidatesFromText(detectedText);
-  if (!normalizedReference || !candidates.length) {
+  if (!normalizedReference || !normalizedDetectedText) {
     return {
       status: "unreadable_advisory",
       detectedReference: "",
@@ -4289,9 +4290,10 @@ function compareEnteredReferenceToOcrText(reference, detectedText) {
     };
   }
   const matchedCandidate = candidates.find((candidate) => normalizeReferenceForComparison(candidate) === normalizedReference);
+  const referenceFoundInText = normalizedReference.length >= 4 && normalizedDetectedText.includes(normalizedReference);
   return {
-    status: matchedCandidate ? "matched_advisory" : "not_matched_advisory",
-    detectedReference: matchedCandidate || candidates[0] || "",
+    status: matchedCandidate || referenceFoundInText ? "matched_advisory" : "not_matched_advisory",
+    detectedReference: matchedCandidate || (referenceFoundInText ? reference : candidates[0]) || "",
     text: sanitizeOcrAdvisoryText(detectedText),
   };
 }

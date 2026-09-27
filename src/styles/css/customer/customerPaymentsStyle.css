@@ -239,18 +239,31 @@
 
 .clPayModalCard {
   width: min(100%, 560px);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   background: #fff;
   border-radius: 16px;
   border: 1px solid #e5e7eb;
   box-shadow: 0 22px 60px rgba(15, 23, 42, 0.18);
-  padding: 16px 18px 14px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.clPayModalBody {
+  min-height: 0;
+  padding: 16px 18px 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .clPayModalClose {
   position: absolute;
   right: 12px;
   top: 10px;
+  z-index: 2;
   border: none;
   background: transparent;
   font-size: 14px;
@@ -263,6 +276,7 @@
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
+  padding-right: 28px;
 }
 
 .clPayDetailList {
@@ -509,10 +523,13 @@
 
 .clPayProofPreview {
   width: 100%;
-  max-height: 220px;
-  object-fit: cover;
+  max-width: 100%;
+  height: auto;
+  max-height: min(280px, 35dvh);
+  object-fit: contain;
   border-radius: 12px;
   border: 1px solid #dbe2ef;
+  background: #f8fafc;
 }
 
 .clPayModalActions {
@@ -546,6 +563,20 @@
 }
 
 @media (max-width: 640px) {
+  .clPayModalOverlay {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .clPayModalCard {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .clPayModalBody {
+    padding: 14px 14px 12px;
+  }
+
   .clPayPaymentChoiceGrid {
     grid-template-columns: 1fr;
   }
