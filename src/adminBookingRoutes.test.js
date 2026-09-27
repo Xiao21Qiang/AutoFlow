@@ -3388,7 +3388,7 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     expect(customerUser.noDownPaymentTimeoutStreak || 0).toBe(0);
   });
 
-  test("human verification of pay-in-full proof fully pays and schedules a ready pending booking", async () => {
+  test("human verification of pay-in-full proof fully pays and rejoins the canonical service lifecycle", async () => {
     seedRequiredDownPaymentState({
       bookingPatch: {
         assigned: "Detailer One",
@@ -3425,6 +3425,40 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     });
     expect(payments[0].downPaymentProofUrl || "").toBe("");
     expect(bookings[0].status).toBe("Scheduled");
+
+    const started = await request("/api/admin/bookings/B-6B", {
+      method: "PUT",
+      token: auth(detailerUser),
+      body: {
+        status: "In Progress",
+        issueNote: "Paint condition documented before service.",
+        issueMarkers: [{ id: 1, x: 50, y: 50, issueType: validIssueType }],
+      },
+    });
+    const completed = await request("/api/admin/bookings/B-6B", {
+      method: "PUT",
+      token: auth(detailerUser),
+      body: {
+        status: "Completed",
+        warrantyChecklistItems: [validWarrantyItem],
+        warrantyCoveragePackage: validWarrantyCoverage,
+        warrantyAcknowledgement: { dateLocation: "2099-12-31 / QC", clientName: "Customer One" },
+      },
+    });
+
+    expect(started.status).toBe(200);
+    expect(completed.status).toBe(200);
+    expect(bookings).toHaveLength(1);
+    expect(payments).toHaveLength(1);
+    expect(bookings[0].status).toBe("Completed");
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      status: "Paid",
+      finalPaymentStatus: "Paid",
+      downPaymentStatus: "Pending",
+      amountPaid: 1000,
+      remainingBalance: 0,
+    });
   });
 
   test("third consecutive timeout activates 24-hour cooldown for required-DP and no-DP bookings", async () => {

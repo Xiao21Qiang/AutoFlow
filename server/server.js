@@ -5661,6 +5661,7 @@ async function getLinkedPaymentForBooking(booking = {}) {
 function hasPaidDownPaymentForBooking(booking = {}, payment = null) {
   if (isDownPaymentExemptService(booking.service)) return true;
   if (!payment) return false;
+  if (paymentDomain.isFullPaymentPlan(payment) && isPaymentFullyPaid(payment)) return true;
   const downPaymentStatus = normalizePaymentStageStatus(
     payment.downPaymentStatus,
     payment.downPaymentRequired === false ? "Not Required" : "Pending"
