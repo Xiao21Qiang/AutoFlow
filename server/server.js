@@ -4616,19 +4616,33 @@ async function recordCustomerNotification(title, bookingOrPayment = {}, message,
   });
 }
 
-async function enforceCustomerBookingCooldown(req, now = new Date()) {
+async function refreshCustomerBookingCooldown(req, now = new Date()) {
   const actorType = normalizeUserType(req.authUser?.userType, req.authUser?.role);
-  if (actorType !== "customer") return;
+  if (actorType !== "customer") return null;
   const user = await User.findOne({ id: req.authUser?.id });
   const cooldownUntil = user?.bookingCooldownUntil ? new Date(user.bookingCooldownUntil) : null;
-  if (cooldownUntil && !Number.isNaN(cooldownUntil.getTime()) && cooldownUntil > now) {
+  const hasValidCooldown = cooldownUntil && !Number.isNaN(cooldownUntil.getTime());
+  if (hasValidCooldown && cooldownUntil <= now && user) {
+    user.bookingCooldownUntil = null;
+    if (Number(user.noDownPaymentTimeoutStreak || 0) >= 3) {
+      user.noDownPaymentTimeoutStreak = 0;
+    }
+    if (typeof user.save === "function") await user.save();
+    return { user, cooldownUntil: null, active: false };
+  }
+  return {
+    user,
+    cooldownUntil: hasValidCooldown ? cooldownUntil : null,
+    active: Boolean(hasValidCooldown && cooldownUntil > now),
+  };
+}
+
+async function enforceCustomerBookingCooldown(req, now = new Date()) {
+  const cooldownState = await refreshCustomerBookingCooldown(req, now);
+  if (cooldownState?.active) {
     const error = new Error("Booking is temporarily unavailable because your account is in a 24-hour cooldown after repeated down-payment timeouts.");
     error.statusCode = 429;
     throw error;
-  }
-  if (cooldownUntil && cooldownUntil <= now && user) {
-    user.bookingCooldownUntil = null;
-    if (typeof user.save === "function") await user.save();
   }
 }
 
@@ -8150,6 +8164,7 @@ app.get("/api/admin/reports/:type/:format", async (req, res, next) => {
 app.get("/api/admin/bootstrap", async (_req, res, next) => {
   const profiler = createAdminBootstrapProfiler();
   try {
+    await refreshCustomerBookingCooldown(_req);
     const data = await loadBootstrapData({ profiler });
     const roleFilterStartedAt = performance.now();
     const scopedData = filterBootstrapDataForRole(data, _req.authUser);

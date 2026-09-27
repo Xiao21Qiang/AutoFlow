@@ -3256,6 +3256,47 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     expect(customerUser.bookingCooldownUntil).toBeNull();
   });
 
+  test("completed cooldown expiry resets the consumed streak and restores customer booking", async () => {
+    customerUser.noDownPaymentTimeoutStreak = 3;
+    customerUser.bookingCooldownUntil = "2000-01-01T00:00:00.000Z";
+
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      token: auth(customerUser),
+      body: { ...basePayload, service: "Car Wash" },
+    });
+
+    expect(response.status).toBe(201);
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+    expect(customerUser.bookingCooldownUntil).toBeNull();
+  });
+
+  test("customer bootstrap consumes an expired cooldown before the next timeout cycle", async () => {
+    seedRequiredDownPaymentState({ paymentPatch: { downPaymentDueAt: "2000-01-01T00:00:00.000Z" } });
+    customerUser.noDownPaymentTimeoutStreak = 3;
+    customerUser.bookingCooldownUntil = "2000-01-01T00:00:00.000Z";
+
+    const bootstrap = await request("/api/admin/bootstrap", {
+      token: auth(customerUser),
+    });
+
+    expect(bootstrap.status).toBe(200);
+    expect(bootstrap.body.users.find((user) => user.id === customerUser.id)).toMatchObject({
+      noDownPaymentTimeoutStreak: 0,
+      bookingCooldownUntil: null,
+    });
+
+    const timeout = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody(),
+    });
+
+    expect(timeout.status).toBe(400);
+    expect(customerUser.noDownPaymentTimeoutStreak).toBe(1);
+    expect(customerUser.bookingCooldownUntil).toBeNull();
+  });
+
   test("first human rejection creates fixed 12-hour correction window that does not restart", async () => {
     seedRequiredDownPaymentState({
       paymentPatch: {
