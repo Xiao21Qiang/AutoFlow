@@ -954,6 +954,58 @@ describe("General Manager Payment Tracking parity shell", () => {
     expect(payload).not.toHaveProperty("proofFileName");
   });
 
+  test("routes Sales Associate Pay in Full verification through the shared final-payment stage", async () => {
+    const updatePayment = jest.fn().mockResolvedValue({});
+    setContext({
+      currentUser: salesAssociate,
+      updatePayment,
+      payments: [{
+        ...baseData.payments[0],
+        id: "PAY-FULL-STAFF",
+        bookingId: "B-FULL-STAFF",
+        paymentPlan: "fullPayment",
+        downPaymentStatus: "For Verification",
+        downPaymentMethod: "",
+        downPaymentReference: "",
+        downPaymentProofSubmittedAt: null,
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FULL-STAFF-REF",
+        finalPaymentProofName: "full-staff.jpg",
+        finalPaymentProofAvailable: true,
+        finalPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      }],
+    });
+    renderStaffMain(salesAssociate);
+
+    fireEvent.click(screen.getByText("Payment Tracking"));
+    fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    expect(screen.getAllByLabelText("Status")[0]).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Verify" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Verify Full Payment")).toBeInTheDocument();
+    expect(screen.queryByText("Verify Down Payment")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Enter special PIN"), { target: { value: "654321" } });
+    fireEvent.change(screen.getByPlaceholderText("Sales Associate"), { target: { value: "Sales Associate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+
+    await waitFor(() => expect(validateSpecialCredential).toHaveBeenCalledWith(
+      "pin",
+      "654321",
+      "staff",
+      expect.objectContaining({ userType: "Staff", role: "Sales Associate" }),
+      "payment.verify"
+    ));
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-FULL-STAFF", expect.objectContaining({
+      status: "Paid",
+      finalPaymentStatus: "Paid",
+      specialPin: "654321",
+      accountName: "Sales Associate",
+    })));
+    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
+  });
+
   test("blocks duplicate Sales Associate payment review confirmations", async () => {
     let resolveUpdate;
     const updatePayment = jest.fn(() => new Promise((resolve) => {

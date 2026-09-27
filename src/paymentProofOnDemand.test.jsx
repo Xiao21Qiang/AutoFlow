@@ -1,10 +1,17 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import PaymentTrackingView from "./components/payments/PaymentTrackingView";
 import { useAdminData } from "./context/AdminDataContext";
+import { validateSpecialCredential } from "./utils/reauth";
 
 jest.mock("./context/AdminDataContext", () => ({
   useAdminData: jest.fn(),
+}));
+
+jest.mock("./utils/reauth", () => ({
+  getCurrentUserDisplayName: (user = {}) => user.name || user.email || "",
+  validateSpecialCredential: jest.fn().mockResolvedValue(true),
+  verifyCurrentPassword: jest.fn(),
 }));
 
 function createDeferred() {
@@ -51,6 +58,7 @@ function baseContext(overrides = {}) {
 describe("PaymentTrackingView on-demand proof loading", () => {
   afterEach(() => {
     jest.clearAllMocks();
+    validateSpecialCredential.mockResolvedValue(true);
   });
 
   test("opens selected proof on demand without preloading list proofs", async () => {
@@ -156,6 +164,95 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     await userEvent.click(screen.getAllByRole("button", { name: "✎" })[1]);
 
     expect(await screen.findByText("Closed: corrected proof rejected")).toBeInTheDocument();
+  });
+
+  test("routes a submitted Pay in Full proof through final-payment verification only", async () => {
+    const updatePayment = jest.fn().mockResolvedValue({});
+    useAdminData.mockReturnValue(baseContext({
+      payments: [{
+        id: "PAY-FULL",
+        bookingId: "BK-FULL",
+        date: "2026-07-01",
+        customer: "Customer Full",
+        customerEmail: "full@example.com",
+        service: "Coating",
+        totalAmount: 1000,
+        status: "For Verification",
+        paymentPlan: "fullPayment",
+        downPaymentRequired: true,
+        downPaymentAmount: 300,
+        downPaymentStatus: "For Verification",
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FULL-REF",
+        finalPaymentProofName: "full.jpg",
+        finalPaymentProofAvailable: true,
+        finalPaymentProofSubmittedAt: "2026-07-01T10:00:00.000Z",
+      }],
+      updatePayment,
+      loadPaymentProof: jest.fn().mockResolvedValue({ proofImage: "data:image/jpeg;base64,full" }),
+    }));
+
+    render(<PaymentTrackingView role="admin" />);
+    await userEvent.click(screen.getByRole("button", { name: "✎" }));
+
+    expect(screen.getAllByLabelText("Status")[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Verify" })).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Verify Full Payment")).toBeInTheDocument();
+    expect(screen.queryByText("Verify Down Payment")).not.toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText("Enter special PIN"), "654321");
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+    });
+
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-FULL", expect.objectContaining({
+      status: "Paid",
+      finalPaymentStatus: "Paid",
+      specialPin: "654321",
+    })));
+    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
+  });
+
+  test("keeps a submitted remaining balance on the final-payment request path", async () => {
+    const updatePayment = jest.fn().mockResolvedValue({});
+    useAdminData.mockReturnValue(baseContext({
+      payments: [{
+        ...baseContext().payments[0],
+        id: "PAY-BALANCE",
+        bookingId: "BK-BALANCE",
+        paymentPlan: "downPayment",
+        downPaymentStatus: "Paid",
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "BALANCE-REF",
+        finalPaymentProofName: "balance.jpg",
+        finalPaymentProofAvailable: true,
+        finalPaymentProofSubmittedAt: "2026-07-02T10:00:00.000Z",
+      }],
+      updatePayment,
+      loadPaymentProof: jest.fn().mockResolvedValue({ proofImage: "data:image/jpeg;base64,balance" }),
+    }));
+
+    render(<PaymentTrackingView role="admin" />);
+    await userEvent.click(screen.getByRole("button", { name: "✎" }));
+    await userEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Verify Remaining Balance")).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText("Enter special PIN"), "654321");
+    await act(async () => {
+      await userEvent.click(screen.getByRole("button", { name: "Confirm PIN" }));
+    });
+
+    await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-BALANCE", expect.objectContaining({
+      status: "Paid",
+      finalPaymentStatus: "Paid",
+      specialPin: "654321",
+    })));
+    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
   });
 
   test("keeps unauthorized users read-only in Payment Tracking", () => {

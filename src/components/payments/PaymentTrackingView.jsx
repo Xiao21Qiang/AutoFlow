@@ -15,6 +15,7 @@ import {
   getRemainingBalance,
   normalizeStageStatus,
   canReviewFinalPaymentStage,
+  isFullPaymentPlan,
   isDownPaymentSatisfied,
   isPaidStatus,
 } from "../../utils/paymentStages";
@@ -181,6 +182,20 @@ function hasProofMetadata(payment, stage) {
   );
 }
 
+function getReviewablePaymentStage(payment) {
+  if (!payment) return "";
+  if (canReviewFinalPaymentStage(payment)) {
+    return isFullPaymentPlan(payment) ? "fullPayment" : "balance";
+  }
+  if (
+    normalizeStageStatus(payment.downPaymentStatus, payment.downPaymentRequired === false ? "Not Required" : "Pending") === "For Verification" &&
+    hasProofMetadata(payment, "downPayment")
+  ) {
+    return "downPayment";
+  }
+  return "";
+}
+
 function mergeProofIntoPayment(payment, proof, stage) {
   if (!proof) return payment;
   if (stage === "finalPayment") {
@@ -318,11 +333,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
     finalPaymentStatus: form.finalPaymentStatus,
   } : null;
   const finalPaymentEnabled = selectedWithForm ? isDownPaymentSatisfied(selectedWithForm) : false;
-  const finalPaymentReviewable = selectedPayment ? canReviewFinalPaymentStage(selectedPayment) : false;
+  const reviewablePaymentStage = getReviewablePaymentStage(selectedPayment);
+  const finalPaymentReviewable = reviewablePaymentStage === "fullPayment" || reviewablePaymentStage === "balance";
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
-  const downPaymentReviewable = selectedPayment
-    ? normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending") === "For Verification"
-    : false;
+  const downPaymentReviewable = reviewablePaymentStage === "downPayment";
+  const finalPaymentReviewLabel = reviewablePaymentStage === "balance" ? "Remaining Balance" : "Full Payment";
   const selectedPaymentWithProof = useMemo(() => {
     if (!selectedPayment) return null;
     return mergeProofIntoPayment(
@@ -480,10 +495,10 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 event.preventDefault();
                 if (savingPaymentRef.current) return;
                 const showToast = (type, message) => setToast({ type, message, id: Date.now() });
-                const isMarkingDownPaymentPaid = form.downPaymentStatus === "Paid" && selectedPayment.downPaymentStatus !== "Paid";
-                const isMarkingFinalPaymentPaid = form.finalPaymentStatus === "Paid" && !isPaidStatus(selectedPayment.finalPaymentStatus) && !isPaidStatus(selectedPayment.status);
-                const isRejectingDownPayment = form.downPaymentStatus === "Rejected" && selectedPayment.downPaymentStatus !== "Rejected";
-                const isRejectingFinalPayment = form.finalPaymentStatus === "Rejected" && selectedPayment.finalPaymentStatus !== "Rejected";
+                const isMarkingDownPaymentPaid = downPaymentReviewable && form.downPaymentStatus === "Paid" && selectedPayment.downPaymentStatus !== "Paid";
+                const isMarkingFinalPaymentPaid = finalPaymentReviewable && form.finalPaymentStatus === "Paid" && !isPaidStatus(selectedPayment.finalPaymentStatus) && !isPaidStatus(selectedPayment.status);
+                const isRejectingDownPayment = downPaymentReviewable && form.downPaymentStatus === "Rejected" && selectedPayment.downPaymentStatus !== "Rejected";
+                const isRejectingFinalPayment = finalPaymentReviewable && form.finalPaymentStatus === "Rejected" && selectedPayment.finalPaymentStatus !== "Rejected";
                 const requiresReviewCredential = isMarkingDownPaymentPaid || isMarkingFinalPaymentPaid || isRejectingDownPayment || isRejectingFinalPayment;
                 const isReviewingFinalPayment = isMarkingFinalPaymentPaid || isRejectingFinalPayment;
                 const savePayment = async (securityPayload = {}) => {
@@ -491,20 +506,21 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   savingPaymentRef.current = true;
                   setIsSavingPayment(true);
                   try {
-                    const finalPaymentPayload = finalPaymentReviewable
+                    const stagePayload = finalPaymentReviewable
                       ? {
                           finalPaymentStatus: form.finalPaymentStatus,
                           finalPaymentNotes: form.finalPaymentNotes,
                         }
-                      : {};
+                      : {
+                          downPaymentStatus: form.downPaymentStatus,
+                          downPaymentNotes: form.downPaymentNotes,
+                        };
                     const nextStatus = form.finalPaymentStatus === "Paid" || form.finalPaymentStatus === "For Verification" || form.finalPaymentStatus === "Rejected"
                       ? form.finalPaymentStatus
                       : selectedPayment.status || "Pending";
                     await updatePayment(selectedPayment.id, {
                       status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
-                      downPaymentStatus: form.downPaymentStatus,
-                      downPaymentNotes: form.downPaymentNotes,
-                      ...finalPaymentPayload,
+                      ...stagePayload,
                       ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
                       ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
                     });
@@ -533,7 +549,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                     actionKey: ACTION_KEYS.paymentVerify,
                     title: isMarkingDownPaymentPaid || isRejectingDownPayment
                       ? `${isRejectingDownPayment ? "Reject" : "Verify"} Down Payment`
-                      : `${isRejectingFinalPayment ? "Reject" : "Verify"} Full Payment`,
+                      : `${isRejectingFinalPayment ? "Reject" : "Verify"} ${finalPaymentReviewLabel}`,
                     message: `Enter the required security confirmation before marking this payment as ${isRejectingDownPayment || isRejectingFinalPayment ? "Rejected" : "Paid"}.`,
                     onConfirm: async (securityPayload) => {
                       try {
@@ -601,7 +617,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <div className={classes.grid}>
                   <label className={classes.field}>
                     <span>Status</span>
-                    <select value={form.downPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentStatus: event.target.value }))} disabled={finalPaymentLocked}>
+                    <select value={form.downPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentStatus: event.target.value }))} disabled={finalPaymentLocked || isFullPaymentPlan(selectedPayment)}>
                       {getAllowedDownPaymentStatuses(selectedPayment).map((option) => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </label>
@@ -627,7 +643,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
                   </label>
                   <label className={classes.field}>
                     <span>Notes</span>
-                    <textarea rows="3" value={form.downPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentNotes: event.target.value }))} disabled={finalPaymentLocked} />
+                    <textarea rows="3" value={form.downPaymentNotes} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentNotes: event.target.value }))} disabled={finalPaymentLocked || isFullPaymentPlan(selectedPayment)} />
                   </label>
                 </div>
                 {renderProof(
