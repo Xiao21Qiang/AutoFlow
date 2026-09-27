@@ -4379,6 +4379,36 @@ function validateProofImageInput(proofImage, proofFileName, required) {
   return { proofImage: image, proofFileName: fileName };
 }
 
+function getPaymentProofIdentifier(proofImage) {
+  const image = String(proofImage || "").trim();
+  if (!image) return "";
+
+  try {
+    const decoded = decodePaymentProofDataUrl(image);
+    if (decoded) return `data:${decoded.buffer.toString("base64")}`;
+  } catch (_error) {
+    return `raw:${image}`;
+  }
+
+  if (/^\/?uploads\/[^<>\s]+$/i.test(image)) {
+    return `upload:${path.posix.normalize(image.replace(/^\/+/, ""))}`;
+  }
+  return `raw:${image}`;
+}
+
+function isReusedDownPaymentProof(payment = {}, submittedProofImage = "") {
+  const submittedIdentifier = getPaymentProofIdentifier(submittedProofImage);
+  if (!submittedIdentifier) return false;
+
+  const downPaymentProofs = [payment.downPaymentProofUrl];
+  if (hasActiveDownPaymentStageData(payment)) {
+    downPaymentProofs.push(payment.proofImage);
+  }
+  return downPaymentProofs.some((proofImage) => (
+    getPaymentProofIdentifier(proofImage) === submittedIdentifier
+  ));
+}
+
 function buildPaymentProofAuditMeta(payment = {}, stage, submittedAt, details = {}) {
   const stageLabel = stage === "finalPayment" ? "Full Payment / Remaining Balance" : "Down Payment";
   const method = details.method || "";
@@ -5180,8 +5210,62 @@ function getPaymentTotalAmount(payment = {}) {
   return paymentDomain.getPaymentFinalAmountDue(payment);
 }
 
+function hasPaymentStageValue(value) {
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (typeof value === "number") return Number.isFinite(value) && value > 0;
+  if (typeof value === "boolean") return value;
+  return Boolean(String(value || "").trim());
+}
+
+function hasActiveDownPaymentStageData(payment = {}) {
+  if (payment.downPaymentRequired === true) return true;
+  if (Number(payment.downPaymentAmount || 0) > 0) return true;
+  const downPaymentStatus = normalizePaymentStageStatus(payment.downPaymentStatus, "");
+  if (downPaymentStatus && downPaymentStatus !== "Pending" && downPaymentStatus !== "Not Required") return true;
+  return [
+    "downPaymentMethod",
+    "downPaymentReference",
+    "downPaymentProofUrl",
+    "downPaymentProofName",
+    "downPaymentProofSubmittedAt",
+    "downPaymentFirstSubmittedAt",
+    "downPaymentCorrectionSubmittedAt",
+    "downPaymentReferenceCheckStatus",
+    "downPaymentOcrAdvisoryStatus",
+    "downPaymentVerifiedAt",
+    "downPaymentRejectedAt",
+  ].some((field) => hasPaymentStageValue(payment[field]));
+}
+
+function hasExplicitFinalPaymentStageData(payment = {}) {
+  return [
+    "finalPaymentMethod",
+    "finalPaymentReference",
+    "finalPaymentProofUrl",
+    "finalPaymentProofName",
+    "finalPaymentProofSubmittedAt",
+    "finalPaymentReferenceCheckStatus",
+    "finalPaymentOcrAdvisoryStatus",
+    "finalPaymentVerifiedAt",
+    "finalPaymentRejectedAt",
+    "finalPaymentReviewStatus",
+  ].some((field) => hasPaymentStageValue(payment[field]));
+}
+
+function shouldUseLegacyFinalPaymentFallback(payment = {}) {
+  if (hasActiveDownPaymentStageData(payment) || hasExplicitFinalPaymentStageData(payment)) return false;
+  const explicitFinalStatus = normalizePaymentStageStatus(payment.finalPaymentStatus, "");
+  const legacyStatus = explicitFinalStatus && explicitFinalStatus !== "Pending"
+    ? explicitFinalStatus
+    : normalizePaymentStageStatus(payment.status, "");
+  if (!["For Verification", "Paid", "Rejected"].includes(legacyStatus)) return false;
+  return ["method", "reference", "proofImage", "proofFileName", "proofSubmittedAt"].some((field) => hasPaymentStageValue(payment[field]));
+}
+
 function normalizePaymentStageFields(payment = {}, booking = {}) {
+  const rawSource = typeof payment.toObject === "function" ? payment.toObject() : { ...payment };
   const source = paymentDomain.normalizePaymentStageFields(payment, booking);
+  const legacyFinalPaymentFallback = shouldUseLegacyFinalPaymentFallback(rawSource);
 
   return {
     ...source,
@@ -5218,10 +5302,10 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     autoCancelledForNoDownPaymentProof: Boolean(source.autoCancelledForNoDownPaymentProof),
     cancellationReason: source.cancellationReason || "",
     cancellationCode: source.cancellationCode || "",
-    finalPaymentMethod: source.finalPaymentMethod || source.method || "",
-    finalPaymentReference: source.finalPaymentReference || source.reference || "",
-    finalPaymentProofUrl: source.finalPaymentProofUrl || source.proofImage || "",
-    finalPaymentProofName: source.finalPaymentProofName || source.proofFileName || "",
+    finalPaymentMethod: source.finalPaymentMethod || (legacyFinalPaymentFallback ? source.method : "") || "",
+    finalPaymentReference: source.finalPaymentReference || (legacyFinalPaymentFallback ? source.reference : "") || "",
+    finalPaymentProofUrl: source.finalPaymentProofUrl || (legacyFinalPaymentFallback ? source.proofImage : "") || "",
+    finalPaymentProofName: source.finalPaymentProofName || (legacyFinalPaymentFallback ? source.proofFileName : "") || "",
     finalPaymentProofSubmittedAt: source.finalPaymentProofSubmittedAt || null,
     finalPaymentReferenceCheckStatus: source.finalPaymentReferenceCheckStatus || "",
     finalPaymentReferenceCheckedAt: source.finalPaymentReferenceCheckedAt || null,
@@ -10320,7 +10404,15 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         res.status(400).json({ message: "Reference number must be 80 characters or less." });
         return;
       }
-      validateProofImageInput(req.body.finalPaymentProofUrl || "", req.body.finalPaymentProofName || "", finalPaymentProofRequired);
+      const submittedFinalPaymentProof = validateProofImageInput(
+        req.body.finalPaymentProofUrl || "",
+        req.body.finalPaymentProofName || "",
+        finalPaymentProofRequired
+      );
+      if (finalPaymentProofRequired && isReusedDownPaymentProof(existingPayment, submittedFinalPaymentProof.proofImage)) {
+        res.status(400).json({ message: "Final payment proof must be different from the down payment proof." });
+        return;
+      }
     }
     if (
       actorType === "customer" &&
@@ -10453,9 +10545,15 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       req.body.downPaymentProofName || req.body.proofFileName || existingPayment.downPaymentProofName || existingPayment.proofFileName || "",
       isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission && !customerSubmittedDownPaymentIsCash
     );
+    const submittedFinalPaymentProofUrl = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission
+      ? req.body.finalPaymentProofUrl || ""
+      : req.body.finalPaymentProofUrl || existingPayment.finalPaymentProofUrl || "";
+    const submittedFinalPaymentProofName = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission
+      ? req.body.finalPaymentProofName || ""
+      : req.body.finalPaymentProofName || existingPayment.finalPaymentProofName || "";
     const sanitizedFinalPaymentProof = validateProofImageInput(
-      req.body.finalPaymentProofUrl || existingPayment.finalPaymentProofUrl || "",
-      req.body.finalPaymentProofName || existingPayment.finalPaymentProofName || "",
+      submittedFinalPaymentProofUrl,
+      submittedFinalPaymentProofName,
       isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission && !customerSubmittedFinalPaymentIsCash
     );
     const serverDownPaymentOcrAdvisory = isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission && !customerSubmittedDownPaymentIsCash

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CustomerPayments from "./screens/customer/CustomerPayments";
 import { useAdminData } from "./context/AdminDataContext";
@@ -47,9 +47,9 @@ function basePayment(overrides = {}) {
   };
 }
 
-function setContext({ payment = basePayment(), submitPaymentProof = jest.fn().mockResolvedValue({}), currentUser = customer } = {}) {
+function setContext({ payment = basePayment(), payments, submitPaymentProof = jest.fn().mockResolvedValue({}), currentUser = customer } = {}) {
   useAdminData.mockReturnValue({
-    payments: [payment],
+    payments: payments || [payment],
     currentUser,
     submitPaymentProof,
     loadPaymentProof: jest.fn().mockResolvedValue({}),
@@ -179,6 +179,130 @@ describe("CustomerPayments Phase 6C", () => {
     expect(screen.getByText("DP Paid / Balance Pending")).toBeInTheDocument();
     expect(screen.getByText("Payment verified.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pay Balance" })).toBeEnabled();
+  });
+
+  test("opens remaining-balance proof with empty final-stage fields when only DP proof exists", async () => {
+    setContext({
+      payment: basePayment({
+        status: "Pending",
+        method: "GCash",
+        reference: "DP-REF-1",
+        proofImage: "data:image/png;base64,dp-proof",
+        proofFileName: "downpayment-proof.png",
+        downPaymentStatus: "Paid",
+        downPaymentMethod: "GCash",
+        downPaymentReference: "DP-REF-1",
+        downPaymentProofUrl: "data:image/png;base64,dp-proof",
+        downPaymentProofName: "downpayment-proof.png",
+        downPaymentProofSubmittedAt: "2026-08-01T09:00:00.000Z",
+        finalPaymentStatus: "Pending",
+      }),
+    });
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Pay Balance" }));
+
+    expect(screen.getByText("Submit Remaining Balance Proof")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reference Number")).toHaveValue("");
+    expect(screen.getByLabelText("Final Payment Method")).toHaveValue("");
+    const paymentMethodSummary = screen.getByText("Payment Method").closest("div");
+    expect(within(paymentMethodSummary).getByText("-")).toBeInTheDocument();
+    expect(paymentMethodSummary).not.toHaveTextContent("GCash");
+    expect(screen.queryByText(/Selected: downpayment-proof\.png/i)).not.toBeInTheDocument();
+    expect(screen.queryByAltText("Payment proof preview")).not.toBeInTheDocument();
+  });
+
+  test("switching from DP upload to final upload clears proof form state", async () => {
+    const dpPayment = basePayment({
+      id: "PAY-DP",
+      bookingId: "BK-DP",
+      downPaymentProofUrl: "data:image/png;base64,dp-proof",
+      downPaymentProofName: "downpayment-proof.png",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "DP-REF-1",
+    });
+    const finalPayment = basePayment({
+      id: "PAY-FINAL",
+      bookingId: "BK-FINAL",
+      status: "Pending",
+      downPaymentStatus: "Paid",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "DP-REF-2",
+      downPaymentProofUrl: "data:image/png;base64,dp-proof-2",
+      downPaymentProofName: "downpayment-proof-2.png",
+      finalPaymentStatus: "Pending",
+    });
+    setContext({ payments: [dpPayment, finalPayment] });
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(screen.getByText("Selected: downpayment-proof.png")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "x" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pay Balance" }));
+
+    expect(screen.getByText("Submit Remaining Balance Proof")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reference Number")).toHaveValue("");
+    expect(screen.getByLabelText("Final Payment Method")).toHaveValue("");
+    expect(screen.queryByText(/Selected: downpayment-proof/i)).not.toBeInTheDocument();
+  });
+
+  test("pending DP image compression cannot populate a newly opened final-payment form", async () => {
+    const pendingReaders = [];
+    const OriginalFileReader = global.FileReader;
+    const OriginalImage = global.Image;
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    global.FileReader = class {
+      readAsDataURL() {
+        pendingReaders.push(this);
+      }
+    };
+    global.Image = class {
+      constructor() {
+        this.width = 640;
+        this.height = 480;
+      }
+
+      set src(_value) {
+        this.onload();
+      }
+    };
+    HTMLCanvasElement.prototype.getContext = jest.fn(() => null);
+
+    try {
+      const dpPayment = basePayment({ id: "PAY-DP-RACE", bookingId: "BK-DP-RACE" });
+      const finalPayment = basePayment({
+        id: "PAY-FINAL-RACE",
+        bookingId: "BK-FINAL-RACE",
+        downPaymentStatus: "Paid",
+        downPaymentMethod: "GCash",
+        finalPaymentStatus: "Pending",
+      });
+      setContext({ payments: [dpPayment, finalPayment] });
+      render(<CustomerPayments />);
+
+      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+      const dpFile = new File(["dp-proof"], "pending-dp-proof.png", { type: "image/png" });
+      userEvent.upload(screen.getByLabelText("Photo Proof"), dpFile);
+      expect(pendingReaders).toHaveLength(1);
+
+      await userEvent.click(screen.getByRole("button", { name: "x" }));
+      await userEvent.click(screen.getByRole("button", { name: "Pay Balance" }));
+
+      await act(async () => {
+        pendingReaders[0].result = "data:image/png;base64,c3RhbGUtZHAtcHJvb2Y=";
+        pendingReaders[0].onload();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByText("Submit Remaining Balance Proof")).toBeInTheDocument();
+      expect(screen.queryByText("Selected: pending-dp-proof.png")).not.toBeInTheDocument();
+      expect(screen.queryByAltText("Payment proof preview")).not.toBeInTheDocument();
+    } finally {
+      global.FileReader = OriginalFileReader;
+      global.Image = OriginalImage;
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
   });
 
   test("download button requests the authenticated invoice PDF", async () => {

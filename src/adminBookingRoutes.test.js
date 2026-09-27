@@ -552,11 +552,14 @@ beforeAll(async () => {
   });
   stub(__testModels.Payment, "countDocuments", async () => 0);
   stub(__testModels.Promo, "findOne", () => doc(null));
+  stub(__testModels.Promo, "find", () => chain([]));
   stub(__testModels.CustomerReward, "findOne", () => doc(null));
   stub(__testModels.CustomerReward, "find", () => chain([]));
   stub(__testModels.CustomerReward, "create", async (payload) => clone(payload));
   stub(__testModels.CustomerReward, "countDocuments", async () => 0);
+  stub(__testModels.Review, "find", () => chain([]));
   stub(__testModels.Review, "countDocuments", async () => 0);
+  stub(__testModels.QuoteRequest, "find", () => chain([]));
   stub(__testModels.Commission, "findOne", () => queryDoc(null));
   stub(__testModels.Commission, "find", () => chain([]));
   stub(__testModels.Commission, "create", async (payload) => clone(payload));
@@ -565,6 +568,7 @@ beforeAll(async () => {
   stub(__testModels.Reward, "findOneAndUpdate", async () => null);
   stub(__testModels.StockMonitoringItem, "find", () => chain([]));
   stub(__testModels.StockMonitoringItem, "updateOne", async () => ({}));
+  stub(__testModels.Expense, "find", () => chain([]));
   stub(__testModels.Expense, "findOne", async () => null);
   expenseCreateMock = jest.fn(async (payload) => clone(payload));
   stub(__testModels.Expense, "create", expenseCreateMock);
@@ -572,6 +576,7 @@ beforeAll(async () => {
     auditLogs.push(clone(payload));
     return clone(payload);
   });
+  stub(__testModels.AuditLog, "find", () => chain(auditLogs));
   stub(__testModels.AuditLog, "countDocuments", async () => 0);
   const securitySetting = {
     id: "autoflow-security",
@@ -2819,6 +2824,256 @@ describe("Payment verification state remains separate from booking status", () =
     expect(response.status).toBe(200);
     expect(payments[0].finalPaymentStatus).toBe("For Verification");
     expect(bookings[0].status).toBe("In Progress");
+  });
+
+  test("verified DP proof does not populate final payment metadata in customer bootstrap", async () => {
+    resetData([
+      {
+        id: "B-DP-ONLY",
+        customer: "Customer One",
+        customerEmail: "customer@example.com",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        carSize: "Sedan / Small Car",
+        assigned: "Detailer One",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "Scheduled",
+        amount: 1000,
+        originalAmount: 1000,
+      },
+    ]);
+    payments.push({
+      id: "PAY-DP-ONLY",
+      bookingId: "B-DP-ONLY",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      service: "Ceramic Coating",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      amount: 1000,
+      amountPaid: 300,
+      status: "Pending",
+      method: "GCash",
+      reference: "DP-REF-1",
+      proofImage: VALID_PNG_PROOF,
+      proofFileName: "downpayment-proof.png",
+      proofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      downPaymentRequired: true,
+      downPaymentAmount: 300,
+      downPaymentStatus: "Paid",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "DP-REF-1",
+      downPaymentProofUrl: VALID_PNG_PROOF,
+      downPaymentProofName: "downpayment-proof.png",
+      downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
+      finalPaymentStatus: "Pending",
+    });
+
+    const response = await request("/api/admin/bootstrap", {
+      token: auth(customerUser),
+    });
+
+    expect(response.status).toBe(200);
+    const payment = response.body.payments.find((item) => item.id === "PAY-DP-ONLY");
+    expect(payment).toMatchObject({
+      downPaymentProofName: "downpayment-proof.png",
+      finalPaymentMethod: "",
+      finalPaymentReference: "",
+      finalPaymentProofName: "",
+      finalPaymentProofUrl: "",
+      finalPaymentProofAvailable: false,
+    });
+  });
+
+  test("remaining-balance submission cannot reuse an existing DP proof implicitly", async () => {
+    resetData([
+      {
+        id: "B-FINAL-REQUIRES-NEW-PROOF",
+        customer: "Customer One",
+        customerEmail: "customer@example.com",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        carSize: "Sedan / Small Car",
+        assigned: "Detailer One",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "In Progress",
+        amount: 1000,
+        originalAmount: 1000,
+      },
+    ]);
+    payments.push({
+      id: "PAY-FINAL-REQUIRES-NEW-PROOF",
+      bookingId: "B-FINAL-REQUIRES-NEW-PROOF",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      service: "Ceramic Coating",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      amount: 1000,
+      amountPaid: 300,
+      status: "Pending",
+      method: "GCash",
+      reference: "DP-REF-1",
+      proofImage: VALID_PNG_PROOF,
+      proofFileName: "downpayment-proof.png",
+      proofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      downPaymentRequired: true,
+      downPaymentAmount: 300,
+      downPaymentStatus: "Paid",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "DP-REF-1",
+      downPaymentProofUrl: VALID_PNG_PROOF,
+      downPaymentProofName: "downpayment-proof.png",
+      downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      finalPaymentStatus: "Pending",
+    });
+
+    const response = await request("/api/admin/payments/PAY-FINAL-REQUIRES-NEW-PROOF", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: {
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FINAL-REF-1",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Proof of payment is required for this payment method.");
+    expect(payments[0].finalPaymentStatus).toBe("Pending");
+    expect(payments[0].finalPaymentProofName || "").toBe("");
+  });
+
+  test.each([
+    [
+      "the current DP proof field",
+      { downPaymentProofUrl: "uploads/downpayment-proof.png", proofImage: "" },
+      "/uploads//downpayment-proof.png",
+    ],
+    [
+      "the legacy DP proof field",
+      { downPaymentProofUrl: "", proofImage: VALID_PNG_PROOF },
+      VALID_PNG_PROOF,
+    ],
+  ])("remaining-balance submission rejects explicit reuse of %s", async (_label, proofFields, submittedProof) => {
+    resetData([
+      {
+        id: "B-FINAL-REUSED-DP-PROOF",
+        customer: "Customer One",
+        customerEmail: "customer@example.com",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        carSize: "Sedan / Small Car",
+        assigned: "Detailer One",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "In Progress",
+        amount: 1000,
+        originalAmount: 1000,
+      },
+    ]);
+    payments.push({
+      id: "PAY-FINAL-REUSED-DP-PROOF",
+      bookingId: "B-FINAL-REUSED-DP-PROOF",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      service: "Ceramic Coating",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      amount: 1000,
+      amountPaid: 300,
+      status: "Pending",
+      method: "GCash",
+      reference: "DP-REF-1",
+      proofFileName: "downpayment-proof.png",
+      proofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      downPaymentRequired: true,
+      downPaymentAmount: 300,
+      downPaymentStatus: "Paid",
+      downPaymentMethod: "GCash",
+      downPaymentReference: "DP-REF-1",
+      downPaymentProofName: "downpayment-proof.png",
+      downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
+      finalPaymentStatus: "Pending",
+      ...proofFields,
+    });
+
+    const response = await request("/api/admin/payments/PAY-FINAL-REUSED-DP-PROOF", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: {
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "FINAL-REF-1",
+        finalPaymentProofUrl: submittedProof,
+        finalPaymentProofName: "balance-proof.png",
+      },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Final payment proof must be different from the down payment proof.");
+    expect(payments[0].finalPaymentStatus).toBe("Pending");
+    expect(payments[0].finalPaymentProofUrl || "").toBe("");
+  });
+
+  test("legacy full-payment proof metadata remains readable in bootstrap", async () => {
+    resetData([
+      {
+        id: "B-LEGACY-FULL",
+        customer: "Customer One",
+        customerEmail: "customer@example.com",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        carSize: "Sedan / Small Car",
+        assigned: "Detailer One",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "Completed",
+        amount: 1000,
+        originalAmount: 1000,
+      },
+    ]);
+    payments.push({
+      id: "PAY-LEGACY-FULL",
+      bookingId: "B-LEGACY-FULL",
+      customer: "Customer One",
+      customerEmail: "customer@example.com",
+      service: "Ceramic Coating",
+      totalAmount: 1000,
+      finalAmount: 1000,
+      amount: 1000,
+      status: "Paid",
+      method: "GCash",
+      reference: "LEGACY-FULL-REF",
+      proofImage: VALID_PNG_PROOF,
+      proofFileName: "legacy-full-payment.png",
+      proofSubmittedAt: "2099-12-01T00:00:00.000Z",
+    });
+
+    const response = await request("/api/admin/bootstrap", {
+      token: auth(customerUser),
+    });
+
+    expect(response.status).toBe(200);
+    const payment = response.body.payments.find((item) => item.id === "PAY-LEGACY-FULL");
+    expect(payment).toMatchObject({
+      finalPaymentMethod: "GCash",
+      finalPaymentReference: "LEGACY-FULL-REF",
+      finalPaymentProofName: "legacy-full-payment.png",
+      finalPaymentProofAvailable: true,
+      finalPaymentStatus: "Paid",
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerPaymentsStyle.css";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import { downloadAuthenticatedFile } from "../../utils/downloadExport";
@@ -206,6 +206,46 @@ function hasDownPaymentProofMetadata(payment = {}) {
   );
 }
 
+function hasFinalPaymentProofMetadata(payment = {}) {
+  const finalPaymentStatus = getFinalPaymentStatus(payment);
+  return Boolean(
+    payment.finalPaymentProofSubmittedAt ||
+    payment.finalPaymentProofAvailable ||
+    payment.finalPaymentReferenceCheckStatus ||
+    payment.finalPaymentOcrAdvisoryStatus ||
+    (
+      ["For Verification", "Rejected", "Paid"].includes(finalPaymentStatus) &&
+      (
+        payment.finalPaymentMethod ||
+        payment.finalPaymentReference ||
+        payment.finalPaymentProofUrl ||
+        payment.finalPaymentProofName
+      )
+    )
+  );
+}
+
+function getProofFormDefaults(payment = {}, mode = "downPayment") {
+  if (mode === "finalPayment") {
+    if (!hasFinalPaymentProofMetadata(payment)) {
+      return { reference: "", method: "", proofImage: "", proofFileName: "" };
+    }
+    return {
+      reference: payment.finalPaymentReference || "",
+      method: payment.finalPaymentMethod || "",
+      proofImage: payment.finalPaymentProofUrl || "",
+      proofFileName: payment.finalPaymentProofName || "",
+    };
+  }
+
+  return {
+    reference: payment.downPaymentReference || "",
+    method: payment.downPaymentMethod || "",
+    proofImage: payment.downPaymentProofUrl || payment.proofImage || "",
+    proofFileName: payment.downPaymentProofName || payment.proofFileName || "",
+  };
+}
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -271,6 +311,8 @@ export default function CustomerPayments() {
   const [proofError, setProofError] = useState("");
   const [proofSubmitting, setProofSubmitting] = useState(false);
   const [proofPreview, setProofPreview] = useState({ paymentId: "", loading: false, error: "", downPayment: null });
+  const [proofSessionKey, setProofSessionKey] = useState("");
+  const proofImageRequestRef = useRef(0);
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -298,6 +340,7 @@ export default function CustomerPayments() {
   }, [filtered, safePage]);
 
   const closeModal = () => {
+    proofImageRequestRef.current += 1;
     setModal(null);
     setSelectedPayment(null);
     setProofMode("downPayment");
@@ -305,6 +348,7 @@ export default function CustomerPayments() {
     setProofError("");
     setProofSubmitting(false);
     setProofPreview({ paymentId: "", loading: false, error: "", downPayment: null });
+    setProofSessionKey("");
   };
 
   const openProofModal = (payment, mode) => {
@@ -314,22 +358,21 @@ export default function CustomerPayments() {
       setModal("invoice");
       return;
     }
-    const isFinalPaymentMode = mode === "finalPayment";
+    const paymentId = payment.id || payment.bookingId || "";
+    proofImageRequestRef.current += 1;
     setSelectedPayment(payment);
     setProofMode(mode);
-    setProofForm({
-      reference: isFinalPaymentMode ? payment.finalPaymentReference || "" : payment.downPaymentReference || "",
-      method: isFinalPaymentMode ? payment.finalPaymentMethod || "" : payment.downPaymentMethod || "",
-      proofImage: isFinalPaymentMode
-        ? payment.finalPaymentProofUrl || ""
-        : payment.downPaymentProofUrl || payment.proofImage || "",
-      proofFileName: isFinalPaymentMode
-        ? payment.finalPaymentProofName || ""
-        : payment.downPaymentProofName || payment.proofFileName || "",
-    });
+    setProofForm(getProofFormDefaults(payment, mode));
     setProofError("");
+    setProofSubmitting(false);
+    setProofPreview({ paymentId: "", loading: false, error: "", downPayment: null });
+    setProofSessionKey(`${paymentId}:${mode}`);
     setModal("proof");
   };
+
+  useEffect(() => () => {
+    proofImageRequestRef.current += 1;
+  }, []);
 
   useEffect(() => {
     if (modal !== "invoice" || !selectedPayment || !hasDownPaymentProofMetadata(selectedPayment)) return;
@@ -632,6 +675,7 @@ export default function CustomerPayments() {
 
             {modal === "proof" && (
               <form
+                key={proofSessionKey}
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setProofError("");
@@ -692,7 +736,16 @@ export default function CustomerPayments() {
                   ) : (
                     <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
                   )}
-                  <div><span>Payment Method</span><strong>{proofForm.method || selectedPayment.downPaymentMethod || selectedPayment.method || "-"}</strong></div>
+                  <div>
+                    <span>Payment Method</span>
+                    <strong>
+                      {proofForm.method || (
+                        proofMode === "finalPayment"
+                          ? selectedPayment.finalPaymentMethod
+                          : selectedPayment.downPaymentMethod || selectedPayment.method
+                      ) || "-"}
+                    </strong>
+                  </div>
                   <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
                   <div>
                     <span>{proofMode === "finalPayment" ? "Full Payment Status" : "Current DP Status"}</span>
@@ -719,6 +772,7 @@ export default function CustomerPayments() {
                     value={proofForm.method}
                     onChange={(e) => {
                       const method = e.target.value;
+                      proofImageRequestRef.current += 1;
                       setProofForm((prev) => ({
                         ...prev,
                         method,
@@ -756,15 +810,17 @@ export default function CustomerPayments() {
                 <label className="clPayField">
                   <span>Photo Proof</span>
                   <input
-                    key={proofForm.method}
+                    key={`${proofSessionKey}:${proofForm.method}`}
                     type="file"
                     accept="image/*"
                     disabled={isCashPaymentMethod(proofForm.method)}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file) return;
+                      const requestId = ++proofImageRequestRef.current;
                       try {
                         const compressedImage = await compressImageFile(file);
+                        if (requestId !== proofImageRequestRef.current) return;
                         setProofForm((prev) => ({
                           ...prev,
                           proofImage: compressedImage,
@@ -772,6 +828,7 @@ export default function CustomerPayments() {
                         }));
                         setProofError("");
                       } catch (_error) {
+                        if (requestId !== proofImageRequestRef.current) return;
                         setProofError("Failed to process the selected image.");
                       }
                     }}
