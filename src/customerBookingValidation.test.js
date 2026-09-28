@@ -5,6 +5,7 @@ import CustomerProfile from "./screens/customer/CustomerProfile";
 import CustomerServices from "./screens/customer/CustomerServices";
 import CustomerTracking from "./screens/customer/CustomerTracking";
 import { apiRequest } from "./services/api";
+import { formatTime12Hour } from "./utils/bookingWorkflow";
 
 const mockCreateBooking = jest.fn();
 const mockCreateReview = jest.fn();
@@ -156,38 +157,43 @@ describe("Customer Add New Booking validation", () => {
   test.each([
     ["vehicle", "Vehicle Model", "Vehicle is required."],
     ["plate", "Plate Number", "Plate number is required."],
-    ["date", "Preferred Date", "Booking date is required."],
-  ])("empty %s keeps Save Booking disabled and shows inline error after blur", async (field, label, message) => {
+    ["date", "Preferred Date", "Preferred date is required."],
+  ])("empty %s shows inline error after blur", async (field, label, message) => {
     openModal();
     await fillValidForm({ skip: [field] });
-    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
     fireEvent.blur(screen.getByLabelText(label));
     expect(screen.getByText(message)).toBeInTheDocument();
   });
 
   test.each([
     ["service", "Service", "Please select a service."],
-    ["carSize", "Car Size", "Please select a car size."],
-  ])("missing %s keeps Save Booking disabled and shows inline error after blur", async (field, label, message) => {
+    ["carSize", "Car Size", "Car size is required."],
+  ])("missing %s shows inline error after blur", async (field, label, message) => {
     openModal();
     await fillValidForm({ skip: [field, "time"] });
-    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
     fireEvent.blur(screen.getByRole("button", { name: label }));
     expect(screen.getByText(message)).toBeInTheDocument();
   });
 
-  test("missing preferred time keeps Save Booking disabled and shows inline error after blur", async () => {
+  test("missing preferred time shows inline error after blur", async () => {
     openModal();
     await fillValidForm({ skip: ["time"] });
-    expect(screen.getByRole("button", { name: "Save Booking" })).toBeDisabled();
     fireEvent.blur(screen.getByLabelText("Preferred Time"));
-    expect(screen.getByText("Please select a preferred time.")).toBeInTheDocument();
+    expect(screen.getByText("Preferred time is required.")).toBeInTheDocument();
   });
 
-  test("Save Booking uses the actual disabled property and placeholder values are invalid", () => {
+  test("Save Booking exposes all required field errors without browser-native validation", () => {
     openModal();
     const saveButton = screen.getByRole("button", { name: "Save Booking" });
-    expect(saveButton).toBeDisabled();
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+    expect(screen.getByText("Preferred date is required.")).toBeInTheDocument();
+    expect(screen.getByText("Vehicle is required.")).toBeInTheDocument();
+    expect(screen.getByText("Plate number is required.")).toBeInTheDocument();
+    expect(screen.getByText("Car size is required.")).toBeInTheDocument();
+    expect(screen.getByText("Please select a service.")).toBeInTheDocument();
+    expect(screen.getByText("Preferred time is required.")).toBeInTheDocument();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Service" })).toHaveTextContent("Select service");
     expect(screen.getByRole("button", { name: "Car Size" })).toHaveTextContent("Select car size");
     expect(screen.getByLabelText("Preferred Time")).toHaveValue("");
@@ -306,6 +312,45 @@ describe("Customer Add New Booking validation", () => {
       "XL / Van / Semi Truck",
     ]);
   });
+
+  test("Motor Coating forces Motorcycle and submits the canonical size", async () => {
+    const motorCoating = {
+      ...services[0],
+      id: "SVC-MOTOR",
+      name: "Motor Coating",
+      allowedArrivalTimes: ["08:00"],
+    };
+    mockData = { services: [...services, motorCoating] };
+    openModal();
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
+    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    selectModalOption("Service", "Motor Coating");
+
+    expect(screen.getByRole("button", { name: "Car Size" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Car Size" })).toHaveTextContent("Motorcycle");
+    fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
+
+    await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
+    expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
+      service: "Motor Coating",
+      carSize: "Motorcycle",
+      time: "08:00",
+    });
+  });
+
+  test("switching away from Motor Coating restores normal Car Size selection", () => {
+    mockData = { services: [...services, { ...services[0], id: "SVC-MOTOR", name: "Motor Coating" }] };
+    openModal();
+    selectModalOption("Service", "Motor Coating");
+    expect(screen.getByRole("button", { name: "Car Size" })).toBeDisabled();
+
+    selectModalOption("Service", "Car Wash");
+    expect(screen.getByRole("button", { name: "Car Size" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Car Size" })).toHaveTextContent("Select car size");
+  });
 });
 
 describe("Customer Bookings list, filters, pagination, and details", () => {
@@ -401,8 +446,8 @@ describe("Customer Services contextual booking", () => {
     expect(dialog).toHaveTextContent("Admin ceramic protection description.");
     expect(dialog).toHaveTextContent("P 7,000 - P 10,000");
     expect(dialog).toHaveTextContent("180 mins");
-    expect(dialog).toHaveTextContent("10:00 / 10:00 AM");
-    expect(dialog).toHaveTextContent("13:00 / 1:00 PM");
+    expect(dialog).toHaveTextContent("10:00 AM");
+    expect(dialog).toHaveTextContent("01:00 PM");
     expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Book" })).not.toBeInTheDocument();
   });
@@ -431,8 +476,102 @@ describe("Customer Services contextual booking", () => {
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
     expect(screen.getByText("Book Service")).toBeInTheDocument();
     expect(screen.getAllByText("Car Wash").length).toBeGreaterThan(1);
-    const timeField = screen.getByText("Time Slot").closest("label").querySelector("select");
+    const timeField = screen.getByLabelText("Preferred Time");
     expect(timeField).toBeEnabled();
+  });
+
+  test("service cards omit slot previews while booking retains canonical time values", () => {
+    render(<CustomerServices />);
+    expect(screen.queryByText("Available Time Slots")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    const timeField = screen.getByLabelText("Preferred Time");
+    expect(within(timeField).getByRole("option", { name: "10:00 AM" })).toHaveValue("10:00");
+    expect(within(timeField).getByRole("option", { name: "01:00 PM" })).toHaveValue("13:00");
+  });
+
+  test("Book Service validates all required fields, clears corrected errors, and leaves optional fields optional", async () => {
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+
+    expect(screen.getByText("Preferred date is required.")).toBeInTheDocument();
+    expect(screen.getByText("Preferred time is required.")).toBeInTheDocument();
+    expect(screen.getByText("Vehicle is required.")).toBeInTheDocument();
+    expect(screen.getByText("Plate number is required.")).toBeInTheDocument();
+    expect(screen.getByText("Car size is required.")).toBeInTheDocument();
+    expect(mockCreateBooking).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "10:00" } });
+    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Civic" } });
+    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "ABC123" } });
+    fireEvent.change(screen.getByLabelText("Car Size"), { target: { value: "Sedan / Small Car" } });
+
+    expect(screen.queryByText("Vehicle is required.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+    await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
+    expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
+      date: "2099-12-31",
+      time: "10:00",
+      promoId: "",
+      preferredDetailerId: "",
+    });
+  });
+
+  test("Book Service forces Motorcycle for Motor Coating and submits it without manual size input", async () => {
+    const motorCoating = {
+      ...services[0],
+      id: "SVC-MOTOR",
+      name: "Motor Coating",
+      allowedArrivalTimes: ["08:00"],
+    };
+    mockData = { services: [motorCoating] };
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+
+    expect(screen.getByLabelText("Car Size")).toBeDisabled();
+    expect(screen.getByLabelText("Car Size")).toHaveValue("Motorcycle");
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
+    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
+    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
+
+    await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
+    expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
+      service: "Motor Coating",
+      carSize: "Motorcycle",
+    });
+  });
+
+  test("the enlarged calendar disables past dates and keeps YYYY-MM-DD values", () => {
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open calendar" }));
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(screen.getByRole("gridcell", { name: yesterday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) })).toBeDisabled();
+
+    const dateInput = screen.getByLabelText("Preferred Date");
+    fireEvent.keyDown(dateInput, { key: "Escape" });
+    fireEvent.change(dateInput, { target: { value: "2099-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open calendar" }));
+    fireEvent.click(screen.getByRole("gridcell", { name: "December 30, 2099" }));
+    expect(screen.getByLabelText("Preferred Date")).toHaveValue("2099-12-30");
+  });
+});
+
+describe("booking time presentation", () => {
+  test.each([
+    ["00:00", "12:00 AM"],
+    ["08:00", "08:00 AM"],
+    ["12:00", "12:00 PM"],
+    ["15:00", "03:00 PM"],
+  ])("formats %s as %s without changing the canonical value", (value, label) => {
+    expect(formatTime12Hour(value)).toBe(label);
   });
 });
 

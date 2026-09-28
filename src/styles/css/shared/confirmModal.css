@@ -25,14 +25,14 @@
   top: 10px;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
   color: #111827;
 }
 
 .cnfModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 10px;
@@ -40,7 +40,7 @@
 
 .cnfModalText {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: #334155;
 }
@@ -58,7 +58,7 @@
 .cnfPrimaryBtn {
   border-radius: 999px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;

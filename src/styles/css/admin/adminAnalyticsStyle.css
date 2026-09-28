@@ -20,7 +20,7 @@
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -83,7 +83,7 @@
 .anaCardHead h3 {
   margin: 0;
   color: #111827;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 950;
   line-height: 1.25;
 }
@@ -91,7 +91,7 @@
 .anaCardHead p {
   margin: 4px 0 0;
   color: #64748b;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
   line-height: 1.45;
 }
@@ -110,7 +110,7 @@
   border-radius: 999px;
   background: #fff;
   color: #475569;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -136,7 +136,7 @@
 
 .anaRangeControls span {
   color: #64748b;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -150,7 +150,7 @@
   background: #fff;
   color: #111827;
   padding: 0 11px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   outline: none;
 }
@@ -188,7 +188,7 @@
 .anaBookingHero span {
   display: block;
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -196,7 +196,7 @@
   display: block;
   margin-top: 7px;
   color: #16803c;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 950;
   line-height: 1.15;
 }
@@ -240,7 +240,7 @@
   display: block;
   margin-top: 5px;
   color: #111827;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 950;
 }
 
@@ -258,7 +258,7 @@
 .anaRatingTop strong {
   display: block;
   color: #111827;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 950;
   line-height: 1.1;
 }
@@ -267,7 +267,7 @@
   display: block;
   margin-top: 3px;
   color: #64748b;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
 }
 
@@ -276,7 +276,7 @@
   align-items: center;
   gap: 3px;
   color: #d1d5db;
-  font-size: 22px;
+  font-size: 24px;
   line-height: 1;
 }
 
@@ -305,7 +305,7 @@
 .anaRatingBarRow span,
 .anaRatingBarRow strong {
   color: #111827;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
 }
 
@@ -338,7 +338,7 @@
   display: block;
   margin-top: 8px;
   color: #16803c;
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 950;
   line-height: 1.1;
 }
@@ -346,7 +346,7 @@
 .anaPeriodCard p {
   margin: 8px 0 0;
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.45;
 }
@@ -384,21 +384,21 @@
   border-radius: 999px;
   background: #f4ecda;
   color: #7a5a1c;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
 }
 
 .anaSvcName {
   min-width: 0;
   color: #111827;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
   overflow-wrap: anywhere;
 }
 
 .anaSvcNum {
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -414,7 +414,7 @@
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
   line-height: 1.45;
 }
@@ -467,7 +467,7 @@
 .anaAiItem span {
   display: block;
   color: #9f7a2e;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -476,7 +476,7 @@
 .anaAiItem p {
   margin: 5px 0 0;
   color: #334155;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -489,7 +489,7 @@
   background: #fffefa;
   padding: 24px 16px;
   color: #64748b;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.55;
   text-align: center;

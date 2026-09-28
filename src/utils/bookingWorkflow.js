@@ -188,10 +188,19 @@ export function getShopTimeValidationMessage(value, serviceDurationMinutes = 0) 
 }
 
 export function formatTimeLabel(value) {
+  if (!isValidHHMM(value)) return String(value || "");
   const [hours, minutes] = String(value).split(":").map(Number);
   const period = hours >= 12 ? "PM" : "AM";
   const hour12 = hours % 12 || 12;
   return `${value} / ${hour12}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+export function formatTime12Hour(value) {
+  if (!isValidHHMM(value)) return String(value || "");
+  const [hours, minutes] = String(value).split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+  return `${String(hour12).padStart(2, "0")}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 export function buildShopTimeOptions(intervalMinutes = 30) {
@@ -229,7 +238,7 @@ export function normalizeAllowedArrivalTimes(value, durationMinutes = 0) {
   return unique.length ? unique : getDefaultArrivalTimesForDuration(durationMinutes);
 }
 
-export function getServiceArrivalTimeOptions(service = {}, currentValue = "") {
+export function getServiceArrivalTimeOptions(service = {}, currentValue = "", labelFormatter = formatTimeLabel) {
   const allowedTimes = normalizeAllowedArrivalTimes(service?.allowedArrivalTimes, service?.mins);
   const currentTime = String(currentValue || "").trim();
   const values = currentTime && !allowedTimes.includes(currentTime)
@@ -237,7 +246,7 @@ export function getServiceArrivalTimeOptions(service = {}, currentValue = "") {
     : allowedTimes;
   return values.map((value) => ({
     value,
-    label: SERVICE_ARRIVAL_TIME_OPTIONS.includes(value) ? formatTimeLabel(value) : `${value} / Legacy selected time`,
+    label: SERVICE_ARRIVAL_TIME_OPTIONS.includes(value) ? labelFormatter(value) : `${value} / Legacy selected time`,
     legacy: !SERVICE_ARRIVAL_TIME_OPTIONS.includes(value),
   }));
 }

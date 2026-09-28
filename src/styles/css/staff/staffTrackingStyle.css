@@ -40,7 +40,7 @@
   width: 100%;
   border: 0;
   outline: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   background: transparent;
 }
@@ -83,14 +83,14 @@
 .stTrackTbl {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
   table-layout: fixed;
 }
 
 .stTrackTbl thead tr th {
   padding: 10px 12px;
   text-align: left;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   background: #e8e8e8;
   border-bottom: 1px solid var(--line);
@@ -100,7 +100,7 @@
 
 .stTrackTbl tbody tr td {
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   border-bottom: 1px solid var(--line);
@@ -134,7 +134,7 @@
 
 .stTrackEmpty {
   padding: 24px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #9ca3af;
   text-align: center;
@@ -147,7 +147,7 @@
   min-width: 80px;
   height: 22px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   padding: 0 10px;
 }
@@ -190,7 +190,7 @@
   background: #fff;
   color: #111827;
   padding: 0 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -218,7 +218,7 @@
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #111827;
 }
@@ -229,7 +229,7 @@
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -239,7 +239,7 @@
   padding: 10px 12px;
   background: #fffaf0;
   color: #334155;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -265,7 +265,7 @@
   color: #92400e;
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -294,7 +294,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   font-weight: 950;
-  font-size: 13px;
+  font-size: 15px;
   cursor: pointer;
   color: #111827;
   display: grid;
@@ -311,7 +311,7 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   color: #0f172a;
   display: grid;
@@ -363,14 +363,14 @@
   top: 10px;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
   color: #111827;
 }
 
 .stTrackModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
@@ -384,7 +384,7 @@
 }
 
 .stTrackField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #475569;
@@ -396,7 +396,7 @@
   border: 1px solid #d5deed;
   border-radius: 8px;
   padding: 12px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #0f172a;
   outline: none;
@@ -452,20 +452,20 @@
 }
 
 .stTrackSuggestItem span {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   text-transform: none;
   color: #0f172a;
 }
 
 .stTrackSuggestItem small {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
 }
 
 .stTrackFieldError {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: #dc2626;
 }
@@ -500,14 +500,14 @@
 }
 
 .stTrackReadOnlyField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #475569;
 }
 
 .stTrackReadOnlyField strong {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.45;
@@ -519,7 +519,7 @@
   margin: 0;
   padding-left: 18px;
   color: #0f172a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.5;
 }
@@ -542,7 +542,7 @@
 .stTrackDangerBtn {
   border-radius: 999px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;
@@ -566,7 +566,7 @@
 
 .stTrackDeleteText {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: #334155;
 }
@@ -583,7 +583,7 @@
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   color: #475569;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   padding: 6px 10px;
 }
@@ -608,7 +608,7 @@
 }
 
 .stIssueAiTitle {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   color: #0f172a;
 }
@@ -621,7 +621,7 @@
   border: 1px solid #cbd5e1;
   background: #fff;
   color: #0f172a;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -659,7 +659,7 @@
   color: #92400e;
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1.4;
   margin-bottom: 10px;
@@ -680,7 +680,7 @@
 }
 
 .stTrackIssueSaveMessage {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #334155;
 }
@@ -691,7 +691,7 @@
   color: #92400e;
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1.4;
   margin-bottom: 10px;
@@ -711,7 +711,7 @@
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1.45;
 }
@@ -758,7 +758,7 @@
 
 .stIssueAiResultText,
 .stIssueAiMeta {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   font-weight: 700;
   color: #334155;

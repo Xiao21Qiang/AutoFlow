@@ -13,7 +13,7 @@
 
 .mwEyebrow {
   color: #6b7280;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -23,7 +23,7 @@
 .mwTopBar h2 {
   margin: 0;
   color: #111827;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 950;
   letter-spacing: 0;
 }
@@ -31,7 +31,7 @@
 .mwTopBar p {
   margin: 6px 0 0;
   color: #6b7280;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   max-width: 680px;
 }
@@ -43,7 +43,7 @@
   background: #111827;
   color: #fff;
   padding: 0 16px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
   white-space: nowrap;
@@ -76,7 +76,7 @@
 .mwCardHeader h3 {
   margin: 0;
   color: #111827;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 950;
   letter-spacing: 0;
 }
@@ -84,7 +84,7 @@
 .mwCardHeader p {
   margin: 5px 0 0;
   color: #6b7280;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -94,7 +94,7 @@
   background: #f8fafc;
   color: #374151;
   padding: 7px 11px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -116,7 +116,7 @@
   color: #111827;
   padding: 8px 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   outline: none;
 }
@@ -130,7 +130,7 @@
 .mwFilterError {
   margin: -8px 0 14px;
   color: #b91c1c;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -144,7 +144,7 @@
   background: #fff;
   color: #374151;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -169,7 +169,7 @@
   border-bottom: 1px solid #eef0f4;
   text-align: left;
   vertical-align: top;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .mwTable th {
@@ -238,7 +238,7 @@
   background: #f3f4f6;
   color: #374151;
   padding: 4px 9px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -270,7 +270,7 @@
   cursor: pointer;
   display: inline-grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   padding: 0 9px;
 }
@@ -324,7 +324,7 @@
 
 .mwModalCard h3 {
   margin: 0 0 16px;
-  font-size: 20px;
+  font-size: 22px;
 }
 
 .mwModalClose {
@@ -334,7 +334,7 @@
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 900;
 }
 
@@ -353,7 +353,7 @@
 .mwDetailGrid span {
   display: block;
   color: #6b7280;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -362,7 +362,7 @@
   display: block;
   margin-top: 4px;
   color: #111827;
-  font-size: 13px;
+  font-size: 15px;
   word-break: break-word;
 }
 

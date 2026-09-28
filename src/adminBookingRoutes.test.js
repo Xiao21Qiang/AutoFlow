@@ -3178,6 +3178,74 @@ describe("Phase 6B payment/OCR backend state machine", () => {
     expect(bookings[0].status).toBe("Pending");
   });
 
+  test("cash submissions require and persist receipt numbers without invoking OCR", async () => {
+    seedRequiredDownPaymentState();
+    const ocrRecognizer = jest.fn(() => "should not run");
+    setTestPaymentOcrRecognizer(ocrRecognizer);
+
+    const missingReceipt = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({
+        downPaymentMethod: "Cash",
+        downPaymentReference: "",
+        downPaymentProofUrl: "",
+        downPaymentProofName: "",
+      }),
+    });
+    expect(missingReceipt.status).toBe(400);
+    expect(missingReceipt.body.message).toBe("Receipt number is required.");
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({
+        downPaymentMethod: "Cash",
+        downPaymentReference: "OR-1001",
+        downPaymentProofUrl: "",
+        downPaymentProofName: "",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      downPaymentMethod: "Cash",
+      downPaymentReference: "OR-1001",
+      downPaymentProofUrl: "",
+      downPaymentReferenceCheckStatus: "cash_not_required",
+      downPaymentOcrAdvisoryStatus: "cash_not_required",
+    });
+    expect(ocrRecognizer).not.toHaveBeenCalled();
+  });
+
+  test("cash pay-in-full persists its receipt in the final reference field", async () => {
+    seedRequiredDownPaymentState();
+    const ocrRecognizer = jest.fn(() => "should not run");
+    setTestPaymentOcrRecognizer(ocrRecognizer);
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody({
+        finalPaymentMethod: "Cash",
+        finalPaymentReference: "OR-FULL-1001",
+        finalPaymentProofUrl: "",
+        finalPaymentProofName: "",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      finalPaymentMethod: "Cash",
+      finalPaymentReference: "OR-FULL-1001",
+      finalPaymentProofUrl: "",
+      finalPaymentReferenceCheckStatus: "cash_not_required",
+      finalPaymentOcrAdvisoryStatus: "cash_not_required",
+    });
+    expect(ocrRecognizer).not.toHaveBeenCalled();
+  });
+
   test("keeps DP and remaining-balance proof fields isolated through submission and bootstrap", async () => {
     seedRequiredDownPaymentState();
     setTestPaymentOcrRecognizer(({ reference }) => `Reference ${reference}`);

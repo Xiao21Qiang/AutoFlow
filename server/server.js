@@ -38,6 +38,7 @@ const invoiceDomain = require("./domain/invoices");
 const engagementDomain = require("./domain/engagement");
 const exportDomain = require("./domain/exports");
 const { buildBusinessSummary } = require("./domain/summaries");
+const { DEFAULT_SERVICES } = require("./defaultServices");
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
@@ -4820,6 +4821,7 @@ const CAR_SIZE_PRICE_LABELS = {
   "Midsize / Pickup / MPV": "midsizePickupMpv",
   SUV: "suv",
   "XL / Van / Semi Truck": "xlVanSemiTruck",
+  Motorcycle: "sedanSmallCar",
 };
 
 const SERVICE_CONSUMABLE_SIZE_KEYS = Object.values(CAR_SIZE_PRICE_LABELS);
@@ -4837,7 +4839,22 @@ function normalizeCarSizeLabel(value) {
   if (raw === "xl / van / semi truck" || raw === "xl" || raw === "van" || raw === "semi truck") {
     return "XL / Van / Semi Truck";
   }
+  if (raw === "motorcycle" || raw === "motor bike" || raw === "motorbike") return "Motorcycle";
   return "";
+}
+
+function isMotorCoatingService(service = {}) {
+  return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") === "motor coating";
+}
+
+function validateServiceCarSizeCompatibility(service, carSize) {
+  const normalizedCarSize = normalizeCarSizeLabel(carSize);
+  if (isMotorCoatingService(service) && normalizedCarSize !== "Motorcycle") {
+    throwValidationError("Motor Coating requires Motorcycle as the car size.", 400, "carSize");
+  }
+  if (!isMotorCoatingService(service) && normalizedCarSize === "Motorcycle") {
+    throwValidationError("Motorcycle car size is only available for Motor Coating.", 400, "carSize");
+  }
 }
 
 function buildServicePriceBySize(priceBySize, fallbackPrice = 0) {
@@ -6779,44 +6796,10 @@ async function ensureSeedData() {
   }
 
   if (!serviceCount) {
-    await Service.insertMany([
-      {
-        id: "SVC-1001",
-        name: "Graphene Coating",
-        desc: "Long-lasting gloss and protection",
-        serviceType: "Basic Service",
-        category: "Coating",
-        price: 25000,
-        priceBySize: buildServicePriceBySize({}, 25000),
-        mins: 360,
-        enabled: true,
-        consumables: [],
-      },
-      {
-        id: "SVC-1002",
-        name: "Ceramic Coating",
-        desc: "Hydrophobic ceramic protection",
-        serviceType: "Basic Service",
-        category: "Coating",
-        price: 18000,
-        priceBySize: buildServicePriceBySize({}, 18000),
-        mins: 300,
-        enabled: true,
-        consumables: [],
-      },
-      {
-        id: "SVC-1003",
-        name: "Paint Protection Film",
-        desc: "High-impact paint protection",
-        serviceType: "Basic Service",
-        category: "Protection",
-        price: 45000,
-        priceBySize: buildServicePriceBySize({}, 45000),
-        mins: 480,
-        enabled: true,
-        consumables: [],
-      },
-    ]);
+    await Service.insertMany(DEFAULT_SERVICES.map((service) => ({
+      ...service,
+      priceBySize: buildServicePriceBySize({}, service.price),
+    })));
   }
 
 }
@@ -8930,6 +8913,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
     }
 
     const selectedService = await ensureBookableService(req.body.service);
+    validateServiceCarSizeCompatibility(selectedService, vehicleSnapshot.carSize);
     const adminSchedule = isCustomerRequested
       ? validateCustomerBookingCreateRequirements(req, { service: selectedService })
       : await validateAdminBookingCreateRequirements(req, {
@@ -9240,6 +9224,9 @@ app.put("/api/admin/bookings/:id", requireRoles("admin", "staff"), async (req, r
       selectedServiceForUpdate = await ensureBookableService(requestedService);
     } else {
       selectedServiceForUpdate = await Service.findOne({ name: String(req.body.service || existingBooking.service || "").trim() }).lean();
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body, "service") || Object.prototype.hasOwnProperty.call(req.body, "carSize")) {
+      validateServiceCarSizeCompatibility(selectedServiceForUpdate || req.body.service || existingBooking.service, req.body.carSize ?? existingBooking.carSize);
     }
 
     delete req.body.assignedDetailerId;
@@ -10462,12 +10449,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       }
       const submittedDownPaymentMethod = assertSupportedPaymentMethod(req.body.downPaymentMethod || req.body.method || "", "Down payment method");
       const downPaymentProofRequired = !isCashPaymentMethod(submittedDownPaymentMethod);
-      if (downPaymentProofRequired && !String(req.body.downPaymentReference || req.body.reference || "").trim()) {
-        res.status(400).json({ message: "Reference number is required." });
+      const downPaymentReferenceLabel = downPaymentProofRequired ? "Reference number" : "Receipt number";
+      if (!String(req.body.downPaymentReference || req.body.reference || "").trim()) {
+        res.status(400).json({ message: `${downPaymentReferenceLabel} is required.` });
         return;
       }
       if (String(req.body.downPaymentReference || req.body.reference || "").trim().length > 80) {
-        res.status(400).json({ message: "Reference number must be 80 characters or less." });
+        res.status(400).json({ message: `${downPaymentReferenceLabel} must be 80 characters or less.` });
         return;
       }
       validateProofImageInput(req.body.downPaymentProofUrl || req.body.proofImage || "", req.body.downPaymentProofName || req.body.proofFileName || "", downPaymentProofRequired);
@@ -10542,12 +10530,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       }
       const submittedFinalPaymentMethod = assertSupportedPaymentMethod(req.body.finalPaymentMethod || "", "Final payment method");
       const finalPaymentProofRequired = !isCashPaymentMethod(submittedFinalPaymentMethod);
-      if (finalPaymentProofRequired && !String(req.body.finalPaymentReference || "").trim()) {
-        res.status(400).json({ message: "Reference number is required." });
+      const finalPaymentReferenceLabel = finalPaymentProofRequired ? "Reference number" : "Receipt number";
+      if (!String(req.body.finalPaymentReference || "").trim()) {
+        res.status(400).json({ message: `${finalPaymentReferenceLabel} is required.` });
         return;
       }
       if (String(req.body.finalPaymentReference || "").trim().length > 80) {
-        res.status(400).json({ message: "Reference number must be 80 characters or less." });
+        res.status(400).json({ message: `${finalPaymentReferenceLabel} must be 80 characters or less.` });
         return;
       }
       const submittedFinalPaymentProof = validateProofImageInput(
@@ -10818,7 +10807,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           downPaymentNotes: existingPayment.downPaymentNotes || "",
           finalPaymentStatus: "For Verification",
           finalPaymentMethod: customerSubmittedFinalPaymentMethod,
-          finalPaymentReference: customerSubmittedFinalPaymentIsCash ? "" : sanitizePaymentReference(req.body.finalPaymentReference || ""),
+          finalPaymentReference: sanitizePaymentReference(req.body.finalPaymentReference || ""),
           finalPaymentProofUrl: customerSubmittedFinalPaymentIsCash ? "" : sanitizedFinalPaymentProof.proofImage,
           finalPaymentProofName: customerSubmittedFinalPaymentIsCash ? "" : sanitizedFinalPaymentProof.proofFileName,
           finalPaymentProofSubmittedAt: proofSubmissionServerDate,
@@ -10845,7 +10834,7 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           status: "For Verification",
           downPaymentStatus: "For Verification",
           downPaymentMethod: customerSubmittedDownPaymentMethod,
-          downPaymentReference: customerSubmittedDownPaymentIsCash ? "" : sanitizePaymentReference(req.body.downPaymentReference || req.body.reference || ""),
+          downPaymentReference: sanitizePaymentReference(req.body.downPaymentReference || req.body.reference || ""),
           downPaymentProofUrl: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofImage,
           downPaymentProofName: customerSubmittedDownPaymentIsCash ? "" : sanitizedDownPaymentProof.proofFileName,
           downPaymentProofSubmittedAt: proofSubmissionServerDate,

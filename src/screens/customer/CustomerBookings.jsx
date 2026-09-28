@@ -3,12 +3,20 @@ import "../../styles/css/customer/customerBookingsStyle.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
+import BookingDatePicker from "../../components/customer/BookingDatePicker";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
 import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
 import {
+  CUSTOMER_BOOKING_REQUIRED_FIELDS,
+  getCustomerBookingValidationErrors,
+  getRequiredCarSizeForService,
+  normalizeCustomerPlateInput,
+} from "../../utils/customerBookingValidation";
+import {
   getServiceArrivalTimeOptions,
+  formatTime12Hour,
   getPreferredDetailerDisplay,
   getPreferredDetailerOptions,
 } from "../../utils/bookingWorkflow";
@@ -62,39 +70,6 @@ function requiresDownPayment(service) {
   return String(service?.name || service || "").trim().toLowerCase().replace(/\s+/g, " ") !== "car wash";
 }
 
-const CUSTOMER_BOOKING_REQUIRED_MESSAGES = {
-  vehicle: "Vehicle is required.",
-  plate: "Plate number is required.",
-  service: "Please select a service.",
-  carSize: "Please select a car size.",
-  date: "Booking date is required.",
-  time: "Please select a preferred time.",
-};
-
-const CUSTOMER_BOOKING_REQUIRED_FIELDS = Object.keys(CUSTOMER_BOOKING_REQUIRED_MESSAGES);
-
-function getCustomerBookingValidationErrors({ form, serviceOptions }) {
-  const errors = {};
-  const vehicle = String(form.vehicle || "").trim().replace(/\s+/g, " ");
-  const rawPlate = String(form.plate || "").trim();
-  const normalizedPlate = rawPlate.toUpperCase().replace(/[^A-Z0-9-]/g, "");
-  if (!vehicle) errors.vehicle = CUSTOMER_BOOKING_REQUIRED_MESSAGES.vehicle;
-  else if (vehicle.length < 2 || vehicle.length > 80) errors.vehicle = "Vehicle model must be 2 to 80 characters.";
-  else if (!/^[A-Za-z0-9][A-Za-z0-9\s.'()/-]*$/.test(vehicle)) errors.vehicle = "Vehicle model contains unsupported characters.";
-  if (!rawPlate) errors.plate = CUSTOMER_BOOKING_REQUIRED_MESSAGES.plate;
-  else if (/[^A-Za-z0-9\s-]/.test(rawPlate)) errors.plate = "Plate number contains unsupported characters.";
-  else if (normalizedPlate.length < 3 || normalizedPlate.length > 16) errors.plate = "Plate number must be 3 to 16 letters or numbers.";
-  if (!serviceOptions.includes(String(form.service || "").trim())) errors.service = CUSTOMER_BOOKING_REQUIRED_MESSAGES.service;
-  if (!CAR_SIZE_OPTIONS.includes(String(form.carSize || "").trim())) errors.carSize = CUSTOMER_BOOKING_REQUIRED_MESSAGES.carSize;
-  if (!String(form.date || "").trim()) errors.date = CUSTOMER_BOOKING_REQUIRED_MESSAGES.date;
-  if (!String(form.time || "").trim()) errors.time = CUSTOMER_BOOKING_REQUIRED_MESSAGES.time;
-  return errors;
-}
-
-function normalizePlateInput(value) {
-  return String(value || "").toUpperCase().replace(/[^A-Z0-9-\s]/g, "").slice(0, 20);
-}
-
 function getAssignedDetailerDisplay(booking = {}) {
   return String(booking.assigned || booking.assignedDetailerName || booking.assignedDetailerId || "").trim() || "-";
 }
@@ -115,7 +90,7 @@ function getCustomerBookingSearchText(booking = {}) {
     .join(" ");
 }
 
-function ModalSelect({ value, options, placeholder, onSelect, invalid = false, ariaLabel, ariaDescribedBy, onBlur }) {
+function ModalSelect({ value, options, placeholder, onSelect, invalid = false, ariaLabel, ariaDescribedBy, onBlur, disabled = false }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -127,6 +102,7 @@ function ModalSelect({ value, options, placeholder, onSelect, invalid = false, a
         aria-describedby={ariaDescribedBy}
         onBlur={onBlur}
         onClick={() => setOpen((prev) => !prev)}
+        disabled={disabled}
       >
         <span>{value || placeholder}</span>
       </button>
@@ -223,9 +199,10 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     [selectedService, form.carSize]
   );
   const timeOptions = useMemo(
-    () => getServiceArrivalTimeOptions(selectedService || {}, form.time),
+    () => getServiceArrivalTimeOptions(selectedService || {}, form.time, formatTime12Hour),
     [selectedService, form.time]
   );
+  const requiredCarSize = getRequiredCarSizeForService(selectedService || form.service);
   const promoAdjustedPrice = useMemo(() => {
     const base = Number(selectedServicePrice || 0);
     const value = Number(selectedPromo?.discountValue || selectedPromo?.discountPercent || 0);
@@ -245,7 +222,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   useEffect(() => {
     setForm((prev) => {
       if (serviceOptions.includes(prev.service)) return prev;
-      return { ...prev, service: "", time: "" };
+      return { ...prev, service: "", time: "", carSize: prev.carSize === "Motorcycle" ? "" : prev.carSize };
     });
   }, [serviceOptions]);
 
@@ -284,8 +261,8 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     return filtered.slice(start, start + pageSize);
   }, [filtered, safePage]);
   const bookingValidationErrors = useMemo(
-    () => modal === "add" ? getCustomerBookingValidationErrors({ form, serviceOptions }) : {},
-    [form, modal, serviceOptions]
+    () => modal === "add" ? getCustomerBookingValidationErrors({ form, services: bookableServices, minDate: todayKey, timeOptions }) : {},
+    [bookableServices, form, modal, timeOptions, todayKey]
   );
   useEffect(() => {
     if (page !== safePage) setPage(safePage);
@@ -538,17 +515,13 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
 
                 <label className="clBookField">
                   <span>Preferred Date</span>
-                  <input
-                    type="date"
-                    aria-label="Preferred Date"
+                  <BookingDatePicker
                     min={todayKey}
                     value={form.date}
                     onBlur={() => markFieldTouched("date")}
-                    onChange={(e) => setFormField("date", e.target.value)}
-                    className={getTouchedFieldError("date") ? "clBookFieldInvalidInput" : ""}
-                    required
-                    aria-invalid={getTouchedFieldError("date") ? "true" : undefined}
-                    aria-describedby={getTouchedFieldError("date") ? "customer-booking-date-error" : undefined}
+                    onChange={(value) => setFormField("date", value)}
+                    invalid={Boolean(getTouchedFieldError("date"))}
+                    describedBy={getTouchedFieldError("date") ? "customer-booking-date-error" : undefined}
                   />
                   {getTouchedFieldError("date") ? <div id="customer-booking-date-error" className="clBookFieldError">{getTouchedFieldError("date")}</div> : null}
                 </label>
@@ -577,7 +550,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           ...prev,
                           selectedCar: option,
                           vehicle: selectedCar?.vehicle || prev.vehicle,
-                          carSize: String(selectedCar?.size || prev.carSize || ""),
+                          carSize: requiredCarSize || String(selectedCar?.size || prev.carSize || ""),
                           plate: String(selectedCar?.plate || prev.plate).toUpperCase(),
                         }));
                       }}
@@ -601,7 +574,6 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       setForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value }));
                     }}
                     className={getTouchedFieldError("vehicle") ? "clBookFieldInvalidInput" : ""}
-                    required
                     aria-invalid={getTouchedFieldError("vehicle") ? "true" : undefined}
                     aria-describedby={getTouchedFieldError("vehicle") ? "customer-booking-vehicle-error" : undefined}
                   />
@@ -622,10 +594,9 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           delete next.plate;
                           return next;
                         });
-                        setForm((prev) => ({ ...prev, selectedCar: "", plate: normalizePlateInput(e.target.value) }));
+                        setForm((prev) => ({ ...prev, selectedCar: "", plate: normalizeCustomerPlateInput(e.target.value) }));
                       }}
                       className={getTouchedFieldError("plate") ? "clBookFieldInvalidInput" : ""}
-                      required
                       aria-invalid={getTouchedFieldError("plate") ? "true" : undefined}
                       aria-describedby={getTouchedFieldError("plate") ? "customer-booking-plate-error" : undefined}
                     />
@@ -643,6 +614,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       ariaDescribedBy={getTouchedFieldError("carSize") ? "customer-booking-car-size-error" : undefined}
                       onBlur={() => markFieldTouched("carSize")}
                       onSelect={(option) => setFormField("carSize", option)}
+                      disabled={Boolean(requiredCarSize)}
                     />
                     {getTouchedFieldError("carSize") ? <div id="customer-booking-car-size-error" className="clBookFieldError">{getTouchedFieldError("carSize")}</div> : null}
                   </label>
@@ -664,7 +636,14 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                           delete next.time;
                           return next;
                         });
-                        setForm((prev) => ({ ...prev, service: option, time: "" }));
+                        const nextService = bookableServices.find((service) => service.name === option);
+                        const nextRequiredCarSize = getRequiredCarSizeForService(nextService || option);
+                        setForm((prev) => ({
+                          ...prev,
+                          service: option,
+                          time: "",
+                          carSize: nextRequiredCarSize || (prev.carSize === "Motorcycle" ? "" : prev.carSize),
+                        }));
                       }}
                     />
                     {getTouchedFieldError("service") ? <div id="customer-booking-service-error" className="clBookFieldError">{getTouchedFieldError("service")}</div> : null}
@@ -678,7 +657,6 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       onChange={(e) => setFormField("time", e.target.value)}
                       disabled={!selectedService}
                       className={getTouchedFieldError("time") ? "clBookFieldInvalidInput" : ""}
-                      required
                       aria-invalid={getTouchedFieldError("time") ? "true" : undefined}
                       aria-describedby={getTouchedFieldError("time") ? "customer-booking-time-error" : undefined}
                     >
@@ -785,7 +763,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <button className="clBookTextBtn" type="button" onClick={closeModal}>
                     Cancel
                   </button>
-                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || isSubmittingBooking || !serviceOptions.length || !isCustomerBookingFormValid}>
+                  <button className="clBookPrimaryBtn" type="submit" disabled={loading || isSubmittingBooking || !serviceOptions.length}>
                     {isSubmittingBooking ? "Submitting..." : "Save Booking"}
                   </button>
                 </div>

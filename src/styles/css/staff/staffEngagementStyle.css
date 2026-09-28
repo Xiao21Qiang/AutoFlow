@@ -33,7 +33,7 @@
 }
 
 .stEngTitle {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
   color: #111827;
   line-height: 1.15;
@@ -42,7 +42,7 @@
 
 .stEngSub {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 850;
   line-height: 1.2;
   color: #64748b;
@@ -61,13 +61,13 @@
 .stEngTbl {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .stEngTbl thead tr th {
   padding: 10px 12px;
   text-align: left;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   background: #e8e8e8;
   border-bottom: 1px solid var(--line);
@@ -77,7 +77,7 @@
 
 .stEngTbl tbody tr td {
   padding: 16px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   border-bottom: 1px solid var(--line);
@@ -105,7 +105,7 @@
   min-height: 26px;
   padding: 0 12px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -133,7 +133,7 @@
   border: 1px solid #bfdbfe;
   background: #eff6ff;
   color: #1d4ed8;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   white-space: nowrap;
@@ -172,7 +172,7 @@
   border-radius: 10px;
   background: #fff;
   color: #0f172a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   padding: 0 12px;
 }
@@ -239,7 +239,7 @@
 .stEngRewardDetails span {
   display: block;
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   margin-bottom: 5px;
 }
@@ -247,7 +247,7 @@
 .stEngRewardDetails strong {
   display: block;
   color: #0f172a;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 950;
   line-height: 1.25;
   overflow-wrap: anywhere;

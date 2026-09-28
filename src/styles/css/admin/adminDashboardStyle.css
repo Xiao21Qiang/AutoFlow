@@ -56,7 +56,7 @@
 
 .adminDashStatNum {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 400;
   letter-spacing: 1px;
   color: #0f172a;
@@ -65,7 +65,7 @@
 
 .adminDashStatLabel {
   margin-top: 5px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: #64748b;
   line-height: 1.1;
@@ -93,7 +93,7 @@
 
 .adminDashTitle {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 400;
   letter-spacing: 1px;
   color: #0f172a;
@@ -102,7 +102,7 @@
 
 .adminDashSub {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: #64748b;
   line-height: 1.1;
@@ -130,7 +130,7 @@
 }
 
 .adminAttentionName {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.05;
@@ -138,7 +138,7 @@
 
 .adminAttentionDesc {
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 500;
   color: #64748b;
   line-height: 1.2;
@@ -155,7 +155,7 @@
   margin-left: 8px;
   border-radius: 999px;
   padding: 3px 8px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
 }
 
@@ -197,7 +197,7 @@
 }
 
 .adminQuickTitle {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.05;
@@ -205,7 +205,7 @@
 
 .adminQuickDesc {
   margin-top: 3px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 500;
   color: #64748b;
   line-height: 1.2;
@@ -239,7 +239,7 @@
 
 .adminCalMain {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 400;
   letter-spacing: 1px;
   color: #0f172a;
@@ -247,7 +247,7 @@
 }
 
 .adminCalMini {
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 500;
   color: #64748b;
   line-height: 1.1;
@@ -267,7 +267,7 @@
   background: #f8fafc !important;
   border-radius: 6px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   color: #0f172a;
   cursor: pointer;
@@ -292,7 +292,7 @@
 }
 
 .adminWeekRow > div {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: #94a3b8;
   letter-spacing: 0.5px;
@@ -312,7 +312,7 @@
   border-radius: 10px;
   background: #ffffff !important;
   padding: 5px 6px;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 700;
   color: #0f172a;
   position: relative;
@@ -350,7 +350,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 900;
   color: #fff;
   box-shadow: 0 1px 4px rgba(212,160,23,0.3);
@@ -385,7 +385,7 @@
 }
 
 .adminOverviewName {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.05;
@@ -393,7 +393,7 @@
 
 .adminOverviewMeta {
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 500;
   color: #64748b;
   line-height: 1.2;
@@ -416,7 +416,7 @@
   border: 1px solid #e2e6ed;
   background: #f8fafc;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: #0f172a;
   cursor: pointer;
@@ -440,7 +440,7 @@
 }
 
 .adminQuoteDetailItem span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
   letter-spacing: 0.5px;
@@ -448,7 +448,7 @@
 }
 
 .adminQuoteDetailItem strong {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.4;
@@ -459,7 +459,7 @@
   border: 1px solid #d1d5db;
   border-radius: 9px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #111827;
 }
@@ -543,14 +543,14 @@
   border: 1px solid rgba(255,255,255,0.22);
   display: grid;
   place-items: center;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
   color: #fff;
   flex-shrink: 0;
 }
 
 .aiTitle {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #fff;
   line-height: 1.1;
@@ -558,7 +558,7 @@
 
 .aiBullets {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: rgba(255,255,255,0.92);
   line-height: 1.45;

@@ -44,7 +44,7 @@
 }
 
 .finSummaryLabel {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.8px;
@@ -53,7 +53,7 @@
 
 .finSummaryValue {
   margin-top: 6px;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 950;
   color: var(--text);
 }
@@ -65,7 +65,7 @@
 
 .finSummaryMeta {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -101,7 +101,7 @@
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -113,7 +113,7 @@
   color: var(--text);
   padding: 0 10px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   line-height: 1;
   white-space: nowrap;
@@ -132,7 +132,7 @@
 
 .finFilterLabel,
 .finDateDivider {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -146,7 +146,7 @@
   padding: 0 10px;
   background: #fff;
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   outline: none;
 }
@@ -165,7 +165,7 @@
 .finTinyEdit,
 .finTinyDelete {
   border-radius: 8px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -247,14 +247,14 @@
 }
 
 .finCardTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 950;
   color: var(--text);
 }
 
 .finCardSub {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -288,7 +288,7 @@
 }
 
 .finCompareChip span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -296,7 +296,7 @@
 }
 
 .finCompareChip strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 950;
 }
 
@@ -338,7 +338,7 @@
 .finTable th {
   padding: 10px 8px;
   text-align: left;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: var(--muted);
   text-transform: uppercase;
@@ -347,7 +347,7 @@
 
 .finTable td {
   padding: 10px 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
   border-bottom: 1px solid var(--line-soft);
@@ -440,7 +440,7 @@
 
 .finSubText {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -451,7 +451,7 @@
   justify-content: center;
   padding: 4px 9px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -501,7 +501,7 @@
 .finFooterStat {
   margin-top: 10px;
   text-align: right;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #dc2626;
 }
@@ -580,7 +580,7 @@
   border-radius: 8px;
   background: #fff;
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   padding: 0 6px;
   display: grid;
@@ -642,7 +642,7 @@
 }
 
 .finBarRow span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -661,7 +661,7 @@
   height: 100%;
   border-radius: 4px;
   color: #fff;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   display: flex;
   align-items: center;
@@ -715,7 +715,7 @@
   border-radius: 999px;
   background: #e8f1ff;
   color: #1d4ed8;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -731,7 +731,7 @@
   border: 1px solid #c7d2fe;
   background: #eef2ff;
   color: #1d4ed8;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -748,7 +748,7 @@
 
 .finInterpretationError {
   margin-top: 10px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: #b45309;
 }
@@ -766,7 +766,7 @@
   border-radius: 12px;
   background: #fafafa;
   padding: 12px 14px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   font-weight: 700;
   color: #475569;
@@ -777,7 +777,7 @@
   border-radius: 14px;
   background: #fcfcfd;
   padding: 16px 18px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
   font-weight: 700;
   color: #6b7280;
@@ -857,20 +857,20 @@
 }
 
 .finSuggestItem span {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   color: var(--text);
 }
 
 .finSuggestItem small {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: var(--muted);
 }
 
 .finSearchError {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: #dc2626;
 }
@@ -916,7 +916,7 @@
   border: none;
   background: #f3f4f6;
   color: #4b5563;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -929,14 +929,14 @@
 }
 
 .finModalTitle {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 950;
   color: var(--text);
 }
 
 .finModalSub {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--muted);
 }
@@ -954,7 +954,7 @@
 }
 
 .finModalField span {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: var(--text);
   text-transform: uppercase;
@@ -974,7 +974,7 @@
   border: 1px solid #d8dee8;
   background: #fff;
   padding: 0 16px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--text);
   outline: none;
@@ -1034,7 +1034,7 @@ input.finModalInput[type="number"]::-webkit-inner-spin-button {
   border: 1px solid #d8dee8;
   background: #f8fafc;
   padding: 14px 16px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   line-height: 1.45;
   color: var(--text);
@@ -1048,7 +1048,7 @@ input.finModalInput[type="number"]::-webkit-inner-spin-button {
   background: #fff1f2;
   border: 1px solid #fecdd3;
   color: #be123c;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 

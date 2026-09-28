@@ -81,7 +81,7 @@ button, input { font: inherit; }
 
 .staffBrandName {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 2px;
@@ -90,7 +90,7 @@ button, input { font: inherit; }
 
 .staffBrandSub {
   margin-top: 3px;
-  font-size: 9.5px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
   color: #94a3b8;
@@ -129,7 +129,7 @@ button, input { font: inherit; }
   border: 0;
   outline: none;
   background: transparent !important;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
 }
@@ -154,7 +154,7 @@ button, input { font: inherit; }
 
 .staffGroupTitle {
   padding: 0 10px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.9px;
   text-transform: uppercase;
@@ -177,7 +177,7 @@ button, input { font: inherit; }
   border-radius: 10px;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--muted);
   overflow: hidden;
@@ -229,7 +229,7 @@ button, input { font: inherit; }
   margin-top: 12px;
   cursor: pointer;
   color: var(--red);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   transition: background 0.18s, color 0.18s;
 }
@@ -240,7 +240,7 @@ button, input { font: inherit; }
 }
 
 .staffLogoutArrow {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -270,7 +270,7 @@ button, input { font: inherit; }
 .staffTopLeft h1 {
   margin: 0;
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 1.5px;
@@ -279,7 +279,7 @@ button, input { font: inherit; }
 
 .staffTopLeft p {
   margin: 2px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--muted);
   line-height: 1.2;
@@ -302,7 +302,7 @@ button, input { font: inherit; }
   background: #ffffff !important;
   border-radius: 8px;
   padding: 0 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
   cursor: pointer;
@@ -335,7 +335,7 @@ button, input { font: inherit; }
   border: 1px solid rgba(255,255,255,0.3);
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 900;
   color: #000;
   flex-shrink: 0;
@@ -344,14 +344,14 @@ button, input { font: inherit; }
 .staffUserMeta { line-height: 1; }
 
 .staffUserName {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #000;
 }
 
 .staffUserEmail {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: rgba(0,0,0,0.6);
 }

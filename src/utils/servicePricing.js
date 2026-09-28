@@ -5,11 +5,14 @@ export const CAR_SIZE_OPTIONS = [
   "XL / Van / Semi Truck",
 ];
 
+export const MOTORCYCLE_CAR_SIZE = "Motorcycle";
+
 export const PRICE_BY_SIZE_KEYS = {
   "Sedan / Small Car": "sedanSmallCar",
   "Midsize / Pickup / MPV": "midsizePickupMpv",
   SUV: "suv",
   "XL / Van / Semi Truck": "xlVanSemiTruck",
+  [MOTORCYCLE_CAR_SIZE]: "sedanSmallCar",
 };
 
 const PRICE_BY_SIZE_DEFAULTS = {
@@ -34,6 +37,7 @@ export function normalizeCarSizeLabel(value) {
   if (raw === "xl / van / semi truck" || raw === "xl" || raw === "van" || raw === "semi truck") {
     return "XL / Van / Semi Truck";
   }
+  if (raw === "motorcycle" || raw === "motor bike" || raw === "motorbike") return MOTORCYCLE_CAR_SIZE;
   return "";
 }
 

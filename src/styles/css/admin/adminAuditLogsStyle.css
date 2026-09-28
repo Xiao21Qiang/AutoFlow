@@ -39,7 +39,7 @@
 .auditSearchInput {
   border: none;
   outline: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   width: 100%;
   background: transparent;
@@ -65,7 +65,7 @@
   border-radius: 999px;
   background: transparent;
   color: #6b7280;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -101,7 +101,7 @@
 }
 
 .auditSelectionMeta {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #6b7280;
   margin-right: 2px;
@@ -112,7 +112,7 @@
   padding: 0 16px;
   border-radius: 999px;
   font-weight: 950;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   border: none;
   white-space: nowrap;
@@ -170,7 +170,7 @@
   gap: 10px;
   padding: 10px 14px;
   background: #e8e8e8;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   color: #111827;
   border-bottom: 1px solid var(--line);
@@ -182,7 +182,7 @@
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #111827;
   width: 100%;
@@ -207,7 +207,7 @@
   display: block;
   margin-top: 3px;
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
   line-height: 1.35;
 }
@@ -237,7 +237,7 @@
 
 .auditEmptyText {
   font-weight: 900;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
 }
 
@@ -279,7 +279,7 @@
   background: transparent;
   cursor: pointer;
   font-weight: 950;
-  font-size: 13px;
+  font-size: 15px;
   display: grid;
   place-items: center;
 }
@@ -291,7 +291,7 @@
   min-width: 28px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   color: #0f172a;
   padding: 0 6px;

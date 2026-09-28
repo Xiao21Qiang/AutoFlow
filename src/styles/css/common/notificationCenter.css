@@ -31,14 +31,14 @@
 }
 
 .notifPanelTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
 }
 
 .notifPanelSub {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
 }
@@ -50,7 +50,7 @@
   border: 1px solid #d1d5db;
   background: #fff;
   color: #111827;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   padding: 7px 12px;
   cursor: pointer;
@@ -77,12 +77,12 @@
 .notifPermissionCard.muted {
   justify-content: flex-start;
   color: #64748b;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .notifPermissionText {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #334155;
 }
@@ -116,7 +116,7 @@
 }
 
 .notifItemTitle {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #111827;
 }
@@ -132,7 +132,7 @@
 
 .notifItemBody {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #475569;
   line-height: 1.45;
@@ -140,7 +140,7 @@
 
 .notifItemMeta {
   margin-top: 8px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: #94a3b8;
 }
@@ -149,7 +149,7 @@
   padding: 18px 8px;
   text-align: center;
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 

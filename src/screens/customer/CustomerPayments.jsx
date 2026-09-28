@@ -788,18 +788,19 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                   setProofError("");
                   const reference = String(proofForm.reference || "").trim();
                   const isCashMethod = isCashPaymentMethod(proofForm.method);
+                  const referenceLabel = isCashMethod ? "Receipt Number" : "Reference Number";
                   const isFinalPaymentMode = proofMode === "finalPayment";
                   const isFullPaymentMode = isFullPaymentProofMode(selectedPayment, proofMode);
                   if (!proofForm.method) {
                     setProofError(`Please select a ${isFullPaymentMode ? "full payment" : isFinalPaymentMode ? "final payment" : "down payment"} method.`);
                     return;
                   }
-                  if (!isCashMethod && !reference) {
-                    setProofError("Reference number is required for this payment method.");
+                  if (!reference) {
+                    setProofError(`${referenceLabel} is required.`);
                     return;
                   }
                   if (reference.length > 80) {
-                    setProofError("Reference number must be 80 characters or less.");
+                    setProofError(`${referenceLabel} must be 80 characters or less.`);
                     return;
                   }
                   if (!isCashMethod && !proofForm.proofImage) {
@@ -810,7 +811,7 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                     ? {
                         finalPaymentStatus: "For Verification",
                         finalPaymentMethod: proofForm.method,
-                        finalPaymentReference: isCashMethod ? "" : reference,
+                        finalPaymentReference: reference,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
                         paymentPlan: isFullPaymentMode ? "fullPayment" : "downPayment",
@@ -818,7 +819,7 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                     : {
                         downPaymentStatus: "For Verification",
                         downPaymentMethod: proofForm.method,
-                        downPaymentReference: isCashMethod ? "" : reference,
+                        downPaymentReference: reference,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
                         paymentPlan: "downPayment",
@@ -914,15 +915,19 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                 </label>
 
                 <label className="clPayField">
-                  <span>Reference Number</span>
+                  <span>{isCashPaymentMethod(proofForm.method) ? "Receipt Number" : "Reference Number"}</span>
                   <input
+                    aria-label={isCashPaymentMethod(proofForm.method) ? "Receipt Number" : "Reference Number"}
                     value={proofForm.reference}
                     onChange={(e) => {
                       setProofError("");
                       setProofForm((prev) => ({ ...prev, reference: e.target.value }));
                     }}
-                    required={!isCashPaymentMethod(proofForm.method)}
+                    required
                   />
+                  {isCashPaymentMethod(proofForm.method) && (
+                    <div className="clPayProofFile">Cash payments are for walk-in clients only.</div>
+                  )}
                 </label>
 
                 <label className="clPayField">

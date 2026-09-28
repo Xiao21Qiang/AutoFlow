@@ -41,7 +41,7 @@
   width: 100%;
   border: 0;
   outline: none;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   background: transparent;
   color: var(--text);
@@ -87,7 +87,7 @@
   background: #fff;
   border-radius: 999px;
   padding: 0 16px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
   white-space: nowrap;
@@ -127,7 +127,7 @@
   align-items: center;
   justify-content: center;
   color: #64748b;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
   text-align: center;
 }
@@ -147,7 +147,7 @@
 }
 
 .svcSectionTitle {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.2;
@@ -155,7 +155,7 @@
 
 .svcSectionSubtitle {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
   color: #64748b;
   line-height: 1.35;
@@ -171,7 +171,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #475569;
 }
@@ -223,7 +223,7 @@
 
 .svcTitle {
   margin: 8px 0 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: 0;
   color: var(--text);
@@ -237,7 +237,7 @@
 
 .svcSub {
   margin-top: 3px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.35;
@@ -263,7 +263,7 @@
   min-height: 18px;
   border-radius: 999px;
   padding: 0 6px;
-  font-size: 8.5px;
+  font-size: 13px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -321,7 +321,7 @@
 .svcInfoItem span {
   display: block;
   margin-bottom: 3px;
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 950;
   text-transform: uppercase;
   color: #64748b;
@@ -329,7 +329,7 @@
 
 .svcInfoItem strong {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: #0f172a;
   line-height: 1.35;
@@ -351,7 +351,7 @@
   display: flex;
   align-items: center;
   padding: 0 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -369,7 +369,7 @@
 
 .svcSection {
   margin-top: 7px;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 900;
   color: var(--gold-dark);
   letter-spacing: 0.5px;
@@ -379,7 +379,7 @@
 .svcList {
   margin: 0;
   padding-left: 16px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.55;
@@ -401,7 +401,7 @@
 
 .svcEmptyText {
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
 }
 
@@ -418,7 +418,7 @@
   background: #fff;
   border-radius: 9px;
   padding: 6px 10px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   color: var(--text);
@@ -464,7 +464,7 @@
   background: #fff;
   cursor: pointer;
   font-weight: 900;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--muted);
   display: grid;
   place-items: center;
@@ -481,7 +481,7 @@
   min-width: 30px;
   border-radius: 8px;
   border: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: var(--text);
   padding: 0 6px;
@@ -523,14 +523,14 @@
   top: 10px;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
   color: #111827;
 }
 
 .svcModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
@@ -544,7 +544,7 @@
 }
 
 .svcField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #111827;
@@ -557,7 +557,7 @@
   border: 1px solid #bfc7d4;
   border-radius: 6px;
   padding: 10px 11px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #0f172a;
   outline: none;
@@ -602,14 +602,14 @@
 }
 
 .svcConsumablesTitle {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 900;
   color: #0f172a;
 }
 
 .svcConsumablesHint {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
   color: #64748b;
 }
@@ -621,7 +621,7 @@
   border-radius: 999px;
   background: #fff;
   border: 1px solid #dbe4f0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #334155;
   text-align: center;
@@ -677,7 +677,7 @@
 }
 
 .svcConsumableName {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #0f172a;
   line-height: 1.3;
@@ -685,7 +685,7 @@
 
 .svcConsumableMeta {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   color: #64748b;
 }
 
@@ -696,7 +696,7 @@
 
 .svcConsumableQtyLabel {
   margin-bottom: 6px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #475569;
@@ -708,7 +708,7 @@
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   padding: 9px 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #0f172a;
   background: #fff;
@@ -740,7 +740,7 @@
 
 .svcConsumableQtyItem span {
   margin-bottom: 0;
-  font-size: 9px;
+  font-size: 13px;
   line-height: 1.35;
   white-space: normal;
   color: #475569;
@@ -750,7 +750,7 @@
   border: 1px dashed #cbd5e1;
   border-radius: 12px;
   padding: 18px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #64748b;
   text-align: center;
@@ -784,7 +784,7 @@
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   color: #334155;
   flex-wrap: wrap;
@@ -803,7 +803,7 @@
   border: 1px solid #dbe4ef;
   color: #64748b;
   padding: 3px 7px;
-  font-size: 9px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 950;
 }
@@ -815,13 +815,13 @@
   background: #fff5f5;
   color: #b91c1c;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
 .svcFieldError {
   color: #b91c1c;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -855,7 +855,7 @@
 .svcDangerBtn {
   border-radius: 8px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;

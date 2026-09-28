@@ -235,6 +235,51 @@ describe("CustomerPayments Phase 6C", () => {
     expect(submitPaymentProof.mock.calls[0][1]).not.toHaveProperty("downPaymentOcrAdvisoryStatus");
   });
 
+  test("keeps Cash selectable, requires a walk-in receipt number, and uses the canonical reference field", async () => {
+    const submitPaymentProof = jest.fn().mockResolvedValue({});
+    const payment = basePayment();
+    setContext({ payment, submitPaymentProof });
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
+    await userEvent.selectOptions(screen.getByLabelText("Down Payment Method"), "Cash");
+
+    expect(screen.getByLabelText("Down Payment Method")).toHaveValue("Cash");
+    expect(screen.getByText("Cash payments are for walk-in clients only.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Receipt Number")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Reference Number")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(screen.getByText("Receipt Number is required.")).toBeInTheDocument();
+    expect(submitPaymentProof).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-1001");
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(
+      payment,
+      expect.objectContaining({
+        downPaymentMethod: "Cash",
+        downPaymentReference: "OR-1001",
+        downPaymentProofUrl: "",
+      })
+    ));
+  });
+
+  test("non-cash methods retain Reference Number and proof requirements", async () => {
+    setContext();
+    render(<CustomerPayments />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
+    await userEvent.selectOptions(screen.getByLabelText("Down Payment Method"), "GCash");
+
+    expect(screen.getByLabelText("Reference Number")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Receipt Number")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cash payments are for walk-in clients only.")).not.toBeInTheDocument();
+  });
+
   test("submits pay-in-full proof through final-payment fields with the full-payment plan", async () => {
     const submitPaymentProof = jest.fn().mockResolvedValue({});
     const payment = basePayment();
@@ -248,6 +293,7 @@ describe("CustomerPayments Phase 6C", () => {
     expect(screen.getByText("Amount Due")).toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText("Full Payment Method"), "Cash");
+    await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-FULL-1001");
     await userEvent.click(screen.getByRole("button", { name: "Submit Full Payment Proof" }));
 
     await waitFor(() => {
@@ -256,7 +302,7 @@ describe("CustomerPayments Phase 6C", () => {
         expect.objectContaining({
           finalPaymentStatus: "For Verification",
           finalPaymentMethod: "Cash",
-          finalPaymentReference: "",
+          finalPaymentReference: "OR-FULL-1001",
           finalPaymentProofUrl: "",
           paymentPlan: "fullPayment",
         })

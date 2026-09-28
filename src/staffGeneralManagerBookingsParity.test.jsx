@@ -909,7 +909,11 @@ describe("General Manager Payment Tracking parity shell", () => {
 
   test("validates Sales Associate payment verification with Staff credential scope", async () => {
     const updatePayment = jest.fn().mockResolvedValue({});
-    setContext({ currentUser: salesAssociate, updatePayment });
+    setContext({
+      currentUser: salesAssociate,
+      updatePayment,
+      payments: [{ ...baseData.payments[0], downPaymentDueAt: "2099-12-02T00:00:00.000Z" }],
+    });
     renderStaffMain(salesAssociate);
 
     fireEvent.click(screen.getByText("Payment Tracking"));
@@ -919,6 +923,11 @@ describe("General Manager Payment Tracking parity shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "✎" }));
     expect(await screen.findByText("Review Payment")).toBeInTheDocument();
+    const paymentDialog = screen.getByText("Review Payment").closest('[role="dialog"]');
+    expect(within(paymentDialog).queryByText(/Stage\/type:/i)).not.toBeInTheDocument();
+    expect(within(paymentDialog).getAllByText("Down Payment").length).toBeGreaterThan(0);
+    expect(within(paymentDialog).getByText("Full Payment / Remaining Balance")).toBeInTheDocument();
+    expect(within(paymentDialog).getByText(/Original 24-hour deadline:/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue("GCash")).toBeInTheDocument();
     expect(screen.getByDisplayValue("DP-REF-1")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/December 1, 2099/)).toBeInTheDocument();

@@ -34,7 +34,7 @@
 }
 
 .secModalTitle {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 900;
   color: #111827;
   padding-right: 32px;
@@ -43,7 +43,7 @@
 .secModalText {
   margin: 8px 0 16px;
   color: #64748b;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   font-weight: 700;
 }
@@ -56,7 +56,7 @@
 }
 
 .secModalField span {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #111827;
   text-transform: uppercase;
@@ -69,7 +69,7 @@
   padding: 0 12px;
   outline: none;
   color: #111827;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -84,7 +84,7 @@
 
 .secFieldError {
   color: #dc2626;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -100,7 +100,7 @@
   border-radius: 9px;
   background: #fff;
   color: #111827;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -117,7 +117,7 @@
   color: #dc2626;
   border-radius: 9px;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -135,7 +135,7 @@
   min-height: 36px;
   border-radius: 999px;
   padding: 0 16px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
   cursor: pointer;
 }

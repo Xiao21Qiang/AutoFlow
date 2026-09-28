@@ -74,6 +74,14 @@ const disabledService = {
   mins: 60,
   allowedArrivalTimes: ["10:00"],
 };
+const motorCoatingService = {
+  id: "SVC-MOTOR",
+  name: "Motor Coating",
+  enabled: true,
+  price: 1500,
+  mins: 120,
+  allowedArrivalTimes: ["10:00"],
+};
 
 const basePayload = {
   customer: "Spoofed Customer",
@@ -179,7 +187,7 @@ function findUser(query = {}) {
 }
 
 function findService(query = {}) {
-  const services = [enabledService, disabledService];
+  const services = [enabledService, disabledService, motorCoatingService];
   return services.find((service) => service.name === query.name) || null;
 }
 
@@ -312,6 +320,24 @@ describe("Customer booking creation route validation", () => {
     });
     expect(response.status).toBe(400);
     expect(bookings).toHaveLength(0);
+  });
+
+  test("Motor Coating rejects bypassed sizes and accepts only canonical Motorcycle", async () => {
+    const rejected = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, service: "Motor Coating", carSize: "Sedan / Small Car" },
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body).toMatchObject({ field: "carSize" });
+    expect(rejected.body.message).toMatch(/requires Motorcycle/i);
+    expect(bookings).toHaveLength(0);
+
+    const accepted = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, service: "Motor Coating", carSize: "Motorcycle" },
+    });
+    expect(accepted.status).toBe(201);
+    expect(bookings[0]).toMatchObject({ service: "Motor Coating", carSize: "Motorcycle" });
   });
 
   test("disabled or invalid services are rejected", async () => {

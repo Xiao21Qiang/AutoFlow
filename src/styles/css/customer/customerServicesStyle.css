@@ -35,7 +35,7 @@
   width: 100%;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -74,7 +74,7 @@
 }
 
 .clSvcSectionTitle {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.2;
@@ -82,7 +82,7 @@
 
 .clSvcSectionSubtitle {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
   color: #64748b;
   line-height: 1.35;
@@ -98,7 +98,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #475569;
 }
@@ -163,7 +163,7 @@
   min-height: 18px;
   border-radius: 999px;
   padding: 0 6px;
-  font-size: 8.5px;
+  font-size: 13px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -189,7 +189,7 @@
 
 .clSvcTitle {
   margin-top: 8px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.16;
@@ -202,7 +202,7 @@
 
 .clSvcSub {
   margin-top: 3px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   color: #6b7280;
   line-height: 1.35;
@@ -231,7 +231,7 @@
 .clSvcArrivalPreview span {
   display: block;
   margin-bottom: 3px;
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 950;
   text-transform: uppercase;
   color: #64748b;
@@ -240,7 +240,7 @@
 .clSvcInfoItem strong,
 .clSvcArrivalPreview strong {
   display: block;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
   color: #0f172a;
   line-height: 1.35;
@@ -267,7 +267,7 @@
   color: #7c5f12;
   border-radius: 999px;
   padding: 4px 8px;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 950;
 }
 
@@ -284,7 +284,7 @@
   border: none;
   border-radius: 12px;
   background: #d8b53b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
   color: #111827;
@@ -305,7 +305,7 @@
   border-radius: 12px;
   background: #fff;
   color: #111827;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
   transition: border-color 0.2s ease, transform 0.2s ease;
@@ -340,7 +340,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -379,13 +379,13 @@
   top: 10px;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
 }
 
 .clSvcModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
@@ -404,7 +404,7 @@
 }
 
 .clSvcDetailsName {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 950;
   color: #111827;
   line-height: 1.2;
@@ -418,7 +418,7 @@
   border-radius: 12px;
   background: #f8fafc;
   color: #334155;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 750;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -449,7 +449,7 @@
   display: block;
   margin-bottom: 5px;
   color: #64748b;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 950;
   text-transform: uppercase;
 }
@@ -458,7 +458,7 @@
 .clSvcDetailsPriceItem strong {
   display: block;
   color: #0f172a;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -480,13 +480,13 @@
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: #334155;
 }
 
 .clSvcSummaryTitle {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 950;
   color: #111827;
 }
@@ -500,7 +500,7 @@
 }
 
 .clSvcConsumablesTitle {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #475569;
@@ -509,7 +509,7 @@
 .clSvcConsumablesList {
   margin: 8px 0 0;
   padding-left: 18px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #334155;
   line-height: 1.55;
@@ -521,7 +521,7 @@
 
 .clSvcConsumablesEmpty {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: #64748b;
 }
@@ -534,7 +534,7 @@
 }
 
 .clSvcField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: #475569;
   text-transform: uppercase;
@@ -546,7 +546,7 @@
   border: 1px solid #d5deed;
   border-radius: 8px;
   padding: 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   outline: none;
 }
@@ -555,9 +555,20 @@
   resize: none;
 }
 
+.clSvcFieldInvalidInput {
+  border-color: #fca5a5 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important;
+}
+
+.clSvcField select:disabled {
+  background: #f1f5f9;
+  color: #475569;
+  cursor: not-allowed;
+}
+
 .clSvcSlotHint {
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
   line-height: 1.35;
 }
@@ -569,7 +580,7 @@
   background: #fff5f5;
   color: #b91c1c;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.35;
 }
@@ -583,7 +594,7 @@
   border-radius: 10px;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -603,7 +614,7 @@
   border-radius: 12px;
   background: #fff9e8;
   color: #4b3a12;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
   line-height: 1.45;
 }
@@ -631,7 +642,7 @@
 .clSvcPrimaryBtn {
   border-radius: 999px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;
@@ -677,7 +688,7 @@
 .clSvcConfirmCard p {
   margin: 0;
   color: #334155;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 750;
   line-height: 1.55;
 }

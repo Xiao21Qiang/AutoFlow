@@ -87,7 +87,7 @@ input {
 
 .clientBrandName {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 400;
   letter-spacing: 2px;
   color: var(--gold);
@@ -96,7 +96,7 @@ input {
 
 .clientBrandSub {
   margin-top: 3px;
-  font-size: 9.5px;
+  font-size: 13px;
   font-weight: 600;
   color: #94a3b8;
   letter-spacing: 1px;
@@ -135,7 +135,7 @@ input {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
 }
@@ -160,7 +160,7 @@ input {
 
 .clientGroupTitle {
   padding: 0 10px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   letter-spacing: 0.9px;
   text-transform: uppercase;
@@ -182,7 +182,7 @@ input {
   align-items: center;
   gap: 9px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--muted);
   cursor: pointer;
@@ -236,7 +236,7 @@ input {
   margin-top: 12px;
   cursor: pointer;
   color: #e05252;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   border-radius: 0;
   text-align: left;
@@ -249,7 +249,7 @@ input {
 }
 
 .clientLogoutArrow {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -278,7 +278,7 @@ input {
 
 .clientTopLeft h1 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
   color: var(--text);
   line-height: 1.05;
@@ -286,7 +286,7 @@ input {
 
 .clientTopLeft p {
   margin: 2px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #4b5563;
   line-height: 1.05;
@@ -309,7 +309,7 @@ input {
   border: 1px solid var(--line-soft);
   border-radius: 999px;
   background: #fff;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
   color: #111827;
@@ -340,7 +340,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 950;
   color: #111827;
   flex-shrink: 0;
@@ -351,7 +351,7 @@ input {
 }
 
 .clientUserName {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   color: #111827;
   line-height: 1;
@@ -359,7 +359,7 @@ input {
 
 .clientUserEmail {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   color: #111827;
   line-height: 1;

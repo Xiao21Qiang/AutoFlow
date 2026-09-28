@@ -18,13 +18,13 @@
 }
 
 .afToast strong {
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.2;
 }
 
 .afToast span {
   grid-column: 1 / -1;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
   color: #53627a;
 }

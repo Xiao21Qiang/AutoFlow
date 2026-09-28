@@ -35,7 +35,7 @@
   width: 100%;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -66,7 +66,7 @@
   grid-template-columns: 0.8fr 1fr 1fr 1fr 0.7fr 0.8fr 0.7fr 0.7fr 0.5fr;
   gap: 10px;
   padding: 10px 16px;
-  font-size: 10px;
+  font-size: 13px;
   align-items: center;
 }
 
@@ -101,7 +101,7 @@
   border-radius: 8px;
   background: #f8fafc;
   color: #475569;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.35;
 }
@@ -133,27 +133,27 @@
 
 .clPayPaymentChoice span {
   color: #334155;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
 .clPayPaymentChoice strong {
   color: #111827;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 950;
 }
 
 .clPayChoiceDeadline {
   margin-top: 10px;
   color: #475569;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
 }
 
 .clPayEmptyRow {
   padding: 20px 16px;
   text-align: center;
-  font-size: 11px;
+  font-size: 13px;
   color: #9ca3af;
   font-weight: 700;
 }
@@ -165,7 +165,7 @@
   min-width: 56px;
   height: 18px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
 }
 
@@ -181,13 +181,13 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #f8f8f8;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
 }
 
 .clPayProofIcon {
-  font-size: 13px;
+  font-size: 15px;
   color: #6b7280;
   cursor: pointer;
 }
@@ -198,7 +198,7 @@
   border: 1px solid #d1d5db;
   border-radius: 999px;
   background: #fff;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
 }
@@ -226,7 +226,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
 }
@@ -271,13 +271,13 @@
   z-index: 2;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
 }
 
 .clPayModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
@@ -288,7 +288,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 12px;
+  font-size: 14px;
   color: #334155;
 }
 
@@ -317,7 +317,7 @@
 }
 
 .clPayInvoiceLabel {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #8a6116;
@@ -326,7 +326,7 @@
 
 .clPayInvoiceValue {
   margin-top: 4px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 950;
   color: #111827;
 }
@@ -344,7 +344,7 @@
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   background: #fff;
-  font-size: 12px;
+  font-size: 14px;
   color: #334155;
 }
 
@@ -371,7 +371,7 @@
 
 .clPayStageSummary span {
   display: block;
-  font-size: 9px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   color: #64748b;
@@ -380,11 +380,11 @@
 
 .clPayStageSummary strong {
   color: #0f172a;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .clPayInvoiceBlockTitle {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #111827;
   text-transform: uppercase;
@@ -398,7 +398,7 @@
 }
 
 .clPayBreakdownTitle {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   color: #111827;
   text-transform: uppercase;
@@ -415,7 +415,7 @@
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
-  font-size: 12px;
+  font-size: 14px;
   color: #334155;
 }
 
@@ -442,7 +442,7 @@
 }
 
 .clPayField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: #475569;
   text-transform: uppercase;
@@ -454,7 +454,7 @@
   border: 1px solid #d5deed;
   border-radius: 8px;
   padding: 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   outline: none;
 }
@@ -470,7 +470,7 @@
   background: #fff5f5;
   color: #b91c1c;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.35;
 }
@@ -482,7 +482,7 @@
   background: #eff6ff;
   color: #1e3a8a;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.4;
 }
@@ -502,7 +502,7 @@
   border-radius: 10px;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -515,7 +515,7 @@
 }
 
 .clPayProofFile {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #64748b;
 }
@@ -550,7 +550,7 @@
 .clPayPrimaryBtn {
   border-radius: 999px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;

@@ -38,7 +38,7 @@
   width: 100%;
   border: none;
   outline: none;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -60,7 +60,7 @@
   border: 1px solid #b89b30;
   border-radius: 8px;
   background: #f5e38c;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 950;
   cursor: pointer;
 }
@@ -80,7 +80,7 @@
   grid-template-columns: 0.8fr 1fr 1.2fr 0.9fr 1.2fr 0.9fr 1.1fr 1fr 0.7fr;
   gap: 10px;
   padding: 10px 16px;
-  font-size: 10px;
+  font-size: 13px;
   align-items: center;
 }
 
@@ -101,7 +101,7 @@
 }
 
 .clBookEmptyTxt {
-  font-size: 11px;
+  font-size: 13px;
   color: #9ca3af;
   font-weight: 700;
 }
@@ -123,7 +123,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
 }
 
@@ -148,7 +148,7 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #f8f8f8;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 950;
   cursor: pointer;
 }
@@ -187,13 +187,13 @@
   top: 10px;
   border: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   cursor: pointer;
 }
 
 .clBookModalTitle {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   color: #111827;
   margin-bottom: 14px;
@@ -208,7 +208,7 @@
 }
 
 .clBookField span {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 900;
   color: #475569;
   text-transform: uppercase;
@@ -220,7 +220,7 @@
   border: 1px solid #d5deed;
   border-radius: 8px;
   padding: 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   outline: none;
   box-sizing: border-box;
@@ -234,7 +234,7 @@
 
 .clBookSlotHint {
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 750;
   line-height: 1.35;
 }
@@ -246,7 +246,7 @@
   background: #fff5f5;
   color: #b91c1c;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 850;
   line-height: 1.35;
 }
@@ -260,7 +260,7 @@
   border-radius: 10px;
   background: #eff6ff;
   color: #1e3a8a;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -280,7 +280,7 @@
   border-radius: 12px;
   background: #fff9e8;
   color: #4b3a12;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
   line-height: 1.45;
 }
@@ -327,7 +327,7 @@
   border: 1px solid #d5deed;
   border-radius: 8px;
   padding: 12px 40px 12px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   outline: none;
   box-sizing: border-box;
@@ -340,6 +340,12 @@
 
 .clBookModalSelectTrigger span {
   display: block;
+}
+
+.clBookModalSelectTrigger:disabled {
+  background: #f1f5f9;
+  color: #475569;
+  cursor: not-allowed;
 }
 
 .clBookModalSelectMenu {
@@ -376,7 +382,7 @@
 }
 
 .clBookModalSelectItem span {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   text-transform: none;
   color: #0f172a;
@@ -393,7 +399,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 12px;
+  font-size: 14px;
   color: #334155;
 }
 
@@ -410,7 +416,7 @@
 .clBookPrimaryBtn {
   border-radius: 999px;
   padding: 6px 14px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 900;
   cursor: pointer;
   border: 1px solid transparent;
@@ -456,7 +462,7 @@
 .clBookConfirmCard p {
   margin: 0;
   color: #334155;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 750;
   line-height: 1.55;
 }

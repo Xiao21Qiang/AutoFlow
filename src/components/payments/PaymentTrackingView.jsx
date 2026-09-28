@@ -610,9 +610,6 @@ export default function PaymentTrackingView({ role = "admin" }) {
 
               <div className={classes.section}>
                 <div className={classes.sectionTitle}>Down Payment</div>
-                <div className={classes.hint}>
-                  Stage/type: Required down payment. Expected amount: {formatCurrency(selectedPayment.downPaymentAmount || 0)}. Human verification state: {selectedPayment.downPaymentReviewStatus || normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}.
-                </div>
                 {selectedPayment.downPaymentDueAt ? (
                   <div className={classes.hint}>Original 24-hour deadline: {formatDateTime(selectedPayment.downPaymentDueAt)}</div>
                 ) : null}
@@ -693,9 +690,6 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <div className={classes.sectionTitle}>Full Payment / Remaining Balance</div>
                 {!finalPaymentEnabled && <div className={classes.hint}>Full payment can only be updated after the down payment is verified as paid.</div>}
                 {finalPaymentEnabled && !finalPaymentReviewable && <div className={classes.hint}>Full payment can only be reviewed after the customer submits remaining balance proof.</div>}
-                <div className={classes.hint}>
-                  Stage/type: Final payment / remaining balance. Expected amount: {formatCurrency(getRemainingBalance(selectedPayment))}. Human verification state: {selectedPayment.finalPaymentReviewStatus || normalizeStageStatus(selectedPayment.finalPaymentStatus, selectedPayment.status || "Pending")}.
-                </div>
                 {canVerifyPayments && finalPaymentReviewable && !finalPaymentLocked ? (
                   <div className={classes.quickActions}>
                     <button className={classes.reviewBtn} type="button" onClick={() => setForm((prev) => ({ ...prev, finalPaymentStatus: "Paid" }))}>Verify</button>
