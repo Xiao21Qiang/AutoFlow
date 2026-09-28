@@ -196,6 +196,20 @@ function getReviewablePaymentStage(payment) {
   return "";
 }
 
+function getPaymentReviewFormDefaults(payment = {}) {
+  const defaults = getPaymentFormDefaults(payment);
+  if (isFullPaymentPlan(payment) && !hasProofMetadata(payment, "downPayment")) {
+    return {
+      ...defaults,
+      downPaymentStatus: "Not Required",
+      downPaymentMethod: "",
+      downPaymentReference: "",
+      downPaymentNotes: "",
+    };
+  }
+  return defaults;
+}
+
 function mergeProofIntoPayment(payment, proof, stage) {
   if (!proof) return payment;
   if (stage === "finalPayment") {
@@ -313,7 +327,7 @@ export default function PaymentTrackingView({ role = "admin" }) {
 
   const openPayment = (payment) => {
     setSelectedPayment(payment);
-    setForm(getPaymentFormDefaults(payment));
+    setForm(getPaymentReviewFormDefaults(payment));
     savingPaymentRef.current = false;
     setIsSavingPayment(false);
     setProofDetails({ paymentId: payment.id || payment.bookingId || "", loading: false, error: "", downPayment: null, finalPayment: null });
@@ -337,6 +351,9 @@ export default function PaymentTrackingView({ role = "admin" }) {
   const finalPaymentReviewable = reviewablePaymentStage === "fullPayment" || reviewablePaymentStage === "balance";
   const finalPaymentLocked = selectedPayment ? isPaidStatus(selectedPayment.status) || isPaidStatus(selectedPayment.finalPaymentStatus) : false;
   const downPaymentReviewable = reviewablePaymentStage === "downPayment";
+  const downPaymentNotApplicable = selectedPayment
+    ? isFullPaymentPlan(selectedPayment) && !hasProofMetadata(selectedPayment, "downPayment")
+    : false;
   const finalPaymentReviewLabel = reviewablePaymentStage === "balance" ? "Remaining Balance" : "Full Payment";
   const selectedPaymentWithProof = useMemo(() => {
     if (!selectedPayment) return null;
@@ -503,23 +520,26 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 const isReviewingFinalPayment = isMarkingFinalPaymentPaid || isRejectingFinalPayment;
                 const savePayment = async (securityPayload = {}) => {
                   if (savingPaymentRef.current) return;
-                  savingPaymentRef.current = true;
-                  setIsSavingPayment(true);
-                  try {
-                    const stagePayload = finalPaymentReviewable
+                  const stagePayload = reviewablePaymentStage === "downPayment"
+                    ? {
+                        status: selectedPayment.status || "Pending",
+                        downPaymentStatus: form.downPaymentStatus,
+                        downPaymentNotes: form.downPaymentNotes,
+                      }
+                    : finalPaymentReviewable
                       ? {
                           finalPaymentStatus: form.finalPaymentStatus,
                           finalPaymentNotes: form.finalPaymentNotes,
                         }
-                      : {
-                          downPaymentStatus: form.downPaymentStatus,
-                          downPaymentNotes: form.downPaymentNotes,
-                        };
-                    const nextStatus = form.finalPaymentStatus === "Paid" || form.finalPaymentStatus === "For Verification" || form.finalPaymentStatus === "Rejected"
-                      ? form.finalPaymentStatus
-                      : selectedPayment.status || "Pending";
+                      : null;
+                  if (!stagePayload) {
+                    showToast("error", "Only a submitted payment stage can be reviewed.");
+                    return;
+                  }
+                  savingPaymentRef.current = true;
+                  setIsSavingPayment(true);
+                  try {
                     await updatePayment(selectedPayment.id, {
-                      status: finalPaymentReviewable ? nextStatus : selectedPayment.status || "Pending",
                       ...stagePayload,
                       ...(securityPayload.secret ? { specialPin: securityPayload.secret } : {}),
                       ...(securityPayload.accountName ? { accountName: securityPayload.accountName } : {}),
@@ -617,9 +637,13 @@ export default function PaymentTrackingView({ role = "admin" }) {
                 <div className={classes.grid}>
                   <label className={classes.field}>
                     <span>Status</span>
-                    <select value={form.downPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentStatus: event.target.value }))} disabled={finalPaymentLocked || isFullPaymentPlan(selectedPayment)}>
-                      {getAllowedDownPaymentStatuses(selectedPayment).map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                    {downPaymentNotApplicable ? (
+                      <input value="Not Applicable" readOnly disabled />
+                    ) : (
+                      <select value={form.downPaymentStatus} onChange={(event) => setForm((prev) => ({ ...prev, downPaymentStatus: event.target.value }))} disabled={finalPaymentLocked}>
+                        {getAllowedDownPaymentStatuses(selectedPayment).map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    )}
                   </label>
                   <label className={classes.field}>
                     <span>Method</span>

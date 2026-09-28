@@ -5300,10 +5300,41 @@ function shouldUseLegacyFinalPaymentFallback(payment = {}) {
   return ["method", "reference", "proofImage", "proofFileName", "proofSubmittedAt"].some((field) => hasPaymentStageValue(payment[field]));
 }
 
+function hasCanonicalFinalPaymentActivity(payment = {}) {
+  const finalStatus = normalizePaymentStageStatus(payment.finalPaymentStatus, "");
+  return (
+    ["For Verification", "Paid", "Rejected"].includes(finalStatus) ||
+    [
+      "finalPaymentMethod",
+      "finalPaymentReference",
+      "finalPaymentProofSubmittedAt",
+      "finalPaymentReferenceCheckStatus",
+      "finalPaymentOcrAdvisoryStatus",
+      "finalPaymentVerifiedAt",
+      "finalPaymentRejectedAt",
+      "finalPaymentReviewStatus",
+    ].some((field) => hasPaymentStageValue(payment[field]))
+  );
+}
+
+function hasMirroredDownPaymentProofInFinalStage(payment = {}) {
+  if (normalizePaymentPlan(payment.paymentPlan, payment) !== "downPayment") return false;
+  if (hasCanonicalFinalPaymentActivity(payment)) return false;
+  const downProofUrl = String(payment.downPaymentProofUrl || payment.proofImage || "").trim();
+  const downProofName = String(payment.downPaymentProofName || payment.proofFileName || "").trim();
+  const finalProofUrl = String(payment.finalPaymentProofUrl || "").trim();
+  const finalProofName = String(payment.finalPaymentProofName || "").trim();
+  return Boolean(
+    (downProofUrl && finalProofUrl === downProofUrl) ||
+    (downProofName && finalProofName === downProofName)
+  );
+}
+
 function normalizePaymentStageFields(payment = {}, booking = {}) {
   const rawSource = typeof payment.toObject === "function" ? payment.toObject() : { ...payment };
   const source = paymentDomain.normalizePaymentStageFields(payment, booking);
   const legacyFinalPaymentFallback = shouldUseLegacyFinalPaymentFallback(rawSource);
+  const mirroredDownPaymentProof = hasMirroredDownPaymentProofInFinalStage(rawSource);
 
   return {
     ...source,
@@ -5343,8 +5374,8 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     cancellationCode: source.cancellationCode || "",
     finalPaymentMethod: source.finalPaymentMethod || (legacyFinalPaymentFallback ? source.method : "") || "",
     finalPaymentReference: source.finalPaymentReference || (legacyFinalPaymentFallback ? source.reference : "") || "",
-    finalPaymentProofUrl: source.finalPaymentProofUrl || (legacyFinalPaymentFallback ? source.proofImage : "") || "",
-    finalPaymentProofName: source.finalPaymentProofName || (legacyFinalPaymentFallback ? source.proofFileName : "") || "",
+    finalPaymentProofUrl: mirroredDownPaymentProof ? "" : source.finalPaymentProofUrl || (legacyFinalPaymentFallback ? source.proofImage : "") || "",
+    finalPaymentProofName: mirroredDownPaymentProof ? "" : source.finalPaymentProofName || (legacyFinalPaymentFallback ? source.proofFileName : "") || "",
     finalPaymentProofSubmittedAt: source.finalPaymentProofSubmittedAt || null,
     finalPaymentReferenceCheckStatus: source.finalPaymentReferenceCheckStatus || "",
     finalPaymentReferenceCheckedAt: source.finalPaymentReferenceCheckedAt || null,
@@ -5493,40 +5524,41 @@ function normalizePaymentProofStage(value) {
 }
 
 function getPaymentProofPayload(payment = {}, stage = "downPayment") {
+  const normalized = normalizePaymentStageFields(payment);
   if (stage === "finalPayment") {
     return {
-      id: payment.id || "",
-      bookingId: payment.bookingId || "",
+      id: normalized.id || "",
+      bookingId: normalized.bookingId || "",
       stage,
-      proofImage: payment.finalPaymentProofUrl || "",
-      proofUrl: payment.finalPaymentProofUrl || "",
-      proofFileName: payment.finalPaymentProofName || "",
-      proofName: payment.finalPaymentProofName || "",
-      submittedAt: payment.finalPaymentProofSubmittedAt || "",
-      method: payment.finalPaymentMethod || "",
-      referenceCheckStatus: payment.finalPaymentReferenceCheckStatus || "",
-      referenceCheckedAt: payment.finalPaymentReferenceCheckedAt || null,
-      ocrAdvisoryStatus: payment.finalPaymentOcrAdvisoryStatus || "",
-      ocrDetectedReference: payment.finalPaymentOcrDetectedReference || "",
-      possibleDuplicateReference: Boolean(payment.finalPaymentPossibleDuplicateReference),
+      proofImage: normalized.finalPaymentProofUrl || "",
+      proofUrl: normalized.finalPaymentProofUrl || "",
+      proofFileName: normalized.finalPaymentProofName || "",
+      proofName: normalized.finalPaymentProofName || "",
+      submittedAt: normalized.finalPaymentProofSubmittedAt || "",
+      method: normalized.finalPaymentMethod || "",
+      referenceCheckStatus: normalized.finalPaymentReferenceCheckStatus || "",
+      referenceCheckedAt: normalized.finalPaymentReferenceCheckedAt || null,
+      ocrAdvisoryStatus: normalized.finalPaymentOcrAdvisoryStatus || "",
+      ocrDetectedReference: normalized.finalPaymentOcrDetectedReference || "",
+      possibleDuplicateReference: Boolean(normalized.finalPaymentPossibleDuplicateReference),
     };
   }
 
   return {
-    id: payment.id || "",
-    bookingId: payment.bookingId || "",
+    id: normalized.id || "",
+    bookingId: normalized.bookingId || "",
     stage,
-    proofImage: payment.downPaymentProofUrl || payment.proofImage || "",
-    proofUrl: payment.downPaymentProofUrl || payment.proofImage || "",
-    proofFileName: payment.downPaymentProofName || payment.proofFileName || "",
-    proofName: payment.downPaymentProofName || payment.proofFileName || "",
-    submittedAt: payment.downPaymentProofSubmittedAt || payment.proofSubmittedAt || "",
-    method: payment.downPaymentMethod || payment.method || "",
-    referenceCheckStatus: payment.downPaymentReferenceCheckStatus || "",
-    referenceCheckedAt: payment.downPaymentReferenceCheckedAt || null,
-    ocrAdvisoryStatus: payment.downPaymentOcrAdvisoryStatus || "",
-    ocrDetectedReference: payment.downPaymentOcrDetectedReference || "",
-    possibleDuplicateReference: Boolean(payment.downPaymentPossibleDuplicateReference),
+    proofImage: normalized.downPaymentProofUrl || normalized.proofImage || "",
+    proofUrl: normalized.downPaymentProofUrl || normalized.proofImage || "",
+    proofFileName: normalized.downPaymentProofName || normalized.proofFileName || "",
+    proofName: normalized.downPaymentProofName || normalized.proofFileName || "",
+    submittedAt: normalized.downPaymentProofSubmittedAt || normalized.proofSubmittedAt || "",
+    method: normalized.downPaymentMethod || normalized.method || "",
+    referenceCheckStatus: normalized.downPaymentReferenceCheckStatus || "",
+    referenceCheckedAt: normalized.downPaymentReferenceCheckedAt || null,
+    ocrAdvisoryStatus: normalized.downPaymentOcrAdvisoryStatus || "",
+    ocrDetectedReference: normalized.downPaymentOcrDetectedReference || "",
+    possibleDuplicateReference: Boolean(normalized.downPaymentPossibleDuplicateReference),
   };
 }
 
@@ -5569,8 +5601,8 @@ function getPaymentStageSnapshot(payment = {}, stage = "finalPayment") {
     status: normalizePaymentStageStatus(payment.finalPaymentStatus, payment.status || "Pending"),
     method,
     reference: payment.finalPaymentReference || payment.reference || "",
-    proofUrl: payment.finalPaymentProofUrl || payment.proofImage || "",
-    proofName: payment.finalPaymentProofName || payment.proofFileName || "",
+    proofUrl: payment.finalPaymentProofUrl || "",
+    proofName: payment.finalPaymentProofName || "",
     amount: paymentDomain.getOutstandingBalance({
       ...payment,
       finalPaymentStatus: "Pending",
@@ -10256,10 +10288,13 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
         (actorId && bookingCustomerId && actorId === bookingCustomerId)
       );
     }
-    const nextStatus = String(req.body.status || "");
-    const nextDownPaymentStatus = normalizePaymentStageStatus(req.body.downPaymentStatus, existingPayment.downPaymentStatus || "Pending");
-    const nextFinalPaymentStatus = normalizePaymentStageStatus(req.body.finalPaymentStatus, existingPayment.finalPaymentStatus || existingPayment.status || "Pending");
     const hasBodyField = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+    const existingPaymentPlan = normalizePaymentPlan(existingPayment.paymentPlan, existingPayment);
+    const nextStatus = String(req.body.status || "");
+    const nextDownPaymentStatus = existingPaymentPlan === "fullPayment" && hasBodyField("finalPaymentStatus")
+      ? normalizePaymentStageStatus(existingPayment.downPaymentStatus, existingPayment.downPaymentRequired === false ? "Not Required" : "Pending")
+      : normalizePaymentStageStatus(req.body.downPaymentStatus, existingPayment.downPaymentStatus || "Pending");
+    const nextFinalPaymentStatus = normalizePaymentStageStatus(req.body.finalPaymentStatus, existingPayment.finalPaymentStatus || existingPayment.status || "Pending");
     const rawPaymentPlan = String(req.body.paymentPlan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
     const requestedPaymentPlan = hasBodyField("paymentPlan")
       ? normalizePaymentPlan(req.body.paymentPlan, existingPayment)
@@ -10310,7 +10345,6 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       res.status(403).json({ message: "You can only update your own payment records." });
       return;
     }
-    const existingPaymentPlan = normalizePaymentPlan(existingPayment.paymentPlan, existingPayment);
     const hasExistingPaymentSubmission = hasDownPaymentSubmission(existingPayment) || hasFullPaymentSubmission(existingPayment);
     if (
       actorType === "customer" &&
@@ -10922,8 +10956,8 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           : isPaymentReviewer
             ? existingPayment.finalPaymentReference || existingPayment.reference || ""
             : (nextPayload.finalPaymentReference || existingPayment.finalPaymentReference || nextPayload.reference),
-        finalPaymentProofUrl: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofUrl : (nextPayload.finalPaymentProofUrl || nextPayload.proofImage || existingPayment.finalPaymentProofUrl),
-        finalPaymentProofName: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofName : (nextPayload.finalPaymentProofName || nextPayload.proofFileName || existingPayment.finalPaymentProofName),
+        finalPaymentProofUrl: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofUrl : (nextPayload.finalPaymentProofUrl || existingPayment.finalPaymentProofUrl || ""),
+        finalPaymentProofName: isCustomerFinalPaymentSubmission ? nextPayload.finalPaymentProofName : (nextPayload.finalPaymentProofName || existingPayment.finalPaymentProofName || ""),
       }),
     };
     if (isMarkingDownPaymentPaid && !existingPayment.downPaymentVerifiedNotificationSentAt) {

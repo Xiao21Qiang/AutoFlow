@@ -2871,6 +2871,8 @@ describe("Payment verification state remains separate from booking status", () =
       downPaymentProofSubmittedAt: "2099-12-01T00:00:00.000Z",
       downPaymentVerifiedAt: "2099-12-01T00:10:00.000Z",
       finalPaymentStatus: "Pending",
+      finalPaymentProofUrl: VALID_PNG_PROOF,
+      finalPaymentProofName: "downpayment-proof.png",
     });
 
     const response = await request("/api/admin/bootstrap", {
@@ -3168,9 +3170,86 @@ describe("Phase 6B payment/OCR backend state machine", () => {
       downPaymentOcrDetectedReference: "ABC-123",
       downPaymentPossibleDuplicateReference: false,
     });
+    expect(payments[0].finalPaymentProofUrl || "").toBe("");
+    expect(payments[0].finalPaymentProofName || "").toBe("");
+    expect(payments[0].finalPaymentProofSubmittedAt || null).toBeNull();
     expect(payments[0].downPaymentFirstSubmittedAt).toBeTruthy();
     expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
     expect(bookings[0].status).toBe("Pending");
+  });
+
+  test("keeps DP and remaining-balance proof fields isolated through submission and bootstrap", async () => {
+    seedRequiredDownPaymentState();
+    setTestPaymentOcrRecognizer(({ reference }) => `Reference ${reference}`);
+
+    const downSubmission = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: dpProofBody({
+        downPaymentReference: "DP-ONLY-123",
+        downPaymentProofUrl: VALID_PNG_PROOF,
+        downPaymentProofName: "down-only.png",
+      }),
+    });
+    const pendingBootstrap = await request("/api/admin/bootstrap", { token: auth(customerUser) });
+    const pendingPayment = pendingBootstrap.body.payments.find((item) => item.id === "PAY-6B");
+
+    expect(downSubmission.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "downPayment",
+      downPaymentProofUrl: VALID_PNG_PROOF,
+      downPaymentProofName: "down-only.png",
+      finalPaymentStatus: "Pending",
+      finalPaymentProofUrl: "",
+      finalPaymentProofName: "",
+    });
+    expect(payments[0].finalPaymentProofSubmittedAt || null).toBeNull();
+    expect(pendingBootstrap.status).toBe(200);
+    expect(pendingPayment).toMatchObject({
+      downPaymentProofAvailable: true,
+      finalPaymentProofAvailable: false,
+      downPaymentProofUrl: "",
+      finalPaymentProofUrl: "",
+    });
+
+    const downVerification = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { downPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" },
+    });
+    const balanceSubmission = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody({
+        paymentPlan: "downPayment",
+        finalPaymentReference: "BALANCE-456",
+        finalPaymentProofUrl: VALID_JPEG_PROOF,
+        finalPaymentProofName: "balance-only.jpg",
+      }),
+    });
+    const finalBootstrap = await request("/api/admin/bootstrap", { token: auth(customerUser) });
+    const finalPayment = finalBootstrap.body.payments.find((item) => item.id === "PAY-6B");
+
+    expect(downVerification.status).toBe(200);
+    expect(balanceSubmission.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "downPayment",
+      downPaymentStatus: "Paid",
+      downPaymentProofUrl: VALID_PNG_PROOF,
+      downPaymentProofName: "down-only.png",
+      finalPaymentStatus: "For Verification",
+      finalPaymentProofUrl: VALID_JPEG_PROOF,
+      finalPaymentProofName: "balance-only.jpg",
+    });
+    expect(payments[0].finalPaymentProofSubmittedAt).toBeTruthy();
+    expect(finalBootstrap.status).toBe(200);
+    expect(finalPayment).toMatchObject({
+      downPaymentProofName: "down-only.png",
+      downPaymentProofAvailable: true,
+      finalPaymentProofName: "balance-only.jpg",
+      finalPaymentProofAvailable: true,
+    });
+    expect(finalPayment.downPaymentProofName).not.toBe(finalPayment.finalPaymentProofName);
   });
 
   test("required-DP submission after deadline is rejected before monitor runs and records one strike", async () => {
@@ -3396,22 +3475,46 @@ describe("Phase 6B payment/OCR backend state machine", () => {
         placeSlot: 1,
       },
       paymentPatch: {
-        paymentPlan: "fullPayment",
         downPaymentStatus: "Pending",
-        finalPaymentStatus: "For Verification",
-        finalPaymentMethod: "GCash",
-        finalPaymentReference: "FULL-123",
-        finalPaymentProofUrl: VALID_PNG_PROOF,
-        finalPaymentProofName: "full-payment.png",
-        finalPaymentProofSubmittedAt: "2099-01-01T00:00:00.000Z",
-        finalPaymentReferenceCheckStatus: "submitted",
+        finalPaymentStatus: "Pending",
       },
     });
+    setTestPaymentOcrRecognizer(() => "Reference FULL-123");
+
+    const submission = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(customerUser),
+      body: fullPaymentProofBody(),
+    });
+
+    expect(submission.status).toBe(200);
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      status: "For Verification",
+      downPaymentStatus: "Pending",
+      downPaymentMethod: "",
+      downPaymentReference: "",
+      finalPaymentStatus: "For Verification",
+      finalPaymentReviewStatus: "Submitted",
+      finalPaymentMethod: "GCash",
+      finalPaymentReference: "FULL-123",
+      finalPaymentProofName: "full-payment.png",
+      finalPaymentReferenceCheckStatus: "submitted",
+    });
+    expect(payments[0].downPaymentProofUrl || "").toBe("");
+    expect(payments[0].finalPaymentProofUrl).toBe(VALID_PNG_PROOF);
+    expect(payments[0].finalPaymentProofSubmittedAt).toBeTruthy();
 
     const response = await request("/api/admin/payments/PAY-6B", {
       method: "PUT",
       token: auth(salesAssociateUser),
-      body: { finalPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" },
+      body: {
+        status: "Paid",
+        downPaymentStatus: "Paid",
+        finalPaymentStatus: "Paid",
+        specialPin: "654321",
+        accountName: "Sales Associate",
+      },
     });
 
     expect(response.status).toBe(200);
@@ -3459,6 +3562,39 @@ describe("Phase 6B payment/OCR backend state machine", () => {
       amountPaid: 1000,
       remainingBalance: 0,
     });
+  });
+
+  test("pay-in-full verification still rejects when no final-payment proof was submitted", async () => {
+    seedRequiredDownPaymentState({
+      paymentPatch: {
+        paymentPlan: "fullPayment",
+        downPaymentStatus: "Pending",
+        finalPaymentStatus: "Pending",
+        finalPaymentReviewStatus: "",
+        finalPaymentMethod: "",
+        finalPaymentReference: "",
+        finalPaymentProofUrl: "",
+        finalPaymentProofName: "",
+        finalPaymentProofSubmittedAt: null,
+      },
+    });
+
+    const response = await request("/api/admin/payments/PAY-6B", {
+      method: "PUT",
+      token: auth(salesAssociateUser),
+      body: { finalPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.message).toBe("Full payment can only be reviewed after the customer submits remaining balance proof.");
+    expect(payments[0]).toMatchObject({
+      paymentPlan: "fullPayment",
+      downPaymentStatus: "Pending",
+      finalPaymentStatus: "Pending",
+      status: "Pending",
+    });
+    expect(payments[0].downPaymentProofUrl || "").toBe("");
+    expect(payments[0].finalPaymentProofUrl || "").toBe("");
   });
 
   test("third consecutive timeout activates 24-hour cooldown for required-DP and no-DP bookings", async () => {

@@ -88,6 +88,7 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     await waitFor(() => {
       expect(screen.getByAltText("Down payment proof")).toHaveAttribute("src", "data:image/jpeg;base64,proof");
     });
+    expect(screen.queryByAltText("Full payment proof")).not.toBeInTheDocument();
     expect(screen.getByText("OCR Check: Match")).toBeInTheDocument();
     expect(screen.getByText("Detected reference: DP-REF")).toBeInTheDocument();
     expect(screen.getByText("Possible duplicate transaction reference - manual verification required.")).toBeInTheDocument();
@@ -181,7 +182,9 @@ describe("PaymentTrackingView on-demand proof loading", () => {
         paymentPlan: "fullPayment",
         downPaymentRequired: true,
         downPaymentAmount: 300,
-        downPaymentStatus: "For Verification",
+        downPaymentStatus: "Pending",
+        downPaymentMethod: "",
+        downPaymentReference: "",
         finalPaymentStatus: "For Verification",
         finalPaymentMethod: "GCash",
         finalPaymentReference: "FULL-REF",
@@ -196,6 +199,7 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     render(<PaymentTrackingView role="admin" />);
     await userEvent.click(screen.getByRole("button", { name: "✎" }));
 
+    expect(screen.getAllByLabelText("Status")[0]).toHaveValue("Not Applicable");
     expect(screen.getAllByLabelText("Status")[0]).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Verify" })).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: "Verify" }));
@@ -209,15 +213,21 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     });
 
     await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-FULL", expect.objectContaining({
-      status: "Paid",
       finalPaymentStatus: "Paid",
       specialPin: "654321",
     })));
-    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
+    const fullPaymentPayload = updatePayment.mock.calls[0][1];
+    expect(fullPaymentPayload).not.toHaveProperty("status");
+    expect(fullPaymentPayload).not.toHaveProperty("downPaymentStatus");
   });
 
   test("keeps a submitted remaining balance on the final-payment request path", async () => {
     const updatePayment = jest.fn().mockResolvedValue({});
+    const loadPaymentProof = jest.fn((_paymentId, stage) => Promise.resolve(
+      stage === "downPayment"
+        ? { proofImage: "data:image/jpeg;base64,down-proof", proofFileName: "down.jpg" }
+        : { proofImage: "data:image/jpeg;base64,balance-proof", proofFileName: "balance.jpg" }
+    ));
     useAdminData.mockReturnValue(baseContext({
       payments: [{
         ...baseContext().payments[0],
@@ -233,11 +243,15 @@ describe("PaymentTrackingView on-demand proof loading", () => {
         finalPaymentProofSubmittedAt: "2026-07-02T10:00:00.000Z",
       }],
       updatePayment,
-      loadPaymentProof: jest.fn().mockResolvedValue({ proofImage: "data:image/jpeg;base64,balance" }),
+      loadPaymentProof,
     }));
 
     render(<PaymentTrackingView role="admin" />);
     await userEvent.click(screen.getByRole("button", { name: "✎" }));
+    await waitFor(() => {
+      expect(screen.getByAltText("Down payment proof")).toHaveAttribute("src", "data:image/jpeg;base64,down-proof");
+      expect(screen.getByAltText("Full payment proof")).toHaveAttribute("src", "data:image/jpeg;base64,balance-proof");
+    });
     await userEvent.click(screen.getByRole("button", { name: "Verify" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -248,11 +262,12 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     });
 
     await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-BALANCE", expect.objectContaining({
-      status: "Paid",
       finalPaymentStatus: "Paid",
       specialPin: "654321",
     })));
-    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
+    const balancePayload = updatePayment.mock.calls[0][1];
+    expect(balancePayload).not.toHaveProperty("status");
+    expect(balancePayload).not.toHaveProperty("downPaymentStatus");
   });
 
   test("keeps unauthorized users read-only in Payment Tracking", () => {

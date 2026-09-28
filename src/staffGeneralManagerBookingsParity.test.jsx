@@ -964,7 +964,7 @@ describe("General Manager Payment Tracking parity shell", () => {
         id: "PAY-FULL-STAFF",
         bookingId: "B-FULL-STAFF",
         paymentPlan: "fullPayment",
-        downPaymentStatus: "For Verification",
+        downPaymentStatus: "Pending",
         downPaymentMethod: "",
         downPaymentReference: "",
         downPaymentProofSubmittedAt: null,
@@ -980,6 +980,7 @@ describe("General Manager Payment Tracking parity shell", () => {
 
     fireEvent.click(screen.getByText("Payment Tracking"));
     fireEvent.click(screen.getByRole("button", { name: "✎" }));
+    expect(screen.getAllByLabelText("Status")[0]).toHaveValue("Not Applicable");
     expect(screen.getAllByLabelText("Status")[0]).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Verify" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -998,12 +999,13 @@ describe("General Manager Payment Tracking parity shell", () => {
       "payment.verify"
     ));
     await waitFor(() => expect(updatePayment).toHaveBeenCalledWith("PAY-FULL-STAFF", expect.objectContaining({
-      status: "Paid",
       finalPaymentStatus: "Paid",
       specialPin: "654321",
       accountName: "Sales Associate",
     })));
-    expect(updatePayment.mock.calls[0][1]).not.toHaveProperty("downPaymentStatus");
+    const payload = updatePayment.mock.calls[0][1];
+    expect(payload).not.toHaveProperty("status");
+    expect(payload).not.toHaveProperty("downPaymentStatus");
   });
 
   test("blocks duplicate Sales Associate payment review confirmations", async () => {
