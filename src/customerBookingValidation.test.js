@@ -224,6 +224,22 @@ describe("Customer Add New Booking validation", () => {
     expect(mockCreateBooking.mock.calls[0][0]).not.toHaveProperty("amount");
   });
 
+  test("successful booking acknowledgement hands off the stable booking id", async () => {
+    const onBookingCreated = jest.fn();
+    mockCreateBooking.mockResolvedValue({ id: "B-NEW" });
+    render(<CustomerBookings onBookingCreated={onBookingCreated} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add New Booking" }));
+    await fillValidForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Booking" }));
+
+    expect(await screen.findByText("Booking Created")).toBeInTheDocument();
+    expect(screen.getByText("Your booking was successfully created.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Payments" }));
+
+    expect(onBookingCreated).toHaveBeenCalledWith({ bookingId: "B-NEW" });
+  });
+
   test("pending submission blocks duplicate booking requests", async () => {
     let resolveRequest;
     mockCreateBooking.mockImplementation(() => new Promise((resolve) => {
@@ -238,7 +254,7 @@ describe("Customer Add New Booking validation", () => {
 
     expect(mockCreateBooking).toHaveBeenCalledTimes(1);
     resolveRequest({});
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Booking Created")).toBeInTheDocument());
   });
 
   test("backend field errors are shown inline next to the mapped field", async () => {

@@ -66,6 +66,116 @@ describe("CustomerPayments Phase 6C", () => {
     jest.clearAllMocks();
   });
 
+  test("post-booking DP handoff targets the exact booking and opens the existing payment choice", async () => {
+    const onPaymentHandoffHandled = jest.fn();
+    const oldPayment = basePayment({
+      id: "PAY-OLD",
+      bookingId: "BK-OLD",
+      downPaymentAmount: 222,
+      totalAmount: 999,
+      amount: 999,
+    });
+    const targetPayment = basePayment({
+      id: "PAY-NEW",
+      bookingId: "BK-NEW",
+      downPaymentAmount: 1000,
+      totalAmount: 5000,
+      amount: 5000,
+    });
+    setContext({ payments: [oldPayment, targetPayment] });
+
+    render(
+      <CustomerPayments
+        paymentHandoff={{ type: "post-booking", bookingId: "BK-NEW" }}
+        onPaymentHandoffHandled={onPaymentHandoffHandled}
+      />
+    );
+
+    expect(await screen.findByText("Choose Payment Option")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search Payments...")).toHaveValue("BK-NEW");
+    expect(screen.getByRole("button", { name: /Pay Down Payment/i })).toHaveTextContent("P 1,000");
+    expect(screen.getByRole("button", { name: /Pay in Full/i })).toHaveTextContent("P 5,000");
+    expect(screen.queryByText("P 222")).not.toBeInTheDocument();
+    expect(onPaymentHandoffHandled).toHaveBeenCalledTimes(1);
+  });
+
+  test("post-booking handoff reuses the existing down-payment proof mode", async () => {
+    setContext({ payment: basePayment({ id: "PAY-NEW", bookingId: "BK-NEW" }) });
+
+    render(<CustomerPayments paymentHandoff={{ type: "post-booking", bookingId: "BK-NEW" }} />);
+
+    expect(await screen.findByText("Choose Payment Option")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/i }));
+
+    expect(screen.getByText("Submit Down Payment Proof")).toBeInTheDocument();
+    expect(screen.getByText("Required Down Payment")).toBeInTheDocument();
+  });
+
+  test("post-booking handoff reuses the existing pay-in-full proof mode", async () => {
+    setContext({ payment: basePayment({ id: "PAY-NEW", bookingId: "BK-NEW" }) });
+
+    render(<CustomerPayments paymentHandoff={{ type: "post-booking", bookingId: "BK-NEW" }} />);
+
+    expect(await screen.findByText("Choose Payment Option")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Pay in Full/i }));
+
+    expect(screen.getByRole("button", { name: "Submit Full Payment Proof" })).toBeInTheDocument();
+    expect(screen.getByText("Amount Due")).toBeInTheDocument();
+  });
+
+  test("post-booking non-DP handoff focuses the record without forcing payment choices", async () => {
+    const noDownPayment = basePayment({
+      id: "PAY-NODP",
+      bookingId: "BK-NODP",
+      service: "Car Wash",
+      downPaymentRequired: false,
+      downPaymentAmount: 0,
+      downPaymentStatus: "Not Required",
+    });
+    setContext({ payment: noDownPayment });
+
+    render(<CustomerPayments paymentHandoff={{ type: "post-booking", bookingId: "BK-NODP" }} />);
+
+    await waitFor(() => expect(screen.getByPlaceholderText("Search Payments...")).toHaveValue("BK-NODP"));
+    expect(screen.queryByText("Choose Payment Option")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pay Balance" })).toBeEnabled();
+  });
+
+  test("post-booking handoff is consumed once and does not reopen after closing", async () => {
+    const onPaymentHandoffHandled = jest.fn();
+    setContext({ payment: basePayment({ id: "PAY-NEW", bookingId: "BK-NEW" }) });
+
+    render(
+      <CustomerPayments
+        paymentHandoff={{ type: "post-booking", bookingId: "BK-NEW" }}
+        onPaymentHandoffHandled={onPaymentHandoffHandled}
+      />
+    );
+
+    expect(await screen.findByText("Choose Payment Option")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByText("Choose Payment Option")).not.toBeInTheDocument());
+    expect(onPaymentHandoffHandled).toHaveBeenCalledTimes(1);
+  });
+
+  test("post-booking handoff fails safely when the booking id cannot be resolved", async () => {
+    const onPaymentHandoffHandled = jest.fn();
+    setContext({ payment: basePayment({ id: "PAY-OTHER", bookingId: "BK-OTHER" }) });
+
+    render(
+      <CustomerPayments
+        paymentHandoff={{ type: "post-booking", bookingId: "BK-MISSING" }}
+        onPaymentHandoffHandled={onPaymentHandoffHandled}
+      />
+    );
+
+    await waitFor(() => expect(onPaymentHandoffHandled).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Choose Payment Option")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search Payments...")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Upload" })).toBeEnabled();
+  });
+
   test("shows the original required down-payment form before the server deadline", async () => {
     setContext({ payment: basePayment({ paymentPlan: "downPayment" }) });
     render(<CustomerPayments />);

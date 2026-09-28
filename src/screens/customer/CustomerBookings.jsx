@@ -152,7 +152,7 @@ function ModalSelect({ value, options, placeholder, onSelect, invalid = false, a
   );
 }
 
-export default function CustomerBookings({ initialAction = null, onActionHandled }) {
+export default function CustomerBookings({ initialAction = null, onActionHandled, onBookingCreated }) {
   const { bookings, services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const bookableServices = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false),
@@ -182,6 +182,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
   const [touchedFields, setTouchedFields] = useState({});
   const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+  const [bookingSuccessHandoff, setBookingSuccessHandoff] = useState(null);
   const bookingSubmitInFlightRef = useRef(false);
   const todayKey = toAppDateKey();
   const savedCars = useMemo(
@@ -320,7 +321,22 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     setFieldErrors({});
     setShowDownPaymentConfirm(false);
     setIsSubmittingBooking(false);
+    setBookingSuccessHandoff(null);
     bookingSubmitInFlightRef.current = false;
+  };
+
+  const acknowledgeBookingSuccess = () => {
+    const handoff = bookingSuccessHandoff;
+    closeModal();
+    onBookingCreated?.(handoff || {});
+  };
+
+  const dismissModal = () => {
+    if (modal === "success") {
+      acknowledgeBookingSuccess();
+      return;
+    }
+    closeModal();
   };
 
   const submitCustomerBooking = async () => {
@@ -332,7 +348,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     try {
       bookingSubmitInFlightRef.current = true;
       setIsSubmittingBooking(true);
-      await createBooking({
+      const createdBooking = await createBooking({
         date: form.date,
         time: form.time,
         vehicle: String(form.vehicle || "").trim().replace(/\s+/g, " "),
@@ -346,7 +362,16 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
         preferredDetailerId: form.preferredDetailerId,
       });
       setPage(1);
-      closeModal();
+      setSelectedBooking(null);
+      setForm(createEmptyForm());
+      setTouchedFields({});
+      setFormError("");
+      setFieldErrors({});
+      setShowDownPaymentConfirm(false);
+      setIsSubmittingBooking(false);
+      bookingSubmitInFlightRef.current = false;
+      setBookingSuccessHandoff({ bookingId: createdBooking?.id || createdBooking?.bookingId || "" });
+      setModal("success");
     } catch (error) {
       const backendErrors = error.errors && typeof error.errors === "object" ? error.errors : {};
       const nextFieldErrors = {
@@ -468,14 +493,14 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
       </div>
 
       {modal && (
-        <div className="clBookModalOverlay" onClick={closeModal}>
+        <div className="clBookModalOverlay" onClick={dismissModal}>
           <div
             className={`clBookModalCard ${modal === "details" ? "compact" : ""}`}
             role="dialog"
             aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
-            <button className="clBookModalClose" type="button" onClick={closeModal}>
+            <button className="clBookModalClose" type="button" onClick={dismissModal}>
               x
             </button>
 
@@ -793,6 +818,18 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                 <div className="clBookModalActions">
                   <button className="clBookPrimaryBtn" type="button" onClick={closeModal}>
                     Close
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {modal === "success" && (
+              <div className="clBookDetailList">
+                <div className="clBookModalTitle">Booking Created</div>
+                <div>Your booking was successfully created.</div>
+                <div className="clBookModalActions">
+                  <button className="clBookPrimaryBtn" type="button" onClick={acknowledgeBookingSuccess}>
+                    Continue to Payments
                   </button>
                 </div>
               </div>

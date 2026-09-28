@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerPaymentsStyle.css";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import { downloadAuthenticatedFile } from "../../utils/downloadExport";
@@ -312,8 +312,8 @@ async function compressImageFile(file) {
   return canvas.toDataURL("image/jpeg", 0.72);
 }
 
-export default function CustomerPayments() {
-  const { payments, currentUser, submitPaymentProof, loadPaymentProof } = useAdminData();
+export default function CustomerPayments({ paymentHandoff = null, onPaymentHandoffHandled }) {
+  const { payments, currentUser, submitPaymentProof, loadPaymentProof, loading } = useAdminData();
   const customerName = String(currentUser?.name || "").trim().toLowerCase();
   const customerEmail = String(currentUser?.email || "").trim().toLowerCase();
   const data = useMemo(
@@ -343,7 +343,9 @@ export default function CustomerPayments() {
   const [proofSubmitting, setProofSubmitting] = useState(false);
   const [proofPreview, setProofPreview] = useState({ paymentId: "", loading: false, error: "", downPayment: null });
   const [proofSessionKey, setProofSessionKey] = useState("");
+  const [targetedPaymentKey, setTargetedPaymentKey] = useState("");
   const proofImageRequestRef = useRef(0);
+  const handledPaymentHandoffRef = useRef("");
 
   const filtered = useMemo(() => {
     const q = String(query || "").trim().toLowerCase();
@@ -351,6 +353,7 @@ export default function CustomerPayments() {
       const matchesQuery =
         !q ||
         String(row.id || "").toLowerCase().includes(q) ||
+        String(row.bookingId || "").toLowerCase().includes(q) ||
         String(row.customer || "").toLowerCase().includes(q) ||
         String(row.service || "").toLowerCase().includes(q) ||
         getPaymentStageLabel(row).toLowerCase().includes(q) ||
@@ -382,7 +385,7 @@ export default function CustomerPayments() {
     setProofSessionKey("");
   };
 
-  const openProofModal = (payment, mode) => {
+  const openProofModal = useCallback((payment, mode) => {
     const action = getCustomerProofAction(payment);
     if (action.disabled || !mode) {
       setSelectedPayment(payment);
@@ -400,7 +403,37 @@ export default function CustomerPayments() {
     setProofPreview({ paymentId: "", loading: false, error: "", downPayment: null });
     setProofSessionKey(`${paymentId}:${nextMode}`);
     setModal("proof");
-  };
+  }, []);
+
+  useEffect(() => {
+    const bookingId = String(paymentHandoff?.bookingId || "").trim();
+    if (!paymentHandoff) return;
+    if (loading) return;
+    if (!bookingId) {
+      onPaymentHandoffHandled?.();
+      return;
+    }
+
+    const handoffKey = `${paymentHandoff?.type || "payment"}:${bookingId}`;
+    if (handledPaymentHandoffRef.current === handoffKey) return;
+
+    const targetPayment = data.find((payment) => String(payment.bookingId || "").trim() === bookingId);
+    handledPaymentHandoffRef.current = handoffKey;
+    onPaymentHandoffHandled?.();
+
+    if (!targetPayment) return;
+
+    const targetKey = targetPayment.id || targetPayment.bookingId || bookingId;
+    const proofAction = getCustomerProofAction(targetPayment);
+    setQuery(bookingId);
+    setFilters({ status: "", method: "" });
+    setPage(1);
+    setTargetedPaymentKey(targetKey);
+
+    if (needsInitialPaymentChoice(targetPayment) && !proofAction.disabled) {
+      openProofModal(targetPayment, proofAction.mode || "downPayment");
+    }
+  }, [data, loading, onPaymentHandoffHandled, openProofModal, paymentHandoff]);
 
   useEffect(() => () => {
     proofImageRequestRef.current += 1;
@@ -495,7 +528,10 @@ export default function CustomerPayments() {
             const stageClass = getPaymentStageClass(row);
             const proofAction = getCustomerProofAction(row);
             return (
-              <div className="clPayRowGroup" key={row.id}>
+              <div
+                className={`clPayRowGroup${targetedPaymentKey && [row.id, row.bookingId].some((value) => String(value || "") === String(targetedPaymentKey)) ? " targeted" : ""}`}
+                key={row.id}
+              >
                 <div className="clPayRow">
                   <div>{row.id}</div>
                   <div>{formatDate(row.date)}</div>

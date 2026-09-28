@@ -66,6 +66,7 @@ function CustomerMainContent({ session, onLogout }) {
   } = useAdminData();
   const [screen, setScreen] = useState("dashboard");
   const [pendingScreenAction, setPendingScreenAction] = useState(null);
+  const [pendingPaymentHandoff, setPendingPaymentHandoff] = useState(null);
   const [q, setQ] = useState("");
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -85,6 +86,7 @@ function CustomerMainContent({ session, onLogout }) {
     const route = String(key || "").trim().toLowerCase();
     setScreen(route);
     setPendingScreenAction(options?.action || null);
+    setPendingPaymentHandoff(route === "payments" ? options?.paymentHandoff || null : null);
   };
 
   const confirmLogout = () => {
@@ -218,11 +220,24 @@ function CustomerMainContent({ session, onLogout }) {
               <CustomerBookings
                 initialAction={pendingScreenAction}
                 onActionHandled={() => setPendingScreenAction(null)}
+                onBookingCreated={(handoff) => {
+                  goTo("payments", {
+                    paymentHandoff: {
+                      type: "post-booking",
+                      bookingId: handoff?.bookingId || "",
+                    },
+                  });
+                }}
               />
             )}
             {screen === "tracking" && <CustomerTracking />}
             {screen === "services" && <CustomerServices />}
-            {screen === "payments" && <CustomerPayments />}
+            {screen === "payments" && (
+              <CustomerPayments
+                paymentHandoff={pendingPaymentHandoff}
+                onPaymentHandoffHandled={() => setPendingPaymentHandoff(null)}
+              />
+            )}
             {screen === "engagement" && (
               <CustomerEngagement
                 initialAction={pendingScreenAction}

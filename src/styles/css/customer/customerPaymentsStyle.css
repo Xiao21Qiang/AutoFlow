@@ -89,6 +89,11 @@
   border-top: none;
 }
 
+.clPayRowGroup.targeted .clPayRow {
+  background: #eef6ff;
+  box-shadow: inset 4px 0 0 #2563eb;
+}
+
 .clPayRowNotice {
   margin: 0 16px 10px;
   padding: 8px 10px;
