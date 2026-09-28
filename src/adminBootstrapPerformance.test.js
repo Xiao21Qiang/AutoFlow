@@ -168,8 +168,9 @@ describe("admin bootstrap performance structure", () => {
         status: "For Verification",
         amount: 500,
         totalAmount: 500,
-        downPaymentRequired: false,
-        downPaymentStatus: "Not Required",
+        paymentPlan: "fullPayment",
+        downPaymentRequired: true,
+        downPaymentStatus: "Pending",
         finalPaymentStatus: "For Verification",
         finalPaymentMethod: "GCash",
         finalPaymentReference: "PENDING-REF",
@@ -328,6 +329,13 @@ describe("admin bootstrap performance structure", () => {
     expect(data.payments[0].finalPaymentOcrAdvisoryText).toBe("");
     expect(data.payments[0].recognizedRevenue).toBe(1000);
     expect(data.payments[1].recognizedRevenue).toBe(0);
+    expect(data.payments[1]).toMatchObject({
+      paymentPlan: "fullPayment",
+      downPaymentRequired: true,
+      downPaymentStatus: "Pending",
+      finalPaymentStatus: "For Verification",
+      finalPaymentProofAvailable: true,
+    });
     expect(data.financialReport.totals.revenue).toBe(1000);
     expect(data.payments[0].invoice).toMatchObject({
       bookingId: "BK-1",
@@ -343,6 +351,7 @@ describe("admin bootstrap performance structure", () => {
       bookingId: 1,
       status: 1,
       amount: 1,
+      paymentPlan: 1,
       downPaymentProofName: 1,
       finalPaymentProofName: 1,
       finalPaymentReferenceCheckStatus: 1,

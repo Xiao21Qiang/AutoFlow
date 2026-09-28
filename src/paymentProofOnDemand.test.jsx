@@ -199,10 +199,13 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     render(<PaymentTrackingView role="admin" />);
     await userEvent.click(screen.getByRole("button", { name: "✎" }));
 
-    expect(screen.getAllByLabelText("Status")[0]).toHaveValue("Not Applicable");
-    expect(screen.getAllByLabelText("Status")[0]).toBeDisabled();
+    const [downPaymentStatus, finalPaymentStatus] = screen.getAllByLabelText("Status");
+    expect(downPaymentStatus).toHaveValue("Not Applicable");
+    expect(downPaymentStatus).toBeDisabled();
+    expect(finalPaymentStatus).toBeEnabled();
+    expect(screen.queryByText("Full payment can only be updated after the down payment is verified as paid.")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Verify" })).toHaveLength(1);
-    await userEvent.click(screen.getByRole("button", { name: "Verify" }));
+    await userEvent.selectOptions(finalPaymentStatus, "Paid");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Verify Full Payment")).toBeInTheDocument();
@@ -219,6 +222,32 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     const fullPaymentPayload = updatePayment.mock.calls[0][1];
     expect(fullPaymentPayload).not.toHaveProperty("status");
     expect(fullPaymentPayload).not.toHaveProperty("downPaymentStatus");
+  });
+
+  test("keeps remaining-balance verification disabled until the down payment is paid", async () => {
+    useAdminData.mockReturnValue(baseContext({
+      payments: [{
+        ...baseContext().payments[0],
+        id: "PAY-BALANCE-BLOCKED",
+        paymentPlan: "downPayment",
+        downPaymentStatus: "For Verification",
+        finalPaymentStatus: "For Verification",
+        finalPaymentMethod: "GCash",
+        finalPaymentReference: "BALANCE-BLOCKED-REF",
+        finalPaymentProofName: "balance-blocked.jpg",
+        finalPaymentProofAvailable: true,
+        finalPaymentProofSubmittedAt: "2026-07-02T10:00:00.000Z",
+      }],
+      loadPaymentProof: jest.fn().mockResolvedValue({ proofImage: "data:image/jpeg;base64,proof" }),
+    }));
+
+    render(<PaymentTrackingView role="admin" />);
+    await userEvent.click(screen.getByRole("button", { name: "✎" }));
+
+    const finalPaymentStatus = screen.getAllByLabelText("Status")[1];
+    expect(finalPaymentStatus).toBeDisabled();
+    expect(screen.getByText("Full payment can only be updated after the down payment is verified as paid.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByAltText("Full payment proof")).toBeInTheDocument());
   });
 
   test("keeps a submitted remaining balance on the final-payment request path", async () => {
@@ -248,6 +277,7 @@ describe("PaymentTrackingView on-demand proof loading", () => {
 
     render(<PaymentTrackingView role="admin" />);
     await userEvent.click(screen.getByRole("button", { name: "✎" }));
+    expect(screen.getAllByLabelText("Status")[1]).toBeEnabled();
     await waitFor(() => {
       expect(screen.getByAltText("Down payment proof")).toHaveAttribute("src", "data:image/jpeg;base64,down-proof");
       expect(screen.getByAltText("Full payment proof")).toHaveAttribute("src", "data:image/jpeg;base64,balance-proof");

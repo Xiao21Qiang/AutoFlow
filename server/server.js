@@ -119,6 +119,7 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
   proofFileName: 1,
   reviewedAt: 1,
   reviewedBy: 1,
+  paymentPlan: 1,
   downPaymentRequired: 1,
   downPaymentAmount: 1,
   downPaymentStatus: 1,
