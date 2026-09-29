@@ -7,7 +7,7 @@ import BookingDatePicker from "../../components/customer/BookingDatePicker";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
-import { CAR_SIZE_OPTIONS, getPriceForCarSize } from "../../utils/servicePricing";
+import { getPriceForCarSize, getServiceCarSizeOptions } from "../../utils/servicePricing";
 import {
   CUSTOMER_BOOKING_REQUIRED_FIELDS,
   getCustomerBookingValidationErrors,
@@ -203,6 +203,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     [selectedService, form.time]
   );
   const requiredCarSize = getRequiredCarSizeForService(selectedService || form.service);
+  const carSizeOptions = useMemo(() => getServiceCarSizeOptions(selectedService || form.service), [selectedService, form.service]);
   const promoAdjustedPrice = useMemo(() => {
     const base = Number(selectedServicePrice || 0);
     const value = Number(selectedPromo?.discountValue || selectedPromo?.discountPercent || 0);
@@ -607,7 +608,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     <span>Car Size</span>
                     <ModalSelect
                       value={form.carSize}
-                      options={CAR_SIZE_OPTIONS}
+                      options={carSizeOptions}
                       placeholder="Select car size"
                       invalid={Boolean(getTouchedFieldError("carSize"))}
                       ariaLabel="Car Size"

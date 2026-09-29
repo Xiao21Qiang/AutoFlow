@@ -231,7 +231,18 @@ function CustomerMainContent({ session, onLogout }) {
               />
             )}
             {screen === "tracking" && <CustomerTracking />}
-            {screen === "services" && <CustomerServices />}
+            {screen === "services" && (
+              <CustomerServices
+                onBookingCreated={(handoff) => {
+                  goTo("payments", {
+                    paymentHandoff: {
+                      type: "post-booking",
+                      bookingId: handoff?.bookingId || "",
+                    },
+                  });
+                }}
+              />
+            )}
             {screen === "payments" && (
               <CustomerPayments
                 paymentHandoff={pendingPaymentHandoff}

@@ -4,7 +4,7 @@
 }
 
 .bookingDateInput {
-  padding-right: 46px !important;
+  padding-right: 100px !important;
 }
 
 .bookingDateInput.invalid {
@@ -16,7 +16,7 @@
   position: absolute;
   top: 50%;
   right: 6px;
-  width: 34px;
+  width: 88px;
   height: 34px;
   padding: 0;
   border: 0;
@@ -24,7 +24,9 @@
   background: transparent;
   cursor: pointer;
   transform: translateY(-50%);
-  font-size: 17px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #334155;
 }
 
 .bookingDateToggle:hover,

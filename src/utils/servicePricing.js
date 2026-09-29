@@ -12,15 +12,28 @@ export const PRICE_BY_SIZE_KEYS = {
   "Midsize / Pickup / MPV": "midsizePickupMpv",
   SUV: "suv",
   "XL / Van / Semi Truck": "xlVanSemiTruck",
-  [MOTORCYCLE_CAR_SIZE]: "sedanSmallCar",
 };
 
+const STANDARD_PRICE_KEYS = CAR_SIZE_OPTIONS.map((size) => PRICE_BY_SIZE_KEYS[size]);
 const PRICE_BY_SIZE_DEFAULTS = {
   sedanSmallCar: 0,
   midsizePickupMpv: 0,
   suv: 0,
   xlVanSemiTruck: 0,
 };
+
+export function normalizeServiceName(value = "") {
+  return String(value?.name || value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function isMotorCoatingService(service = {}) {
+  return normalizeServiceName(service) === "motor coating";
+}
+
+export function getServiceCarSizeOptions(service = {}) {
+  if (isMotorCoatingService(service)) return [MOTORCYCLE_CAR_SIZE];
+  return CAR_SIZE_OPTIONS;
+}
 
 export function createEmptyPriceBySize() {
   return { ...PRICE_BY_SIZE_DEFAULTS };
@@ -46,26 +59,35 @@ export function getServicePriceBySize(service) {
   const source = service?.priceBySize || {};
   const normalized = { ...PRICE_BY_SIZE_DEFAULTS };
 
-  Object.values(PRICE_BY_SIZE_KEYS).forEach((key) => {
+  STANDARD_PRICE_KEYS.forEach((key) => {
     const value = Math.max(0, Number(source[key]));
     normalized[key] = Number.isFinite(value) && value > 0 ? value : fallbackPrice;
   });
-
   return normalized;
 }
 
 export function getPriceForCarSize(service, carSize) {
+  if (isMotorCoatingService(service)) return Math.max(0, Number(service?.price || 0));
+
   const normalizedSize = normalizeCarSizeLabel(carSize);
   const priceBySize = getServicePriceBySize(service);
+  if (normalizedSize === MOTORCYCLE_CAR_SIZE) return 0;
+
   const exactKey = PRICE_BY_SIZE_KEYS[normalizedSize];
   if (exactKey) return Math.max(0, Number(priceBySize[exactKey] || 0));
 
-  const prices = Object.values(priceBySize).filter((value) => Number(value) > 0);
+  const prices = STANDARD_PRICE_KEYS.map((key) => priceBySize[key]).filter((value) => Number(value) > 0);
   return prices.length ? Math.min(...prices) : Math.max(0, Number(service?.price || 0));
 }
 
 export function getServicePriceRange(service) {
-  const prices = Object.values(getServicePriceBySize(service)).filter((value) => Number(value) > 0);
+  if (isMotorCoatingService(service)) {
+    const fixedPrice = Math.max(0, Number(service?.price || 0));
+    return { min: fixedPrice, max: fixedPrice };
+  }
+
+  const priceBySize = getServicePriceBySize(service);
+  const prices = STANDARD_PRICE_KEYS.map((key) => priceBySize[key]).filter((value) => Number(value) > 0);
   if (!prices.length) return { min: 0, max: 0 };
   return { min: Math.min(...prices), max: Math.max(...prices) };
 }

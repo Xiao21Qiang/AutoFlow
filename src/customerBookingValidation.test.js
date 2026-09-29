@@ -520,14 +520,17 @@ describe("Customer Services contextual booking", () => {
   });
 
   test("Book Service forces Motorcycle for Motor Coating and submits it without manual size input", async () => {
+    const onBookingCreated = jest.fn();
     const motorCoating = {
       ...services[0],
       id: "SVC-MOTOR",
       name: "Motor Coating",
+      price: 3899,
       allowedArrivalTimes: ["08:00"],
     };
+    mockCreateBooking.mockResolvedValueOnce({ id: "B-MOTOR-NEW" });
     mockData = { services: [motorCoating] };
-    render(<CustomerServices />);
+    render(<CustomerServices onBookingCreated={onBookingCreated} />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
 
     expect(screen.getByLabelText("Car Size")).toBeDisabled();
@@ -543,13 +546,46 @@ describe("Customer Services contextual booking", () => {
     expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
       service: "Motor Coating",
       carSize: "Motorcycle",
+      amount: 3899,
+      originalAmount: 3899,
     });
+    expect(await screen.findByText("Booking Created")).toBeInTheDocument();
+    expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
+    expect(onBookingCreated).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Payments" }));
+    expect(onBookingCreated).toHaveBeenCalledWith({ bookingId: "B-MOTOR-NEW" });
+  });
+
+  test("Book Service clears Submitting and surfaces a Motor Coating booking failure", async () => {
+    const motorCoating = {
+      ...services[0],
+      id: "SVC-MOTOR",
+      name: "Motor Coating",
+      price: 3899,
+      allowedArrivalTimes: ["08:00"],
+    };
+    mockCreateBooking.mockRejectedValueOnce(new Error("Booking could not be created."));
+    mockData = { services: [motorCoating] };
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
+    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
+    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
+
+    expect(await screen.findByText("Booking could not be created.")).toBeInTheDocument();
+    expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm Booking" })).toBeEnabled();
   });
 
   test("the enlarged calendar disables past dates and keeps YYYY-MM-DD values", () => {
     render(<CustomerServices />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open calendar" }));
+    expect(screen.queryByText(/\p{Extended_Pictographic}/u)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
 
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -558,7 +594,7 @@ describe("Customer Services contextual booking", () => {
     const dateInput = screen.getByLabelText("Preferred Date");
     fireEvent.keyDown(dateInput, { key: "Escape" });
     fireEvent.change(dateInput, { target: { value: "2099-12-31" } });
-    fireEvent.click(screen.getByRole("button", { name: "Open calendar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
     fireEvent.click(screen.getByRole("gridcell", { name: "December 30, 2099" }));
     expect(screen.getByLabelText("Preferred Date")).toHaveValue("2099-12-30");
   });

@@ -88,11 +88,11 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
       <button
         className="bookingDateToggle"
         type="button"
-        aria-label="Open calendar"
+        aria-label="Choose date"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        &#128197;
+        Choose date
       </button>
       {open && (
         <div className="bookingCalendar" role="dialog" aria-label="Choose preferred date">

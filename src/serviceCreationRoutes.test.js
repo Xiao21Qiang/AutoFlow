@@ -185,6 +185,28 @@ beforeEach(() => {
 });
 
 describe("Admin service creation route validation", () => {
+  test("Motor Coating persists one fixed price through the legacy tier structure", async () => {
+    const response = await request("/api/admin/services", {
+      method: "POST",
+      body: basePayload({
+        name: "Motor Coating",
+        price: 3899,
+        priceBySize: undefined,
+      }),
+    });
+    expect(response.status).toBe(201);
+    expect(services[0]).toMatchObject({
+      name: "Motor Coating",
+      price: 3899,
+      priceBySize: {
+        sedanSmallCar: 3899,
+        midsizePickupMpv: 3899,
+        suv: 3899,
+        xlVanSemiTruck: 3899,
+      },
+    });
+  });
+
   test("a valid unique service with at least one valid consumable creates exactly one record", async () => {
     const response = await request("/api/admin/services", { method: "POST", body: basePayload({ name: " New  Wash ", auditUser: "forged@example.com" }) });
     expect(response.status).toBe(201);

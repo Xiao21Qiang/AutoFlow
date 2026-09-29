@@ -78,7 +78,7 @@ const motorCoatingService = {
   id: "SVC-MOTOR",
   name: "Motor Coating",
   enabled: true,
-  price: 1500,
+  price: 3899,
   mins: 120,
   allowedArrivalTimes: ["10:00"],
 };
@@ -337,7 +337,17 @@ describe("Customer booking creation route validation", () => {
       body: { ...basePayload, service: "Motor Coating", carSize: "Motorcycle" },
     });
     expect(accepted.status).toBe(201);
-    expect(bookings[0]).toMatchObject({ service: "Motor Coating", carSize: "Motorcycle" });
+    expect(bookings[0]).toMatchObject({ service: "Motor Coating", carSize: "Motorcycle", amount: 3899, originalAmount: 3899 });
+  });
+
+  test("Car Wash retains the existing four-size model and rejects Motorcycle", async () => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, service: "Car Wash", carSize: "Motorcycle" },
+    });
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ field: "carSize" });
+    expect(bookings).toHaveLength(0);
   });
 
   test("disabled or invalid services are rejected", async () => {

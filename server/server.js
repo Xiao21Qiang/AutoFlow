@@ -38,7 +38,7 @@ const invoiceDomain = require("./domain/invoices");
 const engagementDomain = require("./domain/engagement");
 const exportDomain = require("./domain/exports");
 const { buildBusinessSummary } = require("./domain/summaries");
-const { DEFAULT_SERVICES } = require("./defaultServices");
+const { DEFAULT_SERVICES, getBuiltInDescriptionBackfill } = require("./defaultServices");
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
@@ -4821,7 +4821,6 @@ const CAR_SIZE_PRICE_LABELS = {
   "Midsize / Pickup / MPV": "midsizePickupMpv",
   SUV: "suv",
   "XL / Van / Semi Truck": "xlVanSemiTruck",
-  Motorcycle: "sedanSmallCar",
 };
 
 const SERVICE_CONSUMABLE_SIZE_KEYS = Object.values(CAR_SIZE_PRICE_LABELS);
@@ -4904,6 +4903,28 @@ function buildServicePriceBySizeForMutation(priceBySize, fallbackPrice = undefin
   };
 }
 
+function buildServicePricingForMutation(serviceName, payload = {}, existingService = {}) {
+  if (isMotorCoatingService(serviceName)) {
+    const fixedPrice = parseRequiredNonNegativeFiniteNumber(payload.price ?? existingService.price, "Service price");
+    if (fixedPrice <= 0) throwValidationError("Service price must be greater than zero.", 400, "price");
+    return {
+      price: fixedPrice,
+      priceBySize: {
+        sedanSmallCar: fixedPrice,
+        midsizePickupMpv: fixedPrice,
+        suv: fixedPrice,
+        xlVanSemiTruck: fixedPrice,
+      },
+    };
+  }
+
+  const priceBySize = buildServicePriceBySizeForMutation(
+    payload.priceBySize ?? existingService.priceBySize,
+    payload.price ?? existingService.price
+  );
+  return { price: priceBySize.sedanSmallCar, priceBySize };
+}
+
 function parseServiceDurationMinutes(value) {
   const mins = parseRequiredNonNegativeFiniteNumber(value, "Service duration");
   if (mins <= 0) {
@@ -4953,7 +4974,9 @@ function hydrateService(service) {
   const allowedArrivalTimes = normalizeAllowedArrivalTimes(baseService.allowedArrivalTimes, baseService.mins);
   return {
     ...baseService,
-    price: Math.max(0, Number(baseService.price) || priceBySize.sedanSmallCar || 0),
+    price: isMotorCoatingService(baseService)
+      ? Math.max(0, Number(baseService.price) || 0)
+      : Math.max(0, Number(baseService.price) || priceBySize.sedanSmallCar || 0),
     priceBySize,
     consumablesBySize,
     allowedArrivalTimes,
@@ -4962,6 +4985,7 @@ function hydrateService(service) {
 
 function getServicePriceForCarSize(service, carSize, fallbackPrice = 0) {
   const hydratedService = hydrateService(service);
+  if (isMotorCoatingService(hydratedService)) return Math.max(0, Number(hydratedService.price) || 0);
   const normalizedCarSize = normalizeCarSizeLabel(carSize);
   const sizeKey = CAR_SIZE_PRICE_LABELS[normalizedCarSize];
   if (sizeKey) {
@@ -5077,7 +5101,10 @@ function buildLegacyConsumables(consumablesBySize = {}) {
 }
 
 function getConsumableQuantityForCarSize(quantities, carSize) {
-  const sizeKey = CAR_SIZE_PRICE_LABELS[normalizeCarSizeLabel(carSize)] || "sedanSmallCar";
+  const normalizedCarSize = normalizeCarSizeLabel(carSize);
+  const sizeKey = normalizedCarSize === "Motorcycle"
+    ? "sedanSmallCar"
+    : CAR_SIZE_PRICE_LABELS[normalizedCarSize] || "sedanSmallCar";
   return Math.max(0, Number(quantities?.[sizeKey]) || 0);
 }
 
@@ -6859,6 +6886,16 @@ async function migrateServiceTypes() {
 
   for (const service of services) {
     service.serviceType = normalizeServiceType(service.serviceType, service.name, service.desc);
+    await service.save();
+  }
+}
+
+async function backfillBuiltInServiceDescriptions() {
+  const services = await Service.find({});
+  for (const service of services) {
+    const description = getBuiltInDescriptionBackfill(service);
+    if (!description) continue;
+    service.desc = description;
     await service.save();
   }
 }
@@ -9908,7 +9945,7 @@ app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
   try {
     const serviceName = normalizeServiceDisplayName(req.body.name);
     await ensureUniqueServiceName(serviceName);
-    const priceBySize = buildServicePriceBySizeForMutation(req.body.priceBySize, req.body.price);
+    const pricing = buildServicePricingForMutation(serviceName, req.body);
     const consumablesBySize = await validateServiceConsumablesBySize(
       buildServiceConsumablesBySize(req.body.consumablesBySize, req.body.consumables)
     );
@@ -9919,8 +9956,7 @@ app.post("/api/admin/services", requireAdminUser, async (req, res, next) => {
       name: serviceName,
       serviceType: normalizeServiceType(req.body.serviceType, serviceName, req.body.desc),
       category: normalizeRequiredServiceCategory(req.body.category),
-      price: priceBySize.sedanSmallCar,
-      priceBySize,
+      ...pricing,
       mins,
       allowedArrivalTimes: normalizeAllowedArrivalTimes(req.body.allowedArrivalTimes, mins),
       enabled: validateServiceEnabledStatus(req.body.enabled),
@@ -9959,9 +9995,12 @@ app.put("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
       await ensureUniqueServiceName(serviceName, { excludeId: req.params.id });
     }
 
-    const priceBySize = isDetailUpdate
-      ? buildServicePriceBySizeForMutation(req.body.priceBySize ?? existingService?.priceBySize, req.body.price ?? existingService?.price)
-      : buildServicePriceBySize(existingService?.priceBySize, existingService?.price);
+    const pricing = isDetailUpdate
+      ? buildServicePricingForMutation(serviceName, req.body, existingService)
+      : {
+          price: Math.max(0, Number(existingService?.price) || 0),
+          priceBySize: buildServicePriceBySize(existingService?.priceBySize, existingService?.price),
+        };
     const mins = isDetailUpdate
       ? parseServiceDurationMinutes(req.body.mins ?? existingService?.mins)
       : Math.max(0, Number(existingService?.mins) || 0);
@@ -9987,8 +10026,7 @@ app.put("/api/admin/services/:id", requireAdminUser, async (req, res, next) => {
       desc: hasBodyField("desc") ? String(req.body.desc || "").trim() : existingService?.desc || "",
       serviceType: normalizeServiceType(req.body.serviceType ?? existingService?.serviceType, serviceName, req.body.desc ?? existingService?.desc),
       category: hasBodyField("category") ? normalizeRequiredServiceCategory(req.body.category) : existingService?.category,
-      price: priceBySize.sedanSmallCar,
-      priceBySize,
+      ...pricing,
       mins,
       allowedArrivalTimes: normalizeAllowedArrivalTimes(
         hasBodyField("allowedArrivalTimes") ? req.body.allowedArrivalTimes : existingService?.allowedArrivalTimes,
@@ -12583,6 +12621,7 @@ async function start() {
   await ensureSeedData();
   await ensureProductionAdminFromEnv();
   await migrateServiceTypes();
+  await backfillBuiltInServiceDescriptions();
   await migrateServicePricing();
   await migrateServiceConsumablesBySize();
   await clearSeededServiceConsumables();

@@ -7,7 +7,12 @@ import BookingDatePicker from "../../components/customer/BookingDatePicker";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import { formatCurrency, getRewardPreview, getUsableCustomerRewards } from "../../utils/rewards";
-import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getPriceForCarSize } from "../../utils/servicePricing";
+import {
+  formatPriceRangeLabel,
+  getPriceForCarSize,
+  getServiceCarSizeOptions,
+  isMotorCoatingService,
+} from "../../utils/servicePricing";
 import {
   buildPreferredDetailerPayload,
   formatTime12Hour,
@@ -68,7 +73,7 @@ function createEmptyBookingForm(service = null) {
   };
 }
 
-export default function CustomerServices() {
+export default function CustomerServices({ onBookingCreated }) {
   const { services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -82,6 +87,7 @@ export default function CustomerServices() {
   const [bookingTouchedFields, setBookingTouchedFields] = useState({});
   const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+  const [bookingSuccessHandoff, setBookingSuccessHandoff] = useState(null);
   const todayKey = getTodayKey();
   const savedCars = useMemo(() => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate), [currentUser]);
   const carOptions = useMemo(() => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`), [savedCars]);
@@ -162,6 +168,7 @@ export default function CustomerServices() {
     [selectedService, bookingForm.time]
   );
   const requiredCarSize = getRequiredCarSizeForService(selectedService);
+  const carSizeOptions = useMemo(() => getServiceCarSizeOptions(selectedService), [selectedService]);
   const bookingValidationErrors = useMemo(
     () => selectedService ? getCustomerBookingValidationErrors({
       form: { ...bookingForm, service: selectedService.name },
@@ -196,6 +203,7 @@ export default function CustomerServices() {
     setBookingTouchedFields({});
     setBookingError("");
     setShowDownPaymentConfirm(false);
+    setBookingSuccessHandoff(null);
   };
 
   const closeModal = () => {
@@ -206,6 +214,13 @@ export default function CustomerServices() {
     setBookingTouchedFields({});
     setShowDownPaymentConfirm(false);
     setIsSubmittingBooking(false);
+    setBookingSuccessHandoff(null);
+  };
+
+  const acknowledgeBookingSuccess = () => {
+    const handoff = bookingSuccessHandoff;
+    closeModal();
+    onBookingCreated?.(handoff || {});
   };
 
   const submitServiceBooking = async () => {
@@ -218,7 +233,7 @@ export default function CustomerServices() {
     try {
       setIsSubmittingBooking(true);
       const preferredDetailerPayload = buildPreferredDetailerPayload(bookingForm, preferredDetailerOptions);
-      await createBooking({
+      const createdBooking = await createBooking({
         customer: currentUser?.name || "Customer",
         customerEmail: currentUser?.email || "",
         date: bookingForm.date,
@@ -240,7 +255,8 @@ export default function CustomerServices() {
         issueMarkers: [{ id: 1, x: 50, y: 50 }],
         ...preferredDetailerPayload,
       });
-      closeModal();
+      setShowDownPaymentConfirm(false);
+      setBookingSuccessHandoff({ bookingId: createdBooking?.id || createdBooking?.bookingId || "" });
     } catch (error) {
       const backendErrors = error.errors && typeof error.errors === "object" ? error.errors : {};
       const nextFieldErrors = {
@@ -256,6 +272,7 @@ export default function CustomerServices() {
       }
       setBookingError(Object.keys(nextFieldErrors).length ? "" : error.message || "Failed to create booking.");
       setShowDownPaymentConfirm(false);
+    } finally {
       setIsSubmittingBooking(false);
     }
   };
@@ -275,16 +292,29 @@ export default function CustomerServices() {
     if (!options.length) return "No time slots configured";
     return options.map((option) => option.label).join(", ");
   };
-  const renderPriceBreakdown = (service) => (
-    <div className="clSvcDetailsPriceGrid">
-      {CAR_SIZE_OPTIONS.map((size) => (
+  const renderPriceBreakdown = (service) => {
+    const options = getServiceCarSizeOptions(service);
+    if (isMotorCoatingService(service)) {
+      return (
+        <div className="clSvcDetailsPriceGrid">
+          <div className="clSvcDetailsPriceItem">
+            <span>Fixed Price</span>
+            <strong>P {Number(service?.price || 0).toLocaleString()}</strong>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="clSvcDetailsPriceGrid">
+      {options.map((size) => (
         <div className="clSvcDetailsPriceItem" key={size}>
           <span>{size}</span>
           <strong>P {Number(getPriceForCarSize(service, size) || 0).toLocaleString()}</strong>
         </div>
       ))}
-    </div>
-  );
+      </div>
+    );
+  };
   const renderServiceSection = (title, items) => {
     const section = getSectionDetails(title);
     return (
@@ -414,12 +444,24 @@ export default function CustomerServices() {
       )}
 
       {selectedService && (
-        <div className="clSvcModalOverlay" onClick={closeModal}>
+        <div className="clSvcModalOverlay" onClick={bookingSuccessHandoff ? acknowledgeBookingSuccess : closeModal}>
           <div className="clSvcModalCard" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <button className="clSvcModalClose" type="button" onClick={closeModal}>
+            <button className="clSvcModalClose" type="button" onClick={bookingSuccessHandoff ? acknowledgeBookingSuccess : closeModal}>
               x
             </button>
 
+            {bookingSuccessHandoff ? (
+              <div className="clSvcDetailList">
+                <div className="clSvcModalTitle">Booking Created</div>
+                <div>Your booking was successfully created.</div>
+                <div className="clSvcModalActions">
+                  <button className="clSvcPrimaryBtn" type="button" onClick={acknowledgeBookingSuccess}>
+                    Continue to Payments
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -585,12 +627,11 @@ export default function CustomerServices() {
                   aria-describedby={getBookingFieldError("carSize") ? "service-booking-car-size-error" : undefined}
                 >
                   <option value="">Select car size</option>
-                  {CAR_SIZE_OPTIONS.map((option) => (
+                  {carSizeOptions.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
                   ))}
-                  {requiredCarSize ? <option value={requiredCarSize}>{requiredCarSize}</option> : null}
                 </select>
                 {getBookingFieldError("carSize") ? <div id="service-booking-car-size-error" className="clSvcFieldError">{getBookingFieldError("carSize")}</div> : null}
               </label>
@@ -655,6 +696,8 @@ export default function CustomerServices() {
                   </div>
                 </div>
               </div>
+            )}
+            </>
             )}
           </div>
         </div>

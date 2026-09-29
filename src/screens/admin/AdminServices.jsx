@@ -5,7 +5,13 @@ import SecurityConfirmModal from "../../components/common/SecurityConfirmModal";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
-import { CAR_SIZE_OPTIONS, createEmptyPriceBySize, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
+import {
+  CAR_SIZE_OPTIONS,
+  createEmptyPriceBySize,
+  formatPriceRangeLabel,
+  getServicePriceBySize,
+  isMotorCoatingService,
+} from "../../utils/servicePricing";
 import {
   buildConsumablesBySizePayload,
   alignConsumablesToStockItems,
@@ -38,7 +44,7 @@ const PRICE_FIELD_LABELS = {
   suv: "SUV price",
   xlVanSemiTruck: "XL / Van / Semi Truck price",
 };
-const ADD_SERVICE_FIELDS = ["name", "category", "status", "durationHours", "allowedArrivalTimes", "consumables", ...Object.keys(PRICE_FIELD_LABELS)];
+const ADD_SERVICE_FIELDS = ["name", "category", "status", "durationHours", "allowedArrivalTimes", "consumables", "fixedPrice", ...Object.keys(PRICE_FIELD_LABELS)];
 
 function normalizeServiceNameKey(value = "") {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -81,6 +87,7 @@ function createEmptyAddServiceForm() {
     name: "",
     serviceType: "Basic Service",
     category: "",
+    fixedPrice: "",
     priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }),
     durationHours: "",
     status: "",
@@ -98,6 +105,22 @@ function parseRequiredNonNegativeNumber(value, label) {
   return { value: number, error: "" };
 }
 
+function getServicePricingFieldErrors(form = {}) {
+  const errors = {};
+  if (isMotorCoatingService(form.name)) {
+    const fixedPrice = parseRequiredNonNegativeNumber(form.fixedPrice, "Price");
+    if (fixedPrice.error) errors.fixedPrice = fixedPrice.error;
+    else if (fixedPrice.value <= 0) errors.fixedPrice = "Price must be greater than zero.";
+    return errors;
+  }
+
+  Object.entries(PRICE_FIELD_LABELS).forEach(([key, label]) => {
+    const parsed = parseRequiredNonNegativeNumber(form.priceBySize?.[key], label);
+    if (parsed.error) errors[key] = parsed.error;
+  });
+  return errors;
+}
+
 function getAddServiceFieldErrors({ form, duplicateNameError = "", consumablesError = "" }) {
   const errors = {};
   if (!String(form.name || "").trim()) {
@@ -112,10 +135,7 @@ function getAddServiceFieldErrors({ form, duplicateNameError = "", consumablesEr
     errors.status = "Please select a service status.";
   }
 
-  Object.entries(PRICE_FIELD_LABELS).forEach(([key, label]) => {
-    const parsed = parseRequiredNonNegativeNumber(form.priceBySize?.[key], label);
-    if (parsed.error) errors[key] = parsed.error;
-  });
+  Object.assign(errors, getServicePricingFieldErrors(form));
 
   const duration = parseRequiredNonNegativeNumber(form.durationHours, "Duration");
   if (duration.error) {
@@ -157,6 +177,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     desc: "",
     serviceType: "Basic Service",
     category: "",
+    fixedPrice: "",
     priceBySize: toPriceInputState({ priceBySize: createEmptyPriceBySize() }),
     mins: "",
     allowedArrivalTimes: getDefaultArrivalTimesForDuration(0),
@@ -223,7 +244,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       ? DUPLICATE_SERVICE_MESSAGE
       : "";
   }, [form.name, selectedService, services]);
-  const isEditServiceReady = hasEditSelectedConsumable && !editDuplicateNameError;
+  const editPricingErrors = getServicePricingFieldErrors(form);
+  const isEditServiceReady = hasEditSelectedConsumable && !editDuplicateNameError && !Object.keys(editPricingErrors).length;
 
   const resetAddServiceState = ({ resetValues = false } = {}) => {
     setAddTouchedFields({});
@@ -261,6 +283,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
       desc: service.desc,
       serviceType: getServiceType(service),
       category: service.category,
+      fixedPrice: String(service.price || ""),
       priceBySize: toPriceInputState(service),
       mins: String(service.mins),
       allowedArrivalTimes: normalizeAllowedArrivalTimes(service.allowedArrivalTimes, service.mins),
@@ -410,21 +433,37 @@ export default function AdminServices({ initialAction = null, onActionHandled })
     );
   };
 
-  const renderPriceFields = (mode, priceBySize) => {
+  const renderPriceFields = (mode, priceBySize, serviceName, fixedPrice) => {
     const setter = mode === "add" ? setAddForm : setForm;
+    const pricingErrors = mode === "add" ? addFieldErrors : editPricingErrors;
+    const touched = mode === "add" ? addTouchedFields : editTouchedFields;
+    const showError = (key) => Boolean((mode === "add" ? touched[key] || addSubmitAttempted : touched[key]) && pricingErrors[key]);
+
+    if (isMotorCoatingService(serviceName)) {
+      return (
+        <div className="svcPriceGrid">
+          <label className="svcField">
+            <span>Price (P)</span>
+            <input
+              type="number"
+              min="0"
+              aria-label="Price (P)"
+              value={fixedPrice || ""}
+              onBlur={() => mode === "add" ? markAddFieldTouched("fixedPrice") : setEditTouchedFields((prev) => ({ ...prev, fixedPrice: true }))}
+              onChange={(e) => setter((prev) => ({ ...prev, fixedPrice: e.target.value }))}
+              className={showError("fixedPrice") ? "svcFieldInvalidInput" : ""}
+              required
+            />
+            {showError("fixedPrice") ? <div className="svcFieldError">{pricingErrors.fixedPrice}</div> : null}
+          </label>
+        </div>
+      );
+    }
+
+    const priceOptions = CAR_SIZE_OPTIONS.map((label) => ({ label, key: label === "Sedan / Small Car" ? "sedanSmallCar" : label === "Midsize / Pickup / MPV" ? "midsizePickupMpv" : label === "SUV" ? "suv" : "xlVanSemiTruck" }));
     return (
       <div className="svcPriceGrid">
-        {CAR_SIZE_OPTIONS.map((label) => {
-          const key =
-            label === "Sedan / Small Car"
-              ? "sedanSmallCar"
-              : label === "Midsize / Pickup / MPV"
-                ? "midsizePickupMpv"
-                : label === "SUV"
-                  ? "suv"
-                  : "xlVanSemiTruck";
-
-          return (
+        {priceOptions.map(({ label, key }) => (
             <label className="svcField" key={label}>
               <span>{label} Price (P)</span>
               <input
@@ -433,6 +472,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                 value={priceBySize?.[key] || ""}
                 onBlur={() => {
                   if (mode === "add") markAddFieldTouched(key);
+                  else setEditTouchedFields((prev) => ({ ...prev, [key]: true }));
                 }}
                 onChange={(e) =>
                   setter((prev) => ({
@@ -443,15 +483,14 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                     },
                   }))
                 }
-                className={mode === "add" && getAddFieldError(key) ? "svcFieldInvalidInput" : ""}
+                className={showError(key) ? "svcFieldInvalidInput" : ""}
                 required
-                aria-invalid={mode === "add" && getAddFieldError(key) ? "true" : undefined}
-                aria-describedby={mode === "add" && getAddFieldError(key) ? `add-service-${key}-error` : undefined}
+                aria-invalid={showError(key) ? "true" : undefined}
+                aria-describedby={showError(key) ? `${mode}-service-${key}-error` : undefined}
               />
-              {mode === "add" && getAddFieldError(key) ? <div className="svcFieldError" id={`add-service-${key}-error`}>{getAddFieldError(key)}</div> : null}
+              {showError(key) ? <div className="svcFieldError" id={`${mode}-service-${key}-error`}>{pricingErrors[key]}</div> : null}
             </label>
-          );
-        })}
+        ))}
       </div>
     );
   };
@@ -625,13 +664,23 @@ export default function AdminServices({ initialAction = null, onActionHandled })
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                setEditTouchedFields((prev) => ({ ...prev, name: true, consumables: true }));
+                setEditTouchedFields((prev) => ({
+                  ...prev,
+                  name: true,
+                  consumables: true,
+                  fixedPrice: true,
+                  ...Object.fromEntries(Object.keys(PRICE_FIELD_LABELS).map((key) => [key, true])),
+                }));
                 if (editDuplicateNameError) {
                   setServiceFormError(editDuplicateNameError);
                   return;
                 }
                 if (editConsumablesError) {
                   setServiceFormError(editConsumablesError);
+                  return;
+                }
+                if (Object.keys(editPricingErrors).length) {
+                  setServiceFormError(Object.values(editPricingErrors)[0]);
                   return;
                 }
                 const priceBySize = buildPriceBySizePayload(form.priceBySize);
@@ -645,8 +694,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   desc: form.desc.trim(),
                   serviceType: form.serviceType,
                   category: form.category,
-                  price: Number(priceBySize.sedanSmallCar) || 0,
-                  priceBySize,
+                  price: isMotorCoatingService(form.name) ? Number(form.fixedPrice) || 0 : Number(priceBySize.sedanSmallCar) || 0,
+                  priceBySize: isMotorCoatingService(form.name) ? undefined : priceBySize,
                   mins: Number(form.mins) || 0,
                   allowedArrivalTimes: form.allowedArrivalTimes,
                   consumablesBySize: buildConsumablesBySizePayload(
@@ -692,7 +741,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                     </select>
                   </label>
                 </div>
-                {renderPriceFields("edit", form.priceBySize)}
+                {renderPriceFields("edit", form.priceBySize, form.name, form.fixedPrice)}
                 <div className="svcFieldGrid">
                   <label className="svcField">
                     <span>Est. Duration (Mins)</span>
@@ -741,8 +790,8 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                   desc: "",
                   serviceType: addForm.serviceType,
                   category: addForm.category,
-                  price: Number(priceBySize.sedanSmallCar) || 0,
-                  priceBySize,
+                  price: isMotorCoatingService(addForm.name) ? Number(addForm.fixedPrice) || 0 : Number(priceBySize.sedanSmallCar) || 0,
+                  priceBySize: isMotorCoatingService(addForm.name) ? undefined : priceBySize,
                   mins,
                   allowedArrivalTimes: addForm.allowedArrivalTimes,
                   enabled: addForm.status === "Active",
@@ -802,7 +851,7 @@ export default function AdminServices({ initialAction = null, onActionHandled })
                     {getAddFieldError("category") ? <div className="svcFieldError" id="add-service-category-error">{getAddFieldError("category")}</div> : null}
                   </label>
                 </div>
-                {renderPriceFields("add", addForm.priceBySize)}
+                {renderPriceFields("add", addForm.priceBySize, addForm.name, addForm.fixedPrice)}
                 <div className="svcFieldGrid">
                   <label className="svcField">
                     <span>Duration (Hrs)</span>

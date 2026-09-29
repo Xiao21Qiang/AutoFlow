@@ -1,4 +1,9 @@
-import { CAR_SIZE_OPTIONS, MOTORCYCLE_CAR_SIZE } from "./servicePricing";
+import {
+  MOTORCYCLE_CAR_SIZE,
+  getServiceCarSizeOptions,
+  isMotorCoatingService,
+  normalizeServiceName,
+} from "./servicePricing";
 
 export { MOTORCYCLE_CAR_SIZE };
 
@@ -13,13 +18,7 @@ export const CUSTOMER_BOOKING_REQUIRED_MESSAGES = {
 
 export const CUSTOMER_BOOKING_REQUIRED_FIELDS = Object.keys(CUSTOMER_BOOKING_REQUIRED_MESSAGES);
 
-export function normalizeServiceName(value) {
-  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-export function isMotorCoatingService(service = {}) {
-  return normalizeServiceName(service?.name || service) === "motor coating";
-}
+export { isMotorCoatingService, normalizeServiceName };
 
 export function getRequiredCarSizeForService(service = {}) {
   return isMotorCoatingService(service) ? MOTORCYCLE_CAR_SIZE : "";
@@ -58,7 +57,7 @@ export function getCustomerBookingValidationErrors({
     if (String(form.carSize || "").trim() !== requiredCarSize) {
       errors.carSize = `Motor Coating requires ${requiredCarSize}.`;
     }
-  } else if (!CAR_SIZE_OPTIONS.includes(String(form.carSize || "").trim())) {
+  } else if (!getServiceCarSizeOptions(service).includes(String(form.carSize || "").trim())) {
     errors.carSize = CUSTOMER_BOOKING_REQUIRED_MESSAGES.carSize;
   }
 

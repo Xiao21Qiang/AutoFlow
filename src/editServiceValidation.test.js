@@ -51,7 +51,7 @@ const services = [
     category: "Coating",
     serviceType: "Package",
     enabled: true,
-    price: 1500,
+    price: 3899,
     priceBySize: { sedanSmallCar: 1500, midsizePickupMpv: 1700, suv: 1900, xlVanSemiTruck: 2100 },
     mins: 120,
     allowedArrivalTimes: ["08:00"],
@@ -147,6 +147,36 @@ beforeEach(() => {
 });
 
 describe("Edit Service validation", () => {
+  test("Motor Coating exposes one fixed Price field and persists it without size controls", async () => {
+    mockUpdateService.mockResolvedValueOnce({});
+    openEditService(1);
+
+    expect(screen.getByLabelText("Price (P)")).toHaveValue(3899);
+    expect(screen.queryByLabelText("Sedan / Small Car Price (P)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Midsize / Pickup / MPV Price (P)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("SUV Price (P)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("XL / Van / Semi Truck Price (P)")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Price (P)"), { target: { value: "4200" } });
+    fireEvent.submit(editForm());
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm Security" }));
+    await waitFor(() => expect(mockUpdateService).toHaveBeenCalledTimes(1));
+    expect(mockUpdateService.mock.calls[0][1]).toMatchObject({
+      name: "Motor Coating",
+      price: 4200,
+    });
+    expect(mockUpdateService.mock.calls[0][1].priceBySize).toBeUndefined();
+  });
+
+  test("Car Wash retains only the existing four size-price fields", () => {
+    openEditService();
+    expect(screen.getByLabelText("Sedan / Small Car Price (P)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Midsize / Pickup / MPV Price (P)")).toBeInTheDocument();
+    expect(screen.getByLabelText("SUV Price (P)")).toBeInTheDocument();
+    expect(screen.getByLabelText("XL / Van / Semi Truck Price (P)")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Motorcycle Price/i)).not.toBeInTheDocument();
+  });
+
   test("opening Edit Service with 10 stock items preselects only two saved consumables and loads their quantities", () => {
     openEditService();
     expect(selectedBadge()).toHaveTextContent("2 selected");

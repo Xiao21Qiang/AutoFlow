@@ -5,7 +5,12 @@ import FilterModal from "../../components/common/FilterModal";
 import { useAdminData } from "../../context/AdminDataContext";
 import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
-import { CAR_SIZE_OPTIONS, formatPriceRangeLabel, getServicePriceBySize } from "../../utils/servicePricing";
+import {
+  formatPriceRangeLabel,
+  getServiceCarSizeOptions,
+  getServicePriceBySize,
+  isMotorCoatingService,
+} from "../../utils/servicePricing";
 import {
   formatConsumableSizeLabel,
   normalizeConsumablesBySize,
@@ -113,9 +118,19 @@ export default function StaffServices() {
 
   const renderPriceBySize = (service) => {
     const priceBySize = getServicePriceBySize(service);
+    if (isMotorCoatingService(service)) {
+      return (
+        <div className="stSvcDetailsGrid">
+          <div className="stSvcDetailsItem">
+            <span>Fixed Price</span>
+            <strong>{formatPeso(service.price)}</strong>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="stSvcDetailsGrid">
-        {CAR_SIZE_OPTIONS.map((label) => {
+        {getServiceCarSizeOptions(service).map((label) => {
           const key = getPriceSizeKey(label);
           return (
             <div className="stSvcDetailsItem" key={label}>
