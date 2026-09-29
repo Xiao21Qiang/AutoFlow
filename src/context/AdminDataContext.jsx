@@ -511,7 +511,10 @@ export function AdminDataProvider({ children, session }) {
       setData((currentData) => syncOptions.applyResult(currentData, result));
     }
     if (syncOptions.refresh !== false) {
-      await loadAdminData({ reason: "mutation", ensureFresh: true });
+      const refreshPromise = loadAdminData({ reason: "mutation", ensureFresh: true });
+      if (syncOptions.awaitRefresh !== false) {
+        await refreshPromise;
+      }
     }
     return result;
   };
@@ -627,15 +630,19 @@ export function AdminDataProvider({ children, session }) {
     error,
     reload: (options = {}) => loadAdminData({ ...options, reason: options.reason || "manual" }),
     loadPaymentProof,
-    createBooking: (payload) => mutate("/api/admin/bookings", {
-      method: "POST",
-      body: JSON.stringify({
-        ...payload,
-        auditUser,
-        actorUserType: currentUser?.userType || session?.userType || currentRole,
-        actorRole: currentUser?.role || session?.role || "",
-      }),
-    }),
+    createBooking: (payload, syncOptions = {}) => mutate(
+      "/api/admin/bookings",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...payload,
+          auditUser,
+          actorUserType: currentUser?.userType || session?.userType || currentRole,
+          actorRole: currentUser?.role || session?.role || "",
+        }),
+      },
+      { awaitRefresh: syncOptions.awaitRefresh !== false }
+    ),
     updateBooking: (id, payload) => mutate("/api/admin/bookings/" + id, { method: "PUT", body: JSON.stringify({ ...payload, auditUser }) }),
     rescheduleBooking: (id, payload) => mutate("/api/admin/bookings/" + id + "/reschedule", { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),
     reassignDetailer: (id, payload) => mutate("/api/admin/bookings/" + id + "/reassign-detailer", { method: "PATCH", body: JSON.stringify({ ...payload, auditUser }) }),

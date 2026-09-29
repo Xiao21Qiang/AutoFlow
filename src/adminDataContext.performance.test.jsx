@@ -315,6 +315,48 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
     expect(screen.getByTestId("serviceNames")).not.toHaveTextContent("Created Service");
   });
 
+  test("booking creation resolves from the POST response without waiting for bootstrap synchronization", async () => {
+    await renderAndResolveInitial();
+    const bookingRequest = createDeferred();
+    const bootstrapRefresh = createDeferred();
+
+    apiRequest.mockImplementation((path) => {
+      if (path === "/api/admin/bookings") return bookingRequest.promise;
+      if (path === "/api/admin/bootstrap") return bootstrapRefresh.promise;
+      return Promise.resolve({});
+    });
+
+    let bookingPromise;
+    act(() => {
+      bookingPromise = context.createBooking(
+        { service: "Motor Coating", carSize: "Motorcycle" },
+        { awaitRefresh: false }
+      );
+    });
+
+    let createdBooking;
+    await act(async () => {
+      bookingRequest.resolve({ id: "B-MOTOR-NEW", service: "Motor Coating", carSize: "Motorcycle" });
+      createdBooking = await bookingPromise;
+    });
+
+    expect(createdBooking).toEqual(expect.objectContaining({ id: "B-MOTOR-NEW" }));
+    expect(apiRequest.mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/bookings",
+      "/api/admin/bootstrap",
+    ]);
+    expect(screen.getByTestId("loading")).toHaveTextContent("loading");
+
+    await act(async () => {
+      bootstrapRefresh.resolve(buildPayload({
+        bookings: [{ id: "B-MOTOR-NEW", service: "Motor Coating", carSize: "Motorcycle" }],
+        payments: [{ id: "PAY-MOTOR-NEW", bookingId: "B-MOTOR-NEW" }],
+      }));
+      await bootstrapRefresh.promise;
+    });
+    expect(screen.getByTestId("loading")).toHaveTextContent("ready");
+  });
+
   test("successful sensitive mutations perform at most one bootstrap synchronization", async () => {
     await renderAndResolveInitial({ payments: [{ id: "PAY-1", status: "Pending" }] });
 

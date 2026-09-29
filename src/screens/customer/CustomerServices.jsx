@@ -1,6 +1,6 @@
 import "../../styles/css/customer/customerServicesStyle.css";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import FilterModal from "../../components/common/FilterModal";
 import BookingDatePicker from "../../components/customer/BookingDatePicker";
@@ -25,6 +25,7 @@ import {
   getRequiredCarSizeForService,
   normalizeCustomerPlateInput,
 } from "../../utils/customerBookingValidation";
+import { getCustomerServiceType, paginateCustomerServices } from "../../utils/customerServicePagination";
 
 function getTodayKey() {
   const now = new Date();
@@ -32,19 +33,6 @@ function getTodayKey() {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function getServiceType(service) {
-  const raw = String(service?.serviceType || "").trim().toLowerCase();
-  if (raw === "package") return "Package";
-  if (raw === "basic service") return "Basic Service";
-
-  const combined = `${String(service?.name || "").trim()} ${String(service?.desc || "").trim()}`.toLowerCase();
-  if (combined.includes("+") || combined.includes(" package") || combined.includes("bundle") || combined.includes("combo")) {
-    return "Package";
-  }
-
-  return "Basic Service";
 }
 
 function requiresDownPayment(service) {
@@ -88,6 +76,7 @@ export default function CustomerServices({ onBookingCreated }) {
   const [showDownPaymentConfirm, setShowDownPaymentConfirm] = useState(false);
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [bookingSuccessHandoff, setBookingSuccessHandoff] = useState(null);
+  const bookingSubmitInFlightRef = useRef(false);
   const todayKey = getTodayKey();
   const savedCars = useMemo(() => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate), [currentUser]);
   const carOptions = useMemo(() => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`), [savedCars]);
@@ -136,18 +125,15 @@ export default function CustomerServices({ onBookingCreated }) {
     });
   }, [visibleServices, query, filters]);
 
-  const pageSize = 6;
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const servicePages = useMemo(() => paginateCustomerServices(filtered), [filtered]);
+  const totalPages = servicePages.length;
   const safePage = Math.min(Math.max(page, 1), totalPages);
   useEffect(() => {
     if (page !== safePage) {
       setPage(safePage);
     }
   }, [page, safePage]);
-  const pageRows = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, safePage]);
+  const currentServicePage = servicePages[safePage - 1] || { basicServices: [], packages: [] };
 
   const selectedServicePrice = useMemo(
     () => (selectedService ? getPriceForCarSize(selectedService, bookingForm.carSize) : 0),
@@ -215,6 +201,7 @@ export default function CustomerServices({ onBookingCreated }) {
     setShowDownPaymentConfirm(false);
     setIsSubmittingBooking(false);
     setBookingSuccessHandoff(null);
+    bookingSubmitInFlightRef.current = false;
   };
 
   const acknowledgeBookingSuccess = () => {
@@ -224,37 +211,41 @@ export default function CustomerServices({ onBookingCreated }) {
   };
 
   const submitServiceBooking = async () => {
-    if (!selectedService || isSubmittingBooking) return;
+    if (!selectedService || isSubmittingBooking || bookingSubmitInFlightRef.current) return;
     if (Object.keys(bookingValidationErrors).length) {
       touchAllBookingFields();
       setShowDownPaymentConfirm(false);
       return;
     }
     try {
+      bookingSubmitInFlightRef.current = true;
       setIsSubmittingBooking(true);
       const preferredDetailerPayload = buildPreferredDetailerPayload(bookingForm, preferredDetailerOptions);
-      const createdBooking = await createBooking({
-        customer: currentUser?.name || "Customer",
-        customerEmail: currentUser?.email || "",
-        date: bookingForm.date,
-        time: bookingForm.time,
-        vehicle: String(bookingForm.vehicle || "").trim().replace(/\s+/g, " "),
-        carSize: bookingForm.carSize,
-        plate: String(bookingForm.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
-        service: selectedService.name,
-        promoId: bookingForm.promoId,
-        rewardId: bookingForm.rewardId,
-        originalAmount: Number(selectedServicePrice || 0),
-        assigned: "",
-        customerRequested: true,
-        bookingSource: "customer",
-        amount: Number(selectedServicePrice || 0),
-        status: "Pending Confirmation",
-        issueNote: bookingForm.notes,
-        issueTypes: [],
-        issueMarkers: [{ id: 1, x: 50, y: 50 }],
-        ...preferredDetailerPayload,
-      });
+      const createdBooking = await createBooking(
+        {
+          customer: currentUser?.name || "Customer",
+          customerEmail: currentUser?.email || "",
+          date: bookingForm.date,
+          time: bookingForm.time,
+          vehicle: String(bookingForm.vehicle || "").trim().replace(/\s+/g, " "),
+          carSize: bookingForm.carSize,
+          plate: String(bookingForm.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
+          service: selectedService.name,
+          promoId: bookingForm.promoId,
+          rewardId: bookingForm.rewardId,
+          originalAmount: Number(selectedServicePrice || 0),
+          assigned: "",
+          customerRequested: true,
+          bookingSource: "customer",
+          amount: Number(selectedServicePrice || 0),
+          status: "Pending Confirmation",
+          issueNote: bookingForm.notes,
+          issueTypes: [],
+          issueMarkers: [{ id: 1, x: 50, y: 50 }],
+          ...preferredDetailerPayload,
+        },
+        { awaitRefresh: false }
+      );
       setShowDownPaymentConfirm(false);
       setBookingSuccessHandoff({ bookingId: createdBooking?.id || createdBooking?.bookingId || "" });
     } catch (error) {
@@ -273,12 +264,13 @@ export default function CustomerServices({ onBookingCreated }) {
       setBookingError(Object.keys(nextFieldErrors).length ? "" : error.message || "Failed to create booking.");
       setShowDownPaymentConfirm(false);
     } finally {
+      bookingSubmitInFlightRef.current = false;
       setIsSubmittingBooking(false);
     }
   };
 
-  const pageBasicServices = pageRows.filter((service) => getServiceType(service) === "Basic Service");
-  const pagePackages = pageRows.filter((service) => getServiceType(service) === "Package");
+  const pageBasicServices = currentServicePage.basicServices;
+  const pagePackages = currentServicePage.packages;
   const getSectionDetails = (title) => {
     const isPackage = title.toLowerCase().includes("package");
     return {
@@ -412,8 +404,8 @@ export default function CustomerServices({ onBookingCreated }) {
             </button>
             <div className="clSvcModalTitle" id="clSvcDetailsTitle">Service Details</div>
             <div className="clSvcDetailsHeader">
-              <span className={`clSvcTypeBadge ${getServiceType(selectedDetailsService) === "Package" ? "package" : "basic"}`}>
-                {getServiceType(selectedDetailsService)}
+              <span className={`clSvcTypeBadge ${getCustomerServiceType(selectedDetailsService) === "Package" ? "package" : "basic"}`}>
+                {getCustomerServiceType(selectedDetailsService)}
               </span>
               {selectedDetailsService.category ? <span className="clSvcCategoryBadge">{selectedDetailsService.category}</span> : null}
             </div>

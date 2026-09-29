@@ -423,6 +423,21 @@ describe("Customer Bookings list, filters, pagination, and details", () => {
 });
 
 describe("Customer Services contextual booking", () => {
+  function buildCatalogServices() {
+    const makeService = (type, number, overrides = {}) => ({
+      ...services[0],
+      id: `${type === "Package" ? "PKG" : "BSC"}-${number}`,
+      name: `${type === "Package" ? "Package" : "Basic"} Service ${String(number).padStart(2, "0")}`,
+      serviceType: type,
+      mins: type === "Package" ? 180 : 60,
+      ...overrides,
+    });
+    return [
+      ...Array.from({ length: 8 }, (_, index) => makeService("Basic Service", index + 1)),
+      ...Array.from({ length: 10 }, (_, index) => makeService("Package", index + 1)),
+    ];
+  }
+
   test("View Details opens a read-only service details modal with admin service data", () => {
     mockData = {
       services: [{
@@ -540,6 +555,7 @@ describe("Customer Services contextual booking", () => {
     fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
     fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+    expect(screen.getByText("Down Payment Policy").closest('[role="dialog"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
 
     await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
@@ -549,6 +565,7 @@ describe("Customer Services contextual booking", () => {
       amount: 3899,
       originalAmount: 3899,
     });
+    expect(mockCreateBooking.mock.calls[0][1]).toEqual({ awaitRefresh: false });
     expect(await screen.findByText("Booking Created")).toBeInTheDocument();
     expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
     expect(onBookingCreated).not.toHaveBeenCalled();
@@ -558,6 +575,7 @@ describe("Customer Services contextual booking", () => {
   });
 
   test("Book Service clears Submitting and surfaces a Motor Coating booking failure", async () => {
+    const onBookingCreated = jest.fn();
     const motorCoating = {
       ...services[0],
       id: "SVC-MOTOR",
@@ -567,7 +585,7 @@ describe("Customer Services contextual booking", () => {
     };
     mockCreateBooking.mockRejectedValueOnce(new Error("Booking could not be created."));
     mockData = { services: [motorCoating] };
-    render(<CustomerServices />);
+    render(<CustomerServices onBookingCreated={onBookingCreated} />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
     fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
     fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
@@ -579,6 +597,85 @@ describe("Customer Services contextual booking", () => {
     expect(await screen.findByText("Booking could not be created.")).toBeInTheDocument();
     expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm Booking" })).toBeEnabled();
+    expect(onBookingCreated).not.toHaveBeenCalled();
+  });
+
+  test("Book Service clears Submitting when createBooking throws synchronously", async () => {
+    const onBookingCreated = jest.fn();
+    const motorCoating = {
+      ...services[0],
+      id: "SVC-MOTOR",
+      name: "Motor Coating",
+      price: 3899,
+      allowedArrivalTimes: ["08:00"],
+    };
+    mockCreateBooking.mockImplementationOnce(() => {
+      throw new Error("Unexpected booking failure.");
+    });
+    mockData = { services: [motorCoating] };
+    render(<CustomerServices onBookingCreated={onBookingCreated} />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
+    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
+    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
+    fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
+
+    expect(await screen.findByText("Unexpected booking failure.")).toBeInTheDocument();
+    expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm Booking" })).toBeEnabled();
+    expect(onBookingCreated).not.toHaveBeenCalled();
+  });
+
+  test("Customer Services renders the category-aware 3+3, 3+3, and 2+4 distribution", () => {
+    mockData = { services: buildCatalogServices() };
+    const { container } = render(<CustomerServices />);
+    const getVisibleCounts = () => Array.from(container.querySelectorAll(".clSvcSectionCount"), (node) => Number(node.textContent));
+    const getVisibleNames = () => Array.from(container.querySelectorAll(".clSvcTitle"), (node) => node.textContent);
+    const seenNames = [];
+
+    expect(getVisibleCounts()).toEqual([3, 3]);
+    seenNames.push(...getVisibleNames());
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    expect(getVisibleCounts()).toEqual([3, 3]);
+    seenNames.push(...getVisibleNames());
+    fireEvent.click(screen.getByRole("button", { name: ">" }));
+    expect(getVisibleCounts()).toEqual([2, 4]);
+    seenNames.push(...getVisibleNames());
+
+    expect(seenNames).toHaveLength(18);
+    expect(new Set(seenNames).size).toBe(18);
+    expect(seenNames.filter((name) => name.startsWith("Basic"))).toEqual(
+      Array.from({ length: 8 }, (_, index) => `Basic Service ${String(index + 1).padStart(2, "0")}`)
+    );
+    expect(seenNames.filter((name) => name.startsWith("Package"))).toEqual(
+      Array.from({ length: 10 }, (_, index) => `Package Service ${String(index + 1).padStart(2, "0")}`)
+    );
+  });
+
+  test("search and filter recompute category pages and correct the current page", () => {
+    mockData = { services: buildCatalogServices() };
+    const { container } = render(<CustomerServices />);
+    const nextButton = screen.getByRole("button", { name: ">" });
+    fireEvent.click(nextButton);
+    fireEvent.click(nextButton);
+    expect(screen.getByText("3", { selector: ".clSvcPager div" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search Services..."), { target: { value: "Package Service 01" } });
+    expect(screen.getByText("1", { selector: ".clSvcPager div" })).toBeInTheDocument();
+    expect(screen.getByText("Package Service 01")).toBeInTheDocument();
+    expect(container.querySelectorAll(".clSvcSectionCount")).toHaveLength(1);
+    expect(container.querySelector(".clSvcSectionCount")).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: ">" })).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Search Services..."), { target: { value: "" } });
+    fireEvent.click(container.querySelector(".clSvcFilterBtn"));
+    fireEvent.change(screen.getByLabelText("Max Duration (Mins)"), { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.queryByText("Packages")).not.toBeInTheDocument();
+    expect(container.querySelector(".clSvcSectionCount")).toHaveTextContent("3");
+    expect(screen.getByText("1", { selector: ".clSvcPager div" })).toBeInTheDocument();
   });
 
   test("the enlarged calendar disables past dates and keeps YYYY-MM-DD values", () => {
