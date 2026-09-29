@@ -26,6 +26,7 @@ import {
   normalizeCustomerPlateInput,
 } from "../../utils/customerBookingValidation";
 import { getCustomerServiceType, paginateCustomerServices } from "../../utils/customerServicePagination";
+import { findCustomerVehicleById, getCustomerVehicleOptions } from "../../utils/customerVehicles";
 
 function getTodayKey() {
   const now = new Date();
@@ -79,7 +80,7 @@ export default function CustomerServices({ onBookingCreated }) {
   const bookingSubmitInFlightRef = useRef(false);
   const todayKey = getTodayKey();
   const savedCars = useMemo(() => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate), [currentUser]);
-  const carOptions = useMemo(() => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`), [savedCars]);
+  const carOptions = useMemo(() => getCustomerVehicleOptions(savedCars), [savedCars]);
   const preferredDetailerOptions = useMemo(() => getPreferredDetailerOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
@@ -221,31 +222,30 @@ export default function CustomerServices({ onBookingCreated }) {
       bookingSubmitInFlightRef.current = true;
       setIsSubmittingBooking(true);
       const preferredDetailerPayload = buildPreferredDetailerPayload(bookingForm, preferredDetailerOptions);
-      const createdBooking = await createBooking(
-        {
-          customer: currentUser?.name || "Customer",
-          customerEmail: currentUser?.email || "",
-          date: bookingForm.date,
-          time: bookingForm.time,
-          vehicle: String(bookingForm.vehicle || "").trim().replace(/\s+/g, " "),
-          carSize: bookingForm.carSize,
-          plate: String(bookingForm.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
-          service: selectedService.name,
-          promoId: bookingForm.promoId,
-          rewardId: bookingForm.rewardId,
-          originalAmount: Number(selectedServicePrice || 0),
-          assigned: "",
-          customerRequested: true,
-          bookingSource: "customer",
-          amount: Number(selectedServicePrice || 0),
-          status: "Pending Confirmation",
-          issueNote: bookingForm.notes,
-          issueTypes: [],
-          issueMarkers: [{ id: 1, x: 50, y: 50 }],
-          ...preferredDetailerPayload,
-        },
-        { awaitRefresh: false }
-      );
+      const payload = {
+        customer: currentUser?.name || "Customer",
+        customerEmail: currentUser?.email || "",
+        date: bookingForm.date,
+        time: bookingForm.time,
+        vehicle: String(bookingForm.vehicle || "").trim().replace(/\s+/g, " "),
+        selectedCar: bookingForm.selectedCar,
+        carSize: bookingForm.carSize,
+        plate: String(bookingForm.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
+        service: selectedService.name,
+        promoId: bookingForm.promoId,
+        rewardId: bookingForm.rewardId,
+        originalAmount: Number(selectedServicePrice || 0),
+        assigned: "",
+        customerRequested: true,
+        bookingSource: "customer",
+        amount: Number(selectedServicePrice || 0),
+        status: "Pending Confirmation",
+        issueNote: bookingForm.notes,
+        issueTypes: [],
+        issueMarkers: [{ id: 1, x: 50, y: 50 }],
+        ...preferredDetailerPayload,
+      };
+      const createdBooking = await createBooking(payload, { awaitRefresh: false });
       setShowDownPaymentConfirm(false);
       setBookingSuccessHandoff({ bookingId: createdBooking?.id || createdBooking?.bookingId || "" });
     } catch (error) {
@@ -576,7 +576,41 @@ export default function CustomerServices({ onBookingCreated }) {
                 {getBookingFieldError("time") ? <div id="service-booking-time-error" className="clSvcFieldError">{getBookingFieldError("time")}</div> : null}
               </label>
 
-              {carOptions.length > 0 && <label className="clSvcField"><span>Saved Car</span><select value={bookingForm.selectedCar} onChange={(e) => { const option = e.target.value; const selectedCar = savedCars.find((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}` === option); setBookingFieldErrors((prev) => { const next = { ...prev }; delete next.vehicle; delete next.carSize; delete next.plate; return next; }); setBookingForm((prev) => ({ ...prev, selectedCar: option, vehicle: selectedCar?.vehicle || prev.vehicle, carSize: requiredCarSize || String(selectedCar?.size || prev.carSize || ""), plate: String(selectedCar?.plate || prev.plate).toUpperCase() })); }}><option value="">Select saved car</option>{carOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>}
+              {carOptions.length > 0 && (
+                <label className="clSvcField">
+                  <span>Saved Car</span>
+                  <select
+                    aria-label="Saved Car"
+                    value={bookingForm.selectedCar}
+                    className={getBookingFieldError("selectedCar") ? "clSvcFieldInvalidInput" : ""}
+                    aria-invalid={getBookingFieldError("selectedCar") ? "true" : undefined}
+                    aria-describedby={getBookingFieldError("selectedCar") ? "service-booking-saved-car-error" : undefined}
+                    onChange={(e) => {
+                      const option = e.target.value;
+                      const selectedCar = findCustomerVehicleById(savedCars, option);
+                      setBookingFieldErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.selectedCar;
+                        delete next.vehicle;
+                        delete next.carSize;
+                        delete next.plate;
+                        return next;
+                      });
+                      setBookingForm((prev) => ({
+                        ...prev,
+                        selectedCar: option,
+                        vehicle: selectedCar?.vehicle || prev.vehicle,
+                        carSize: requiredCarSize || String(selectedCar?.size || prev.carSize || ""),
+                        plate: String(selectedCar?.plate || prev.plate).toUpperCase(),
+                      }));
+                    }}
+                  >
+                    <option value="">Select saved car</option>
+                    {carOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  {getBookingFieldError("selectedCar") ? <div id="service-booking-saved-car-error" className="clSvcFieldError">{getBookingFieldError("selectedCar")}</div> : null}
+                </label>
+              )}
 
               <label className="clSvcField">
                 <span>Vehicle Model</span>
@@ -584,12 +618,13 @@ export default function CustomerServices({ onBookingCreated }) {
                   aria-label="Vehicle Model"
                   value={bookingForm.vehicle}
                   onBlur={() => markBookingFieldTouched("vehicle")}
-                  onChange={(e) => { setBookingFieldErrors((prev) => { const next = { ...prev }; delete next.vehicle; return next; }); setBookingForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value })); }}
+                  onChange={(e) => { setBookingFieldErrors((prev) => { const next = { ...prev }; delete next.selectedCar; delete next.vehicle; return next; }); setBookingForm((prev) => ({ ...prev, selectedCar: "", vehicle: e.target.value })); }}
                   className={getBookingFieldError("vehicle") ? "clSvcFieldInvalidInput" : ""}
                   aria-invalid={getBookingFieldError("vehicle") ? "true" : undefined}
                   aria-describedby={getBookingFieldError("vehicle") ? "service-booking-vehicle-error" : undefined}
                 />
                 {getBookingFieldError("vehicle") ? <div id="service-booking-vehicle-error" className="clSvcFieldError">{getBookingFieldError("vehicle")}</div> : null}
+                {!carOptions.length && getBookingFieldError("selectedCar") ? <div className="clSvcFieldError">{getBookingFieldError("selectedCar")}</div> : null}
               </label>
 
               <label className="clSvcField">
@@ -598,7 +633,7 @@ export default function CustomerServices({ onBookingCreated }) {
                   aria-label="Plate Number"
                   value={bookingForm.plate}
                   onBlur={() => markBookingFieldTouched("plate")}
-                  onChange={(e) => { setBookingFieldErrors((prev) => { const next = { ...prev }; delete next.plate; return next; }); setBookingForm((prev) => ({ ...prev, selectedCar: "", plate: normalizeCustomerPlateInput(e.target.value) })); }}
+                  onChange={(e) => { setBookingFieldErrors((prev) => { const next = { ...prev }; delete next.selectedCar; delete next.plate; return next; }); setBookingForm((prev) => ({ ...prev, selectedCar: "", plate: normalizeCustomerPlateInput(e.target.value) })); }}
                   className={getBookingFieldError("plate") ? "clSvcFieldInvalidInput" : ""}
                   aria-invalid={getBookingFieldError("plate") ? "true" : undefined}
                   aria-describedby={getBookingFieldError("plate") ? "service-booking-plate-error" : undefined}

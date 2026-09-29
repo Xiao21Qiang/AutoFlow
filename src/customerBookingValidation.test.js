@@ -27,6 +27,13 @@ const currentCustomer = {
   role: "New",
   cars: [],
 };
+const savedMotorcycle = {
+  id: "CAR-NAVI",
+  brand: "Honda",
+  vehicle: "Honda Navi",
+  size: "Sedan / Small Car",
+  plate: "11AAA",
+};
 
 const services = [
   {
@@ -213,6 +220,7 @@ describe("Customer Add New Booking validation", () => {
     await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
     expect(mockCreateBooking.mock.calls[0][0]).toEqual({
       vehicle: "Civic",
+      selectedCar: "",
       plate: "ABC123",
       carSize: "Sedan / Small Car",
       service: "Car Wash",
@@ -320,11 +328,13 @@ describe("Customer Add New Booking validation", () => {
       name: "Motor Coating",
       allowedArrivalTimes: ["08:00"],
     };
-    mockData = { services: [...services, motorCoating] };
+    mockData = {
+      services: [...services, motorCoating],
+      currentUser: { ...currentCustomer, cars: [savedMotorcycle] },
+    };
     openModal();
     fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
-    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
-    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    selectModalOption("Saved Car", "Honda Navi | 11AAA");
     selectModalOption("Service", "Motor Coating");
 
     expect(screen.getByRole("button", { name: "Car Size" })).toBeDisabled();
@@ -335,6 +345,9 @@ describe("Customer Add New Booking validation", () => {
 
     await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
     expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
+      selectedCar: "CAR-NAVI",
+      vehicle: "Honda Navi",
+      plate: "11AAA",
       service: "Motor Coating",
       carSize: "Motorcycle",
       time: "08:00",
@@ -544,7 +557,10 @@ describe("Customer Services contextual booking", () => {
       allowedArrivalTimes: ["08:00"],
     };
     mockCreateBooking.mockResolvedValueOnce({ id: "B-MOTOR-NEW" });
-    mockData = { services: [motorCoating] };
+    mockData = {
+      services: [motorCoating],
+      currentUser: { ...currentCustomer, cars: [savedMotorcycle] },
+    };
     render(<CustomerServices onBookingCreated={onBookingCreated} />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
 
@@ -552,14 +568,16 @@ describe("Customer Services contextual booking", () => {
     expect(screen.getByLabelText("Car Size")).toHaveValue("Motorcycle");
     fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
     fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
-    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
-    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    fireEvent.change(screen.getByLabelText("Saved Car"), { target: { value: "CAR-NAVI" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
     expect(screen.getByText("Down Payment Policy").closest('[role="dialog"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
 
     await waitFor(() => expect(mockCreateBooking).toHaveBeenCalledTimes(1));
     expect(mockCreateBooking.mock.calls[0][0]).toMatchObject({
+      selectedCar: "CAR-NAVI",
+      vehicle: "Honda Navi",
+      plate: "11AAA",
       service: "Motor Coating",
       carSize: "Motorcycle",
       amount: 3899,
@@ -583,20 +601,30 @@ describe("Customer Services contextual booking", () => {
       price: 3899,
       allowedArrivalTimes: ["08:00"],
     };
-    mockCreateBooking.mockRejectedValueOnce(new Error("Booking could not be created."));
-    mockData = { services: [motorCoating] };
+    const ownershipError = new Error("Selected vehicle does not belong to the customer.");
+    ownershipError.field = "selectedCar";
+    ownershipError.errors = { selectedCar: ownershipError.message };
+    mockCreateBooking.mockRejectedValueOnce(ownershipError);
+    mockData = {
+      services: [motorCoating],
+      currentUser: { ...currentCustomer, cars: [savedMotorcycle] },
+    };
     render(<CustomerServices onBookingCreated={onBookingCreated} />);
     fireEvent.click(screen.getByRole("button", { name: "Book" }));
     fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
     fireEvent.change(screen.getByLabelText("Preferred Time"), { target: { value: "08:00" } });
-    fireEvent.change(screen.getByLabelText("Vehicle Model"), { target: { value: "Yamaha NMAX" } });
-    fireEvent.change(screen.getByLabelText("Plate Number"), { target: { value: "MC1234" } });
+    fireEvent.change(screen.getByLabelText("Saved Car"), { target: { value: "CAR-NAVI" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm Booking" }));
     fireEvent.click(screen.getByRole("button", { name: "I am willing to pay the DP" }));
 
-    expect(await screen.findByText("Booking could not be created.")).toBeInTheDocument();
+    expect(await screen.findByText("Selected vehicle does not belong to the customer.")).toBeInTheDocument();
     expect(screen.queryByText("Submitting...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Down Payment Policy" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirm Booking" })).toBeEnabled();
+    expect(screen.getByLabelText("Saved Car")).toHaveValue("CAR-NAVI");
+    expect(screen.getByLabelText("Vehicle Model")).toHaveValue("Honda Navi");
+    expect(screen.getByLabelText("Plate Number")).toHaveValue("11AAA");
+    expect(screen.queryByText("Booking Created")).not.toBeInTheDocument();
     expect(onBookingCreated).not.toHaveBeenCalled();
   });
 
@@ -795,7 +823,7 @@ describe("Customer Profile saved cars and validation", () => {
     mockData = {
       currentUser: {
         ...currentCustomer,
-        cars: [{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }],
+        cars: [{ id: "CAR-VIOS", brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }],
       },
     };
     render(<CustomerBookings />);

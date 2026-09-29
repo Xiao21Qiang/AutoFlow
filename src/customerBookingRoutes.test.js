@@ -22,7 +22,10 @@ const customerUser = {
   userType: "Customer",
   role: "New",
   status: "active",
-  cars: [{ vehicle: "Civic", size: "Sedan / Small Car", plate: "ABC123" }],
+  cars: [
+    { id: "CAR-CIVIC", vehicle: "Civic", size: "Sedan / Small Car", plate: "ABC123" },
+    { id: "CAR-NAVI", brand: "Honda", vehicle: "Honda Navi", size: "Sedan / Small Car", plate: "11AAA" },
+  ],
 };
 const otherCustomer = {
   id: "CUS-2",
@@ -31,7 +34,7 @@ const otherCustomer = {
   userType: "Customer",
   role: "New",
   status: "active",
-  cars: [{ vehicle: "Accord", size: "SUV", plate: "XYZ789" }],
+  cars: [{ id: "CAR-ACCORD", vehicle: "Accord", size: "SUV", plate: "XYZ789" }],
 };
 const adminUser = { id: "ADM-1", email: "admin@example.com", name: "Admin", userType: "Admin", role: "Admin", status: "active" };
 const detailerUser = { id: "STF-1", email: "detailer@example.com", name: "Detailer One", userType: "Staff", role: "Senior Detailer", status: "active" };
@@ -87,6 +90,7 @@ const basePayload = {
   customer: "Spoofed Customer",
   customerEmail: "other@example.com",
   customerId: "CUS-2",
+  selectedCar: "CAR-CIVIC",
   vehicle: "Civic",
   plate: "ABC123",
   carSize: "Sedan / Small Car",
@@ -334,10 +338,24 @@ describe("Customer booking creation route validation", () => {
 
     const accepted = await request("/api/admin/bookings", {
       method: "POST",
-      body: { ...basePayload, service: "Motor Coating", carSize: "Motorcycle" },
+      body: {
+        ...basePayload,
+        selectedCar: "CAR-NAVI",
+        vehicle: "Honda Navi",
+        plate: "11AAA",
+        service: "Motor Coating",
+        carSize: "Motorcycle",
+      },
     });
     expect(accepted.status).toBe(201);
-    expect(bookings[0]).toMatchObject({ service: "Motor Coating", carSize: "Motorcycle", amount: 3899, originalAmount: 3899 });
+    expect(bookings[0]).toMatchObject({
+      vehicle: "Honda Navi",
+      plate: "11AAA",
+      service: "Motor Coating",
+      carSize: "Motorcycle",
+      amount: 3899,
+      originalAmount: 3899,
+    });
   });
 
   test("Car Wash retains the existing four-size model and rejects Motorcycle", async () => {
@@ -359,11 +377,29 @@ describe("Customer booking creation route validation", () => {
   test("a stored vehicle belonging to another customer is rejected", async () => {
     const response = await request("/api/admin/bookings", {
       method: "POST",
-      body: { ...basePayload, vehicle: "Accord", plate: "XYZ789", carSize: "SUV" },
+      body: { ...basePayload, selectedCar: "CAR-ACCORD", vehicle: "Accord", plate: "XYZ789", carSize: "SUV" },
     });
     expect(response.status).toBe(400);
     expect(response.body.message).toMatch(/does not belong|another customer/);
     expect(bookings).toHaveLength(0);
+  });
+
+  test.each([
+    ["forged", "CAR-ACCORD"],
+    ["unknown or stale", "CAR-MISSING"],
+  ])("a %s saved-vehicle identifier is rejected", async (_label, selectedCar) => {
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: { ...basePayload, selectedCar },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      field: "selectedCar",
+      message: "Selected vehicle does not belong to the customer.",
+    });
+    expect(bookings).toHaveLength(0);
+    expect(payments).toHaveLength(0);
   });
 
   test("an unauthenticated request is rejected", async () => {
@@ -812,7 +848,7 @@ describe("Customer engagement route validation", () => {
     const inactiveReward = await request("/api/admin/bookings", {
       method: "POST",
       token: auth(otherCustomer),
-      body: { ...basePayload, vehicle: "Accord", plate: "XYZ789", carSize: "SUV", rewardId: "CR-OTHER" },
+      body: { ...basePayload, selectedCar: "CAR-ACCORD", vehicle: "Accord", plate: "XYZ789", carSize: "SUV", rewardId: "CR-OTHER" },
     });
 
     expect(otherReward.status).toBe(403);

@@ -2,6 +2,7 @@ import "../../styles/css/customer/customerProfileStyle.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { apiRequest } from "../../services/api";
+import { getCustomerVehicleId } from "../../utils/customerVehicles";
 
 function inferBrandFromVehicle(vehicle, brands = []) {
   const vehicleLabel = String(vehicle || "").trim().toLowerCase();
@@ -64,6 +65,7 @@ function normalizeCars(cars) {
   const seen = new Set();
   return cars
     .map((car) => ({
+      id: getCustomerVehicleId(car),
       brand: String(car?.brand || car?.make || "").trim(),
       vehicle: String(car?.vehicle || "").trim(),
       size: CAR_SIZE_OPTIONS.includes(String(car?.size || "").trim()) ? String(car?.size || "").trim() : "",
@@ -79,7 +81,7 @@ function normalizeCars(cars) {
 }
 
 function createEmptyCar() {
-  return { brand: "", vehicle: "", size: "", plate: "" };
+  return { id: "", brand: "", vehicle: "", size: "", plate: "" };
 }
 
 function normalizePlate(value) {
@@ -112,6 +114,7 @@ function validateProfileForm(form) {
 
   const seenPlates = new Set();
   payload.cars = (Array.isArray(form.cars) ? form.cars : []).map((car, index) => {
+    const id = getCustomerVehicleId(car);
     const brand = String(car?.brand || "").trim().replace(/\s+/g, " ");
     const vehicle = String(car?.vehicle || "").trim().replace(/\s+/g, " ");
     const size = String(car?.size || "").trim();
@@ -119,9 +122,10 @@ function validateProfileForm(form) {
     const plate = normalizePlate(rawPlate);
     const values = [brand, vehicle, size, rawPlate];
     const hasAnyValue = values.some((value) => String(value || "").trim());
+    const normalizedCar = { brand, vehicle, size, plate };
 
     if (!hasAnyValue) {
-      return { brand, vehicle, size, plate };
+      return id ? { id, ...normalizedCar } : normalizedCar;
     }
 
     if (!brand) errors[`cars.${index}.brand`] = "Car brand is required.";
@@ -140,7 +144,7 @@ function validateProfileForm(form) {
     else if (seenPlates.has(plate)) errors[`cars.${index}.plate`] = "A saved car with this plate already exists.";
 
     if (plate) seenPlates.add(plate);
-    return { brand, vehicle, size, plate };
+    return id ? { id, ...normalizedCar } : normalizedCar;
   }).filter((car) => car.brand || car.vehicle || car.size || car.plate);
 
   return { payload, errors };

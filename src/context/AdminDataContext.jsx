@@ -540,7 +540,12 @@ export function AdminDataProvider({ children, session }) {
   });
 
   const currentUser = useMemo(() => {
-    const foundUser = data.users.find((user) => user.email === session?.email);
+    const sessionId = String(session?.id || "").trim();
+    const sessionEmail = String(session?.email || "").trim().toLowerCase();
+    const foundUser = data.users.find((user) => (
+      (sessionId && String(user?.id || user?._id || "").trim() === sessionId) ||
+      (sessionEmail && String(user?.email || "").trim().toLowerCase() === sessionEmail)
+    ));
     if (foundUser) return foundUser;
     return currentUserFallback;
   }, [data.users, session, currentUserFallback]);

@@ -288,6 +288,7 @@ const paymentSchema = new mongoose.Schema(
 
 const customerCarSchema = new mongoose.Schema(
   {
+    id: { type: String, default: "" },
     brand: { type: String, default: "" },
     vehicle: { type: String, default: "" },
     size: { type: String, default: "" },

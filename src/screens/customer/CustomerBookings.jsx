@@ -21,6 +21,7 @@ import {
   getPreferredDetailerOptions,
 } from "../../utils/bookingWorkflow";
 import { CANONICAL_BOOKING_STATUSES, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
+import { findCustomerVehicleById, getCustomerVehicleOptions } from "../../utils/customerVehicles";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -92,6 +93,10 @@ function getCustomerBookingSearchText(booking = {}) {
 
 function ModalSelect({ value, options, placeholder, onSelect, invalid = false, ariaLabel, ariaDescribedBy, onBlur, disabled = false }) {
   const [open, setOpen] = useState(false);
+  const normalizedOptions = options.map((option) => (
+    typeof option === "string" ? { value: option, label: option } : option
+  ));
+  const selectedLabel = normalizedOptions.find((option) => option.value === value)?.label || "";
 
   return (
     <div className="clBookSelectWrap clBookModalSelect">
@@ -104,22 +109,22 @@ function ModalSelect({ value, options, placeholder, onSelect, invalid = false, a
         onClick={() => setOpen((prev) => !prev)}
         disabled={disabled}
       >
-        <span>{value || placeholder}</span>
+        <span>{selectedLabel || placeholder}</span>
       </button>
       {open && (
         <div className="clBookModalSelectMenu">
-          {options.map((option) => (
+          {normalizedOptions.map((option) => (
             <button
-              key={option}
+              key={option.value}
               className="clBookModalSelectItem"
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
-                onSelect(option);
+                onSelect(option.value);
                 setOpen(false);
               }}
             >
-              <span>{option}</span>
+              <span>{option.label}</span>
             </button>
           ))}
         </div>
@@ -165,10 +170,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
     () => (Array.isArray(currentUser?.cars) ? currentUser.cars : []).filter((car) => car?.vehicle && car?.plate),
     [currentUser]
   );
-  const carOptions = useMemo(
-    () => savedCars.map((car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}`),
-    [savedCars]
-  );
+  const carOptions = useMemo(() => getCustomerVehicleOptions(savedCars), [savedCars]);
   const preferredDetailerOptions = useMemo(() => getPreferredDetailerOptions(users), [users]);
   const activePromos = useMemo(
     () => promos.filter((promo) => String(promo.status || "").trim().toLowerCase() === "active"),
@@ -229,7 +231,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
 
   useEffect(() => {
     if (!form.selectedCar) return;
-    if (carOptions.includes(form.selectedCar)) return;
+    if (carOptions.some((option) => option.value === form.selectedCar)) return;
     setForm((prev) => ({ ...prev, selectedCar: "" }));
   }, [carOptions, form.selectedCar]);
 
@@ -330,6 +332,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
         date: form.date,
         time: form.time,
         vehicle: String(form.vehicle || "").trim().replace(/\s+/g, " "),
+        selectedCar: form.selectedCar,
         carSize: form.carSize,
         plate: String(form.plate || "").toUpperCase().replace(/[^A-Z0-9-]/g, ""),
         service: form.service,
@@ -534,11 +537,11 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                       value={form.selectedCar}
                       options={carOptions}
                       placeholder="Select saved car"
+                      invalid={Boolean(getTouchedFieldError("selectedCar"))}
                       ariaLabel="Saved Car"
+                      ariaDescribedBy={getTouchedFieldError("selectedCar") ? "customer-booking-saved-car-error" : undefined}
                       onSelect={(option) => {
-                        const selectedCar = savedCars.find(
-                          (car) => `${car.vehicle} | ${String(car.plate).toUpperCase()}` === option
-                        );
+                        const selectedCar = findCustomerVehicleById(savedCars, option);
                         setFieldErrors((prev) => {
                           const next = { ...prev };
                           delete next.selectedCar;
@@ -556,6 +559,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                         }));
                       }}
                     />
+                    {getTouchedFieldError("selectedCar") ? <div id="customer-booking-saved-car-error" className="clBookFieldError">{getTouchedFieldError("selectedCar")}</div> : null}
                   </label>
                 )}
 
@@ -579,6 +583,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                     aria-describedby={getTouchedFieldError("vehicle") ? "customer-booking-vehicle-error" : undefined}
                   />
                   {getTouchedFieldError("vehicle") ? <div id="customer-booking-vehicle-error" className="clBookFieldError">{getTouchedFieldError("vehicle")}</div> : null}
+                  {!carOptions.length && getTouchedFieldError("selectedCar") ? <div className="clBookFieldError">{getTouchedFieldError("selectedCar")}</div> : null}
                 </label>
 
                 <div className="clBookFieldGrid">

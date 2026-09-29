@@ -408,17 +408,33 @@ describe("Customer Phase 2 bootstrap and profile boundaries", () => {
       },
     });
     expect(add.status).toBe(200);
-    expect(add.body.user.cars).toEqual([{ brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" }]);
+    expect(add.body.user.cars).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^CAR-/),
+        brand: "Toyota",
+        vehicle: "Toyota Vios",
+        size: "Sedan / Small Car",
+        plate: "ABC123",
+      }),
+    ]);
     expect(users.find((user) => user.id === "CUS-A").cars).toEqual(add.body.user.cars);
     expect(users.find((user) => user.id === "CUS-B").cars).toEqual([{ brand: "Honda", vehicle: "Honda City", size: "Sedan / Small Car", plate: "BBB222" }]);
 
     const edit = await request("/api/customer/cars?refreshSession=1", {
       method: "PUT",
       token: auth(customerA),
-      body: { cars: [{ brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }] },
+      body: { cars: [{ ...add.body.user.cars[0], brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }] },
     });
     expect(edit.status).toBe(200);
-    expect(edit.body.user.cars).toEqual([{ brand: "Toyota", vehicle: "Toyota Corolla", size: "SUV", plate: "ABC123" }]);
+    expect(edit.body.user.cars).toEqual([
+      expect.objectContaining({
+        id: add.body.user.cars[0].id,
+        brand: "Toyota",
+        vehicle: "Toyota Corolla",
+        size: "SUV",
+        plate: "ABC123",
+      }),
+    ]);
 
     const remove = await request("/api/customer/cars?refreshSession=1", {
       method: "PUT",
@@ -450,6 +466,21 @@ describe("Customer Phase 2 bootstrap and profile boundaries", () => {
     expect(response.body.field).toBe(field);
     expect(response.body.errors[field]).toBeTruthy();
     expect(users.find((user) => user.id === "CUS-A").cars).toEqual([]);
+  });
+
+  test("Customer saved cars reject a forged stable vehicle identifier", async () => {
+    const existingCar = { id: "CAR-OWN", brand: "Toyota", vehicle: "Toyota Vios", size: "Sedan / Small Car", plate: "ABC123" };
+    users.push({ ...customerA, cars: [existingCar] });
+
+    const response = await request("/api/customer/cars", {
+      method: "PUT",
+      token: auth(customerA),
+      body: { cars: [{ ...existingCar, id: "CAR-FORGED" }] },
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.field).toBe("cars.0.id");
+    expect(users.find((user) => user.id === "CUS-A").cars).toEqual([existingCar]);
   });
 
   test("Customer saved car edits do not mutate historical booking snapshots", async () => {

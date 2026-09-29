@@ -145,6 +145,27 @@ describe("AdminDataProvider bootstrap performance behavior", () => {
     expect(apiRequest).toHaveBeenCalledWith("/api/admin/bootstrap");
   });
 
+  test("uses the authoritative bootstrap customer by stable session id when email casing differs", async () => {
+    const customerSession = {
+      id: "CUS-1",
+      email: "customer@example.com",
+      name: "Customer One",
+      userType: "Customer",
+      role: "New",
+      cars: [{ id: "CAR-STALE", vehicle: "Old Car", plate: "OLD111" }],
+    };
+    const authoritativeCustomer = {
+      ...customerSession,
+      email: "Customer@Example.com",
+      cars: [{ id: "CAR-NAVI", vehicle: "Honda Navi", size: "Sedan / Small Car", plate: "11AAA" }],
+    };
+
+    await renderAndResolveInitial(buildPayload({ users: [authoritativeCustomer] }), customerSession);
+
+    expect(context.currentUser).toEqual(authoritativeCustomer);
+    expect(context.currentUser.cars[0].id).toBe("CAR-NAVI");
+  });
+
   test("does not let an old session bootstrap overwrite a newer session", async () => {
     const { rerender } = render(<Harness session={session} onContext={(value) => { context = value; }} />);
     await waitFor(() => expect(requests).toHaveLength(1));

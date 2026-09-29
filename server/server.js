@@ -3557,7 +3557,11 @@ function rejectInvalidPublicAccess(res) {
   res.status(404).json({ message: "Public access record not found." });
 }
 
-function normalizeCustomerCars(cars) {
+function getCustomerCarId(car = {}) {
+  return String(car?.id || car?._id || "").trim();
+}
+
+function normalizeCustomerCars(cars, { assignMissingIds = false } = {}) {
   if (!Array.isArray(cars)) return [];
 
   const allowedSizes = new Set([
@@ -3575,7 +3579,8 @@ function normalizeCustomerCars(cars) {
       const rawSize = String(car?.size || "").trim();
       const size = allowedSizes.has(rawSize) ? rawSize : "";
       const plate = String(car?.plate || "").trim().toUpperCase();
-      return { brand, vehicle, size, plate };
+      const id = getCustomerCarId(car) || (assignMissingIds ? createId("CAR") : "");
+      return { id, brand, vehicle, size, plate };
     })
     .filter((car) => car.vehicle && car.plate)
     .filter((car) => {
@@ -3586,12 +3591,19 @@ function normalizeCustomerCars(cars) {
     });
 }
 
-function validateCustomerSavedCars(cars) {
+function validateCustomerSavedCars(cars, existingCars = []) {
   if (!Array.isArray(cars)) {
     throwValidationError("Saved cars must be a list.", 400, "cars");
   }
 
+  const normalizedExistingCars = normalizeCustomerCars(existingCars);
+  const existingCarsById = new Map(
+    normalizedExistingCars
+      .filter((car) => car.id)
+      .map((car) => [car.id, car])
+  );
   const seenPlates = new Set();
+  const seenIds = new Set();
   return cars.map((car, index) => {
     const prefix = `Saved car ${index + 1}`;
     const brand = String(car?.brand || car?.make || "").trim().replace(/\s+/g, " ");
@@ -3622,7 +3634,21 @@ function validateCustomerSavedCars(cars) {
     }
     seenPlates.add(vehicleSnapshot.plate);
 
+    const requestedId = getCustomerCarId(car);
+    if (requestedId && !existingCarsById.has(requestedId)) {
+      throwValidationError(`${prefix} identifier is invalid.`, 400, `cars.${index}.id`);
+    }
+    const existingMatch = requestedId
+      ? existingCarsById.get(requestedId)
+      : normalizedExistingCars.find((entry) => normalizePlateNumber(entry.plate) === vehicleSnapshot.plate);
+    const id = requestedId || existingMatch?.id || createId("CAR");
+    if (seenIds.has(id)) {
+      throwValidationError("A saved car identifier cannot be reused.", 400, `cars.${index}.id`);
+    }
+    seenIds.add(id);
+
     return {
+      id,
       brand,
       vehicle: vehicleSnapshot.vehicle,
       size: vehicleSnapshot.carSize,
@@ -3816,9 +3842,18 @@ async function validateVehicleOwnershipForBooking({ req, customer = null, isCust
 
   const owner = customer || (isCustomerRequested ? await User.findOne({ id: req.authUser?.id }).lean() : null);
   const ownerCars = normalizeCustomerCars(owner?.cars || []);
-  const submittedKey = getCustomerCarKey(vehicleSnapshot);
+  const selectedCarId = String(req.body.selectedCar || req.body.selectedCarId || "").trim();
 
-  if (ownerCars.length && !ownerCars.some((car) => getCustomerCarKey(car) === submittedKey)) {
+  if (ownerCars.length) {
+    if (isCustomerRequested) {
+      const ownedCar = ownerCars.find((car) => car.id && car.id === selectedCarId);
+      if (!ownedCar || getCustomerCarKey(ownedCar) !== getCustomerCarKey(vehicleSnapshot)) {
+        throwValidationError("Selected vehicle does not belong to the customer.", 400, "selectedCar");
+      }
+    } else if (!ownerCars.some((car) => getCustomerCarKey(car) === getCustomerCarKey(vehicleSnapshot))) {
+      throwValidationError("Selected vehicle does not belong to the customer.", 400, "selectedCar");
+    }
+  } else if (selectedCarId) {
     throwValidationError("Selected vehicle does not belong to the customer.", 400, "selectedCar");
   }
 
@@ -7078,11 +7113,13 @@ async function migrateCustomerCars() {
     $or: [
       { "cars.make": { $exists: true } },
       { "cars.size": { $exists: false } },
+      { "cars.id": { $exists: false } },
+      { "cars.id": "" },
     ],
   });
   for (const user of usersWithLegacyCarShape) {
     ensureUserDocumentId(user);
-    const nextCars = normalizeCustomerCars(user.cars);
+    const nextCars = normalizeCustomerCars(user.cars, { assignMissingIds: true });
     user.cars = nextCars;
     await user.save();
   }
@@ -11147,7 +11184,7 @@ app.put("/api/customer/cars", authenticateApi, requireRoles("customer"), async (
       return;
     }
 
-    const cars = validateCustomerSavedCars(req.body?.cars || []);
+    const cars = validateCustomerSavedCars(req.body?.cars || [], existingUser.cars || []);
     const user = await User.findOneAndUpdate({ id: existingUser.id }, { cars }, { new: true });
     if (!user) {
       res.status(404).json({ message: "Customer profile not found." });
@@ -11669,7 +11706,7 @@ app.put("/api/admin/users/:id", async (req, res, next) => {
     if (nextUserType === "Customer") {
       const bookingCount = await Booking.countDocuments({ customerEmail: String(payload.email || "").trim().toLowerCase() });
       payload.role = bookingCount >= 2 ? "Returning" : "New";
-      payload.cars = normalizeCustomerCars(req.body.cars ?? existingUser.cars);
+      payload.cars = normalizeCustomerCars(req.body.cars ?? existingUser.cars, { assignMissingIds: true });
     } else if (actorType === "admin") {
       payload.cars = [];
     }
