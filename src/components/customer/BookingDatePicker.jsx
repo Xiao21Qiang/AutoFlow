@@ -150,8 +150,7 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
             })}
           </div>
           <div className="bookingCalendarAvailabilityNote">
-            <span className="bookingCalendarLegendBadge" aria-hidden="true">8</span>
-            <span>The number shown on each date indicates the available booking slots remaining for that day.</span>
+            The number shown on each date indicates the available booking slots remaining for that day.
           </div>
         </div>
       )}

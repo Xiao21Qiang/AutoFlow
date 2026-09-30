@@ -195,9 +195,6 @@
 }
 
 .bookingCalendarAvailabilityNote {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-top: 13px;
   padding-top: 11px;
   border-top: 1px solid #edf0f4;
@@ -205,23 +202,6 @@
   font-size: 11px;
   font-weight: 600;
   line-height: 1.4;
-}
-
-.bookingCalendarLegendBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-  border: 1px solid #b8860b;
-  border-radius: 999px;
-  background: #d4a017;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
-  box-shadow: 0 1px 4px rgba(212, 160, 23, 0.24);
 }
 
 @media (max-width: 440px) {

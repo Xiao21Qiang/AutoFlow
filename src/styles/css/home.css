@@ -429,12 +429,6 @@ img {
   border-radius: 14px;
   padding: 14px 16px;
   box-shadow: 0 8px 18px rgba(15,23,42,0.05);
-  transition: border-color 0.2s, transform 0.2s;
-}
-
-.stat:hover {
-  border-color: #d8c08a;
-  transform: translateY(-2px);
 }
 
 .statVal {
@@ -573,12 +567,6 @@ img {
   box-shadow: 0 6px 16px rgba(15,23,42,0.05);
   line-height: 1.1;
   white-space: nowrap;
-  transition: border-color 0.2s, color 0.2s;
-}
-
-.pill:hover {
-  border-color: #d8c08a;
-  color: var(--text);
 }
 
 .pillDot {
@@ -822,32 +810,8 @@ img {
   padding: 18px 18px 16px;
   min-height: 120px;
   box-shadow: 0 8px 18px rgba(15,23,42,0.05);
-  transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
   position: relative;
   overflow: hidden;
-  will-change: transform;
-}
-
-.serviceCard::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #d4a017, transparent);
-  transform: scaleX(0);
-  transition: transform 0.3s ease;
-  z-index: 1;
-}
-
-.serviceCard:hover {
-  border-color: #d8c08a !important;
-  transform: translateY(-5px);
-  background: #fffef9 !important;
-  box-shadow: 0 16px 32px rgba(15,23,42,0.08), 0 0 0 1px rgba(198,162,74,0.12);
-}
-
-.serviceCard:hover::before {
-  transform: scaleX(1);
 }
 
 .serviceTop {
@@ -868,12 +832,6 @@ img {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.serviceCard:hover .serviceIconWrap {
-  background: #f5ead1;
-  border-color: #d2b677;
 }
 
 .serviceIcon {
@@ -917,7 +875,7 @@ img {
   transition: gap 0.2s, color 0.2s;
 }
 
-.serviceCard:hover .serviceLink {
+.serviceLink:hover {
   gap: 9px;
   color: #f0c842;
 }
@@ -945,19 +903,12 @@ img {
   border: 1px solid var(--line);
   background: #fff !important;
   box-shadow: 0 8px 18px rgba(15,23,42,0.05);
-  transition: border-color 0.25s, transform 0.25s;
   /* Let tile height be driven by image aspect ratio */
   aspect-ratio: 4 / 3;
   display: flex;
   align-items: center;
   justify-content: center;
   animation: workShuffleIn 0.6s ease;
-}
-
-.workTile:hover {
-  border-color: #d8c08a;
-  transform: scale(1.02);
-  box-shadow: 0 14px 26px rgba(15,23,42,0.08);
 }
 
 .workImg {
@@ -967,11 +918,6 @@ img {
   object-fit: cover;
   object-position: center;
   background: #f5f1e8;
-  transition: opacity 0.2s;
-}
-
-.workTile:hover .workImg {
-  opacity: 0.85;
 }
 
 @keyframes workShuffleIn {
@@ -1014,12 +960,6 @@ img {
   border-radius: 16px;
   padding: 26px 18px 22px;
   text-align: center;
-  transition: border-color 0.25s, transform 0.25s;
-}
-
-.whyCard:hover {
-  border-color: #d8c08a;
-  transform: translateY(-4px);
 }
 
 .whyTitle {

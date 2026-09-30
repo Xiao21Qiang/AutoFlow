@@ -36,18 +36,22 @@ export default function Navbar() {
     };
   }, [location.pathname]);
 
+  const scrollToDestination = (sectionId) => {
+    if (sectionId === "home") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth" });
+  };
+
   // If already on home, just scroll. If on another page, navigate home then scroll.
   const handleNavClick = (e, sectionId) => {
     e.preventDefault();
     if (isHome) {
-      const el = document.getElementById(sectionId);
-      if (el) el.scrollIntoView({ behavior: "smooth" });
+      scrollToDestination(sectionId);
     } else {
       navigate("/");
-      setTimeout(() => {
-        const el = document.getElementById(sectionId);
-        if (el) el.scrollIntoView({ behavior: "smooth" });
-      }, 120);
+      setTimeout(() => scrollToDestination(sectionId), 120);
     }
   };
 
@@ -68,7 +72,7 @@ export default function Navbar() {
       <div className="nav">
 
         {/* Brand — always goes home */}
-        <Link to="/" className="brand" style={{ textDecoration: "none" }}>
+        <Link to="/" className="brand" style={{ textDecoration: "none" }} onClick={(e) => handleNavClick(e, "home")}>
           <img className="brandLogo" src={logo} alt="All Pro-Tec" />
           <div className="brandText">
             <div className="brandName">ALL PRO-TEC</div>
@@ -78,6 +82,7 @@ export default function Navbar() {
 
         {/* Nav links */}
         <nav className="navLinks">
+          <a className="navLink" href="/" onClick={(e) => handleNavClick(e, "home")}>Home</a>
           <a className="navLink" href="#about"   onClick={(e) => handleNavClick(e, "about")}>About Us</a>
           <a className="navLink" href="#services" onClick={(e) => handleNavClick(e, "services")}>What We Offer</a>
           <a className="navLink" href="#work"     onClick={(e) => handleNavClick(e, "work")}>Portfolio</a>
