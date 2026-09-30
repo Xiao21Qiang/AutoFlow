@@ -34,7 +34,16 @@ function buildCalendarDays(monthDate) {
   });
 }
 
-export default function BookingDatePicker({ value, min, onChange, onBlur, invalid = false, describedBy }) {
+function getAvailabilityForDate(availability, dateKey) {
+  const capacity = Math.max(0, Number(availability?.maxDailyCapacity || 8) || 8);
+  const entry = availability?.byDate?.[dateKey] || {};
+  const availableSlots = Object.prototype.hasOwnProperty.call(entry, "availableSlots")
+    ? Number(entry.availableSlots)
+    : capacity;
+  return Math.min(capacity, Math.max(0, Number.isFinite(availableSlots) ? availableSlots : capacity));
+}
+
+export default function BookingDatePicker({ value, min, onChange, onBlur, invalid = false, describedBy, availability }) {
   const selectedDate = parseDateKey(value);
   const minimumDate = parseDateKey(min);
   const [open, setOpen] = useState(false);
@@ -59,6 +68,7 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
   const selectDate = (date) => {
     const nextValue = toDateKey(date);
     if (min && nextValue < min) return;
+    if (getAvailabilityForDate(availability, nextValue) === 0) return;
     onChange(nextValue);
     setOpen(false);
   };
@@ -118,22 +128,31 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
             {days.map((date) => {
               const dateKey = toDateKey(date);
               const outsideMonth = date.getMonth() !== viewDate.getMonth();
-              const disabled = Boolean(min && dateKey < min);
+              const beforeMinimum = Boolean(min && dateKey < min);
+              const availableSlots = getAvailabilityForDate(availability, dateKey);
+              const fullyBooked = availableSlots === 0;
+              const disabled = beforeMinimum || fullyBooked;
+              const slotLabel = `${availableSlots} available booking slot${availableSlots === 1 ? "" : "s"} remaining`;
               return (
                 <button
-                  className={`${outsideMonth ? "outside" : ""}${dateKey === value ? " selected" : ""}`}
+                  className={`${outsideMonth ? "outside" : ""}${dateKey === value ? " selected" : ""}${fullyBooked ? " fullyBooked" : ""}`}
                   type="button"
                   role="gridcell"
                   key={dateKey}
                   disabled={disabled}
                   aria-label={date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                  title={slotLabel}
                   aria-selected={dateKey === value}
                   onClick={() => selectDate(date)}
                 >
-                  {date.getDate()}
+                  <span className="bookingCalendarDayNumber">{date.getDate()}</span>
+                  {!beforeMinimum ? <span className="bookingCalendarSlotBadge" aria-hidden="true">{availableSlots}</span> : null}
                 </button>
               );
             })}
+          </div>
+          <div className="bookingCalendarAvailabilityNote">
+            The number shown on each date indicates the available booking slots remaining for that day.
           </div>
         </div>
       )}

@@ -102,6 +102,10 @@ jest.mock("./context/AdminDataContext", () => ({
     rewards: [],
     customerRewards: [],
     payments: [],
+    customerBookingAvailability: {
+      maxDailyCapacity: 8,
+      byDate: {},
+    },
     users: [],
     currentUser: currentCustomer,
     createBooking: mockCreateBooking,
@@ -159,6 +163,37 @@ describe("Customer Add New Booking validation", () => {
     openModal();
     await fillValidForm();
     expect(screen.getByRole("button", { name: "Save Booking" })).toBeEnabled();
+  });
+
+  test("New Booking calendar shows available slots remaining for each date", () => {
+    mockData = {
+      customerBookingAvailability: {
+        maxDailyCapacity: 8,
+        byDate: {
+          "2099-12-31": { availableSlots: 5 },
+        },
+      },
+    };
+    openModal();
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
+
+    expect(screen.getByText("The number shown on each date indicates the available booking slots remaining for that day.")).toBeInTheDocument();
+    expect(within(screen.getByRole("gridcell", { name: "December 31, 2099" })).getByText("5")).toBeInTheDocument();
+  });
+
+  test("New Booking calendar makes a zero-slot date unselectable", () => {
+    mockData = {
+      customerBookingAvailability: {
+        maxDailyCapacity: 8,
+        byDate: { "2099-12-31": { availableSlots: 0 } },
+      },
+    };
+    openModal();
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
+
+    expect(screen.getByRole("gridcell", { name: "December 31, 2099" })).toBeDisabled();
   });
 
   test.each([
@@ -506,6 +541,39 @@ describe("Customer Services contextual booking", () => {
     expect(screen.getAllByText("Car Wash").length).toBeGreaterThan(1);
     const timeField = screen.getByLabelText("Preferred Time");
     expect(timeField).toBeEnabled();
+  });
+
+  test("service Book calendar uses the same available-slot count semantics", () => {
+    mockData = {
+      customerBookingAvailability: {
+        maxDailyCapacity: 8,
+        byDate: {
+          "2099-12-31": { availableSlots: 5 },
+        },
+      },
+    };
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
+
+    expect(screen.getByText("The number shown on each date indicates the available booking slots remaining for that day.")).toBeInTheDocument();
+    expect(within(screen.getByRole("gridcell", { name: "December 31, 2099" })).getByText("5")).toBeInTheDocument();
+  });
+
+  test("service Book calendar makes a zero-slot date unselectable", () => {
+    mockData = {
+      customerBookingAvailability: {
+        maxDailyCapacity: 8,
+        byDate: { "2099-12-31": { availableSlots: 0 } },
+      },
+    };
+    render(<CustomerServices />);
+    fireEvent.click(screen.getByRole("button", { name: "Book" }));
+    fireEvent.change(screen.getByLabelText("Preferred Date"), { target: { value: "2099-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
+
+    expect(screen.getByRole("gridcell", { name: "December 31, 2099" })).toBeDisabled();
   });
 
   test("service cards omit slot previews while booking retains canonical time values", () => {

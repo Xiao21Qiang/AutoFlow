@@ -63,7 +63,7 @@ function createEmptyBookingForm(service = null) {
 }
 
 export default function CustomerServices({ onBookingCreated }) {
-  const { services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
+  const { services, customerBookingAvailability, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -542,6 +542,7 @@ export default function CustomerServices({ onBookingCreated }) {
                 <BookingDatePicker
                   min={todayKey}
                   value={bookingForm.date}
+                  availability={customerBookingAvailability}
                   onChange={(value) => setBookingField("date", value)}
                   onBlur={() => markBookingFieldTouched("date")}
                   invalid={Boolean(getBookingFieldError("date"))}

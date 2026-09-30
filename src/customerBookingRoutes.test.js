@@ -231,6 +231,10 @@ beforeAll(async () => {
     payments.push(clone(payload));
     return clone(payload);
   });
+  stub(__testModels.Payment, "find", (query = {}) => {
+    const bookingIds = Array.isArray(query.bookingId?.$in) ? query.bookingId.$in : [];
+    return chain(payments.filter((payment) => !bookingIds.length || bookingIds.includes(payment.bookingId)));
+  });
   stub(__testModels.Payment, "findOne", (query = {}) => {
     const directBookingId = query.bookingId && typeof query.bookingId === "string" ? query.bookingId : "";
     const candidateIds = Array.isArray(query.$or)
@@ -480,6 +484,35 @@ describe("Customer booking creation route validation", () => {
       date: "2099-12-31",
       time: "10:00",
     });
+  });
+
+  test("rejects a stale or crafted customer request when the authoritative date capacity is full", async () => {
+    const fullDateBookings = Array.from({ length: 8 }, (_, index) => ({
+      id: `B-FULL-${index}`,
+      date: basePayload.date,
+      time: "08:00",
+      service: "Car Wash",
+      status: "Scheduled",
+    }));
+    resetData(fullDateBookings);
+    payments.push(...fullDateBookings.map((booking) => ({
+      bookingId: booking.id,
+      downPaymentRequired: false,
+      downPaymentStatus: "Not Required",
+    })));
+
+    const response = await request("/api/admin/bookings", {
+      method: "POST",
+      body: basePayload,
+    });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      field: "date",
+      message: "The selected booking date is fully booked.",
+    });
+    expect(bookings).toHaveLength(8);
+    expect(payments).toHaveLength(8);
   });
 
   test.each([

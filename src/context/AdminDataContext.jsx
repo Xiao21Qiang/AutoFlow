@@ -10,6 +10,10 @@ const PASSIVE_REFRESH_MIN_AGE_MS = 30000;
 
 const INITIAL_DATA = {
   bookings: [],
+  customerBookingAvailability: {
+    maxDailyCapacity: 8,
+    byDate: {},
+  },
   services: [],
   stockMonitoring: [],
   payments: [],

@@ -37,6 +37,7 @@ const expenseDomain = require("./domain/expenses");
 const invoiceDomain = require("./domain/invoices");
 const engagementDomain = require("./domain/engagement");
 const exportDomain = require("./domain/exports");
+const bookingAvailabilityDomain = require("./domain/bookingAvailability");
 const { buildBusinessSummary } = require("./domain/summaries");
 const { DEFAULT_SERVICES, getBuiltInDescriptionBackfill } = require("./defaultServices");
 
@@ -844,6 +845,27 @@ async function validateBookingSlotAvailability({ bookingId = "", date = "", time
     error.message = "That place slot is already booked for the selected date and time.";
     error.statusCode = 409;
     throw error;
+  }
+}
+
+async function validateCustomerBookingDateCapacity(date = "") {
+  const bookingDate = String(date || "").trim();
+  if (!bookingDate) return;
+
+  const sameDayBookings = await Booking.find({ date: bookingDate }).lean();
+  const bookingIds = sameDayBookings
+    .map((booking) => String(booking?.id || "").trim())
+    .filter(Boolean);
+  const sameDayPayments = bookingIds.length
+    ? await Payment.find({ bookingId: { $in: bookingIds } }).lean()
+    : [];
+  const availability = bookingAvailabilityDomain.buildCustomerBookingAvailability({
+    bookings: sameDayBookings,
+    payments: sameDayPayments,
+  });
+
+  if (bookingAvailabilityDomain.getAvailableSlotsForDate(availability, bookingDate) === 0) {
+    throwValidationError("The selected booking date is fully booked.", 409, "date");
   }
 }
 
@@ -7498,6 +7520,10 @@ async function loadBootstrapData({ profiler = null } = {}) {
 
   const payload = {
     bookings: bookings.map((booking) => appendBookingAccessLinks(booking)),
+    customerBookingAvailability: bookingAvailabilityDomain.buildCustomerBookingAvailability({
+      bookings,
+      payments: normalizedPayments,
+    }),
     services: services.map((service) => hydrateService(service)),
     stockMonitoring: normalizedStockMonitoring,
     payments: normalizedPayments,
@@ -7749,6 +7775,10 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
     return {
       ...data,
       bookings: scopedBookings,
+      customerBookingAvailability: data.customerBookingAvailability || bookingAvailabilityDomain.buildCustomerBookingAvailability({
+        bookings: data.bookings,
+        payments: data.payments,
+      }),
       payments: scopedPayments,
       users: [...(ownUser ? [sanitizeUser(ownUser)] : []), ...safePreferredDetailers],
       stockMonitoring: [],
@@ -7878,6 +7908,7 @@ function filterBootstrapDataForRole(data, authUser = {}, options = {}) {
     ...data,
     bookings: [],
     payments: [],
+    customerBookingAvailability: bookingAvailabilityDomain.buildCustomerBookingAvailability(),
     users: ownUser ? [ownUser] : [],
     stockMonitoring: [],
     auditLogs: [],
@@ -8997,6 +9028,7 @@ app.post("/api/admin/bookings", requireRoles("admin", "staff", "customer"), asyn
 
     if (bookingTime && isCustomerRequested) {
       await validateShopHours({ time: bookingTime, service: req.body.service });
+      await validateCustomerBookingDateCapacity(bookingDate);
     } else if (bookingTime && canCreateWithPlaceSlot) {
       await validateBookingSlotAvailability({
         date: bookingDate,
@@ -12718,6 +12750,7 @@ module.exports = {
   buildTrackingIssueNoteAiInput,
   buildAnalyticsFallbackResponse,
   buildFinancialFallbackResponse,
+  bookingAvailabilityDomain,
   canAccessModule,
   canPerformAction,
   canExportReport,

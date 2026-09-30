@@ -134,7 +134,7 @@ function ModalSelect({ value, options, placeholder, onSelect, invalid = false, a
 }
 
 export default function CustomerBookings({ initialAction = null, onActionHandled, onBookingCreated }) {
-  const { bookings, services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
+  const { bookings, customerBookingAvailability, services, promos, rewards, customerRewards, payments, users, currentUser, createBooking, loading } = useAdminData();
   const bookableServices = useMemo(
     () => services.filter((service) => service.name && service.enabled !== false),
     [services]
@@ -522,6 +522,7 @@ export default function CustomerBookings({ initialAction = null, onActionHandled
                   <BookingDatePicker
                     min={todayKey}
                     value={form.date}
+                    availability={customerBookingAvailability}
                     onBlur={() => markFieldTouched("date")}
                     onChange={(value) => setFormField("date", value)}
                     invalid={Boolean(getTouchedFieldError("date"))}
