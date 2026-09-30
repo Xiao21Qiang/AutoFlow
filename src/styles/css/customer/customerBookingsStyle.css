@@ -165,7 +165,7 @@
 }
 
 .clBookModalCard {
-  width: min(100%, 400px);
+  width: min(100%, 460px);
   max-height: 88vh;
   overflow-y: auto;
   background: #fff;

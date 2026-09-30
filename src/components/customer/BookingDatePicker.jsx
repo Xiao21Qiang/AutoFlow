@@ -132,7 +132,6 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
               const availableSlots = getAvailabilityForDate(availability, dateKey);
               const fullyBooked = availableSlots === 0;
               const disabled = beforeMinimum || fullyBooked;
-              const slotLabel = `${availableSlots} available booking slot${availableSlots === 1 ? "" : "s"} remaining`;
               return (
                 <button
                   className={`${outsideMonth ? "outside" : ""}${dateKey === value ? " selected" : ""}${fullyBooked ? " fullyBooked" : ""}`}
@@ -141,7 +140,6 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
                   key={dateKey}
                   disabled={disabled}
                   aria-label={date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-                  title={slotLabel}
                   aria-selected={dateKey === value}
                   onClick={() => selectDate(date)}
                 >
@@ -152,7 +150,8 @@ export default function BookingDatePicker({ value, min, onChange, onBlur, invali
             })}
           </div>
           <div className="bookingCalendarAvailabilityNote">
-            The number shown on each date indicates the available booking slots remaining for that day.
+            <span className="bookingCalendarLegendBadge" aria-hidden="true">8</span>
+            <span>The number shown on each date indicates the available booking slots remaining for that day.</span>
           </div>
         </div>
       )}

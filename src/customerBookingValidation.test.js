@@ -179,7 +179,11 @@ describe("Customer Add New Booking validation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose date" }));
 
     expect(screen.getByText("The number shown on each date indicates the available booking slots remaining for that day.")).toBeInTheDocument();
-    expect(within(screen.getByRole("gridcell", { name: "December 31, 2099" })).getByText("5")).toBeInTheDocument();
+    const selectedDate = screen.getByRole("gridcell", { name: "December 31, 2099" });
+    expect(within(selectedDate).getByText("5")).toBeInTheDocument();
+    expect(selectedDate).toBeEnabled();
+    expect(selectedDate).toHaveAttribute("aria-selected", "true");
+    expect(selectedDate).not.toHaveAttribute("title");
   });
 
   test("New Booking calendar makes a zero-slot date unselectable", () => {
