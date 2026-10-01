@@ -80,3 +80,15 @@ test("keeps the existing lower Our Works section and actions", () => {
   expect(within(works).getByRole("button", { name: "Get a Quote" })).toBeInTheDocument();
   expect(within(works).getByRole("button", { name: "View more work" })).toBeInTheDocument();
 });
+
+test("renders the business contact details while preserving the address and operating hours", () => {
+  const { container } = renderHome();
+  const contactInfo = container.querySelector(".quoteInfoCard");
+
+  expect(within(contactInfo).getByText("0939 902 9262")).toBeInTheDocument();
+  expect(within(contactInfo).getByText("allprotec.carcare@gmail.com")).toBeInTheDocument();
+  expect(within(contactInfo).queryByText("Fast reply")).not.toBeInTheDocument();
+  expect(within(contactInfo).queryByText("Premium care")).not.toBeInTheDocument();
+  expect(within(contactInfo).getByText(/Block 56 Lot 26 Madrid corner Faura Street/)).toBeInTheDocument();
+  expect(within(contactInfo).getByText("Open daily 8:00 am - 5:00 pm")).toBeInTheDocument();
+});

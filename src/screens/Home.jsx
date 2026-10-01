@@ -576,12 +576,10 @@ export default function Home() {
 
                 <div className="miniStack">
                   <div className="miniCard">
-                    <div className="miniTitle">Fast reply</div>
-                    <div className="miniDesc">Within business hours</div>
+                    <div className="miniTitle">0939 902 9262</div>
                   </div>
                   <div className="miniCard">
-                    <div className="miniTitle">Premium care</div>
-                    <div className="miniDesc">Quality-first service</div>
+                    <div className="miniTitle">allprotec.carcare@gmail.com</div>
                   </div>
                 </div>
               </div>
