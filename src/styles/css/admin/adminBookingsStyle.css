@@ -234,6 +234,7 @@
 
 .bookBookingId {
   color: var(--gold-dark);
+  font-weight: 900;
   white-space: nowrap;
 }
 

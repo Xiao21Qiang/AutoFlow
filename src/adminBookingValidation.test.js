@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import fs from "fs";
+import path from "path";
 import AdminBookings from "./screens/admin/AdminBookings";
 import { ACTION_KEYS } from "./utils/rbac";
 import { validateSpecialCredential } from "./utils/reauth";
@@ -166,7 +168,18 @@ describe("Admin Add New Booking validation", () => {
     const bookingId = screen.getByText(bookingIdValue);
     const table = bookingId.closest("table");
     const row = bookingId.closest("tr");
+    const bookingsCss = fs.readFileSync(path.join(__dirname, "styles/css/admin/adminBookingsStyle.css"), "utf8");
+    const trackingCss = fs.readFileSync(path.join(__dirname, "styles/css/admin/adminTrackingStyle.css"), "utf8");
+    const bookingIdRule = bookingsCss.match(/\.bookBookingId\s*\{([^}]*)\}/)?.[1] || "";
+    const trackingIdRule = trackingCss.match(/\.stId\s*\{([^}]*)\}/)?.[1] || "";
+
+    expect(bookingId.tagName).toBe("SPAN");
     expect(bookingId).toHaveClass("bookBookingId");
+    expect(bookingId.parentElement.tagName).toBe("TD");
+    expect(bookingIdRule).toMatch(/color:\s*var\(--gold-dark\)/);
+    expect(bookingIdRule).toMatch(/font-weight:\s*900/);
+    expect(trackingIdRule).toMatch(/color:\s*var\(--gold-dark\)/);
+    expect(trackingIdRule).toMatch(/font-weight:\s*900/);
     expect(bookingId).toHaveTextContent(bookingIdValue);
     expect(within(row).getByText("December 31, 2099")).toBeInTheDocument();
     expect(screen.getByText(longServiceName)).toBeInTheDocument();
