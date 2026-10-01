@@ -143,6 +143,27 @@ beforeEach(() => {
 });
 
 describe("Admin Add New Booking validation", () => {
+  test("renders Booking IDs with the Service Tracking accent style hook", () => {
+    mockData = {
+      bookings: [{
+        id: "B-STYLED",
+        customer: "Customer One",
+        vehicle: "Civic",
+        plate: "ABC123",
+        service: "Ceramic Coating",
+        assigned: "Detailer One",
+        date: "2099-12-31",
+        time: "10:00",
+        placeSlot: 1,
+        status: "Scheduled",
+      }],
+    };
+
+    openModalWithProps();
+
+    expect(screen.getByText("B-STYLED")).toHaveClass("bookBookingId");
+  });
+
   test("Admin Cancelled booking without eligible payment is locked, cannot reschedule, and keeps Admin delete available", () => {
     mockData = {
       promos: [{ id: "PROMO-1", title: "Summer Promo", status: "active", discountType: "Fixed", discountValue: 100 }],

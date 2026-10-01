@@ -156,6 +156,11 @@
   background: #f9fafb;
 }
 
+.bookBookingId {
+  color: var(--gold-dark);
+  font-weight: 900;
+}
+
 .colActions {
   width: 210px;
   text-align: center;

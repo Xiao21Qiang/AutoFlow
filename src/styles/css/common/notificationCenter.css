@@ -165,3 +165,26 @@
   box-shadow: 0 6px 16px rgba(220, 38, 38, 0.28);
   pointer-events: none;
 }
+
+.notifTriggerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.notifTriggerIcon {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+.notifTriggerCount {
+  line-height: 1;
+  white-space: nowrap;
+}

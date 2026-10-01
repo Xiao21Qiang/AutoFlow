@@ -103,6 +103,23 @@ function getRestockFormControls() {
   };
 }
 
+test("Admin Stock Monitoring keeps every authorized row action rendered", () => {
+  useAdminData.mockReturnValue({
+    stockMonitoring: [stockItem],
+    currentUser: { email: "admin@example.com", userType: "Admin", role: "Admin" },
+    createStockMonitoringItem: jest.fn(),
+    updateStockMonitoringItem: jest.fn(),
+    restockStockMonitoringItem: jest.fn(),
+    deleteStockMonitoringItem: jest.fn(),
+  });
+
+  render(<AdminStockMonitoring />);
+
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Restock" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+});
+
 describe.each([
   ["Admin", AdminStockMonitoring],
   ["Staff", StaffStockMonitoring],

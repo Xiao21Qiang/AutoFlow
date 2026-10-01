@@ -1,6 +1,7 @@
 import "../../styles/css/staff/staffMainStyle.css";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import NotificationCenter from "../../components/common/NotificationCenter";
+import NotificationTrigger from "../../components/common/NotificationTrigger";
 
 import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -245,16 +246,14 @@ function StaffMainContent({ session, onLogout }) {
 
             <div className="staffTopRight">
               <div className="staffNotifAnchor">
-                <button
+                <NotificationTrigger
                   className="staffPillBtn"
-                  type="button"
+                  loading={loading}
+                  unreadCount={unreadNotificationCount}
                   onClick={() => {
                     setIsNotificationOpen((prev) => !prev);
                   }}
-                >
-                  {loading ? "Syncing..." : `Notifications${unreadNotificationCount ? ` (${unreadNotificationCount})` : ""}`}
-                </button>
-                {unreadNotificationCount > 0 && <span className="notifTriggerDot" aria-hidden="true" />}
+                />
                 <NotificationCenter
                   open={isNotificationOpen}
                   onClose={() => setIsNotificationOpen(false)}

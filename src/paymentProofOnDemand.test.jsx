@@ -61,6 +61,21 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     validateSpecialCredential.mockResolvedValue(true);
   });
 
+  test("renders the full long payment stage label", () => {
+    useAdminData.mockReturnValue(baseContext({
+      payments: [{
+        ...baseContext().payments[0],
+        status: "Pending",
+        downPaymentStatus: "Paid",
+        finalPaymentStatus: "Pending",
+      }],
+    }));
+
+    render(<PaymentTrackingView role="admin" />);
+
+    expect(screen.getByText("DP Paid / Balance Pending")).toBeInTheDocument();
+  });
+
   test("opens selected proof on demand without preloading list proofs", async () => {
     const proofRequest = createDeferred();
     const loadPaymentProof = jest.fn(() => proofRequest.promise);

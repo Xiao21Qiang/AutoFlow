@@ -523,7 +523,7 @@ export default function AdminBookings({ initialAction = null, onActionHandled, a
         const canRescheduleRow = canRescheduleCancelledBooking(b);
         const canDeleteRow = allowDelete && isCancelledStatus(b.status);
         return (
-          <tr key={b.id}><td>{b.id}</td><td>{formatDate(b.date)}</td><td>{b.customer}</td><td>{b.vehicle}</td><td>{b.plate || "-"}</td><td>{b.service}</td><td>{b.assigned}</td><td className="colActions"><div className="bookRowActions"><button className="editBtn" type="button" onClick={() => openEditModal(b)}>Edit</button>{canRescheduleRow ? <button className="editBtn bookActionReschedule" type="button" onClick={() => openRescheduleModal(b)}>Reschedule</button> : null}{canDeleteRow ? <button className="editBtn bookActionDelete" type="button" aria-label={`Delete ${b.id}`} onClick={() => openDeleteConfirm(b)}>Delete</button> : null}</div></td></tr>
+          <tr key={b.id}><td className="bookBookingId">{b.id}</td><td>{formatDate(b.date)}</td><td>{b.customer}</td><td>{b.vehicle}</td><td>{b.plate || "-"}</td><td>{b.service}</td><td>{b.assigned}</td><td className="colActions"><div className="bookRowActions"><button className="editBtn" type="button" onClick={() => openEditModal(b)}>Edit</button>{canRescheduleRow ? <button className="editBtn bookActionReschedule" type="button" onClick={() => openRescheduleModal(b)}>Reschedule</button> : null}{canDeleteRow ? <button className="editBtn bookActionDelete" type="button" aria-label={`Delete ${b.id}`} onClick={() => openDeleteConfirm(b)}>Delete</button> : null}</div></td></tr>
         );
       })}</tbody></table></div>
 

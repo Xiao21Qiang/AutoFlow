@@ -1,6 +1,7 @@
 import "../../styles/css/admin/adminMainStyle.css";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import NotificationCenter from "../../components/common/NotificationCenter";
+import NotificationTrigger from "../../components/common/NotificationTrigger";
 
 import { useMemo, useState, useEffect } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
@@ -286,16 +287,14 @@ function AdminMainContent({ session }) {
 
             <div className="topRight">
               <div className="notifAnchor">
-                <button
+                <NotificationTrigger
                   className="pillBtn"
-                  type="button"
+                  loading={loading}
+                  unreadCount={unreadNotificationCount}
                   onClick={() => {
                     setIsNotificationOpen((prev) => !prev);
                   }}
-                >
-                  {loading ? "Syncing..." : `Notifications${unreadNotificationCount ? ` (${unreadNotificationCount})` : ""}`}
-                </button>
-                {unreadNotificationCount > 0 && <span className="notifTriggerDot" aria-hidden="true" />}
+                />
                 <NotificationCenter
                   open={isNotificationOpen}
                   onClose={() => setIsNotificationOpen(false)}

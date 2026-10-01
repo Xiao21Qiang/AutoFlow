@@ -117,7 +117,7 @@
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
-  overflow: hidden;
+  overflow-x: auto;
   width: 100%;
 }
 
@@ -229,6 +229,7 @@
 
 .invTable {
   width: 100%;
+  min-width: 1080px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -290,7 +291,7 @@
 
 .invTable th:nth-child(8),
 .invTable td:nth-child(8) {
-  width: 180px;
+  width: 250px;
   text-align: center;
 }
 
@@ -343,6 +344,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  min-width: max-content;
 }
 
 .invMiniBtn {
@@ -355,6 +357,8 @@
   font-size: 13px;
   font-weight: 900;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .invMiniBtn:hover {
@@ -621,16 +625,6 @@
   font-weight: 900;
   color: #334155;
   background: #f8fafc;
-}
-
-@media (max-width: 1080px) {
-  .invBoard {
-    overflow-x: auto;
-  }
-
-  .invTable {
-    min-width: 940px;
-  }
 }
 
 @media (max-width: 720px) {

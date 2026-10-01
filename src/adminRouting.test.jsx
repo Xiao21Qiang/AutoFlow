@@ -102,6 +102,19 @@ test.each(canonicalRoutes)("%s renders the canonical Admin module and active sid
   expect(window.location.pathname).toBe(path);
 });
 
+test("notification bell keeps the existing accessible dropdown interaction", async () => {
+  renderAt("/admin");
+
+  const notificationButton = screen.getByRole("button", { name: "Notifications" });
+  expect(notificationButton.querySelector(".notifTriggerIcon")).toBeInTheDocument();
+  expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
+
+  await userEvent.click(notificationButton);
+
+  expect(screen.getByText("Notifications")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Mark Read" })).toBeInTheDocument();
+});
+
 test("sidebar navigation updates the URL and derives active state from location", async () => {
   renderAt("/admin");
 
