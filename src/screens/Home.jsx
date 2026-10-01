@@ -82,13 +82,8 @@ function LandingPortfolioCarousel() {
   );
 
   return (
-    <section className="landingPortfolioCarouselSection" aria-labelledby="landing-portfolio-carousel-title">
+    <section className="landingPortfolioCarouselSection" aria-label="Portfolio highlights">
       <Container>
-        <div className="landingPortfolioCarouselHeader">
-          <div className="sectionLabel">Portfolio</div>
-          <h2 id="landing-portfolio-carousel-title" className="landingPortfolioCarouselTitle">Our Works</h2>
-        </div>
-
         <div
           className="landingPortfolioCarouselViewport"
           role="region"

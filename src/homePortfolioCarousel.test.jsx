@@ -42,6 +42,8 @@ test("places the portfolio carousel directly after the Navbar and before the unc
   expect(navbar.nextElementSibling).toBe(main);
   expect(main.firstElementChild).toBe(carousel);
   expect(carousel.nextElementSibling).toBe(hero);
+  expect(within(carousel).queryByText("Portfolio")).not.toBeInTheDocument();
+  expect(within(carousel).queryByRole("heading", { name: "Our Works" })).not.toBeInTheDocument();
   expect(hero.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByText("All Pro-Tec: Premium Care Built on Real Experience")).toBeInTheDocument();
   expect(screen.queryByText("Total Bookings")).not.toBeInTheDocument();
@@ -73,6 +75,7 @@ test("keeps the existing lower Our Works section and actions", () => {
   const { container } = renderHome();
   const works = container.querySelector("#work");
 
+  expect(within(works).getByText("Portfolio")).toBeInTheDocument();
   expect(within(works).getByRole("heading", { name: "Our Works" })).toBeInTheDocument();
   expect(within(works).getByRole("button", { name: "Get a Quote" })).toBeInTheDocument();
   expect(within(works).getByRole("button", { name: "View more work" })).toBeInTheDocument();
