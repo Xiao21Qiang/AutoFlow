@@ -143,14 +143,15 @@ beforeEach(() => {
 });
 
 describe("Admin Add New Booking validation", () => {
-  test("renders Booking IDs with the Service Tracking accent style hook", () => {
+  test("renders unchanged booking data inside the dedicated table scroll wrapper", () => {
+    const longServiceName = "[PLATINUM] Graphene + PPF (4 Door Bowls + Hood + Roof + 2 Stepsils)";
     mockData = {
       bookings: [{
         id: "B-STYLED",
         customer: "Customer One",
         vehicle: "Civic",
         plate: "ABC123",
-        service: "Ceramic Coating",
+        service: longServiceName,
         assigned: "Detailer One",
         date: "2099-12-31",
         time: "10:00",
@@ -161,7 +162,15 @@ describe("Admin Add New Booking validation", () => {
 
     openModalWithProps();
 
-    expect(screen.getByText("B-STYLED")).toHaveClass("bookBookingId");
+    const bookingId = screen.getByText("B-STYLED");
+    const table = bookingId.closest("table");
+    const row = bookingId.closest("tr");
+    expect(bookingId).toHaveClass("bookBookingId");
+    expect(screen.getByText(longServiceName)).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(table).toHaveClass("tbl");
+    expect(table.parentElement).toHaveClass("bookTableScroll");
+    expect(table.parentElement.parentElement).toHaveClass("tableCard");
   });
 
   test("Admin Cancelled booking without eligible payment is locked, cannot reschedule, and keeps Admin delete available", () => {

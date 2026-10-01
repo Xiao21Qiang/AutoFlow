@@ -122,6 +122,7 @@ describe("Admin Service Tracking assignment editing", () => {
   test("displays current assigned staff in an editable Admin control with eligible options only", () => {
     openEditModal();
 
+    expect(screen.getByText("B-1")).toHaveClass("stId");
     const select = assignedSelect();
     expect(select).toBeEnabled();
     expect(select).toHaveValue("Detailer One");

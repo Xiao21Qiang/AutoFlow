@@ -4,6 +4,7 @@
 
 .bookingsWrap {
   width: 100%;
+  min-width: 0;
   padding: 10px 14px 14px;
   background: var(--bg);
   flex: 1;
@@ -115,17 +116,53 @@
 
 .tableCard {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
   overflow: hidden;
 }
 
+.bookTableScroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
 .tbl {
   width: 100%;
+  min-width: 1340px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 14px;
 }
+
+.tbl th:nth-child(1),
+.tbl td:nth-child(1) { width: 110px; }
+
+.tbl th:nth-child(2),
+.tbl td:nth-child(2) { width: 120px; }
+
+.tbl th:nth-child(3),
+.tbl td:nth-child(3) { width: 150px; }
+
+.tbl th:nth-child(4),
+.tbl td:nth-child(4) { width: 145px; }
+
+.tbl th:nth-child(5),
+.tbl td:nth-child(5) { width: 110px; }
+
+.tbl th:nth-child(6),
+.tbl td:nth-child(6) { width: 320px; }
+
+.tbl th:nth-child(7),
+.tbl td:nth-child(7) { width: 145px; }
+
+.tbl th:nth-child(8),
+.tbl td:nth-child(8) { width: 240px; }
 
 .tbl thead tr th {
   padding: 10px 12px;
@@ -146,6 +183,13 @@
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   background: #fff;
+  vertical-align: top;
+}
+
+.tbl tbody td:nth-child(6) {
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .tbl tbody tr:last-child td {
@@ -157,8 +201,7 @@
 }
 
 .bookBookingId {
-  color: var(--gold-dark);
-  font-weight: 900;
+  color: #0f172a;
 }
 
 .colActions {
@@ -183,6 +226,10 @@
   font-weight: 950;
   cursor: pointer;
   color: #111827;
+  flex-shrink: 0;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .editBtn:hover {
@@ -825,14 +872,6 @@
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
-  .tableCard {
-    overflow-x: auto;
-  }
-
-  .tbl {
-    min-width: 940px;
-  }
-
   .bookIssueLayout {
     grid-template-columns: 1fr;
   }

@@ -115,6 +115,10 @@ test("Admin Stock Monitoring keeps every authorized row action rendered", () => 
 
   render(<AdminStockMonitoring />);
 
+  const table = screen.getByRole("table");
+  expect(table).toHaveClass("invTable");
+  expect(table.parentElement).toHaveClass("invTableScroll");
+  expect(table.parentElement.parentElement).toHaveClass("invBoard");
   expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Restock" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
