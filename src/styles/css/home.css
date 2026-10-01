@@ -643,6 +643,129 @@ img {
 }
 
 /* =========================
+   TOP PORTFOLIO CAROUSEL
+========================= */
+.landingPortfolioCarouselSection {
+  padding: 34px 0 4px;
+}
+
+.landingPortfolioCarouselSection .container {
+  padding-bottom: 0;
+}
+
+.landingPortfolioCarouselHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.landingPortfolioCarouselTitle {
+  margin: 4px 0 0;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: 1px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.landingPortfolioCarouselControls {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.landingPortfolioCarouselControl {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07);
+}
+
+.landingPortfolioCarouselControl::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+
+.landingPortfolioCarouselControlPrev::before {
+  transform: rotate(-135deg);
+  margin-left: 4px;
+}
+
+.landingPortfolioCarouselControlNext::before {
+  transform: rotate(45deg);
+  margin-right: 4px;
+}
+
+.landingPortfolioCarouselControl:hover {
+  background: var(--gold);
+  border-color: var(--goldDark);
+}
+
+.landingPortfolioCarouselControl:focus-visible {
+  outline: 3px solid rgba(198, 162, 74, 0.35);
+  outline-offset: 2px;
+}
+
+.landingPortfolioCarouselViewport {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.landingPortfolioCarouselTrack {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.landingPortfolioCarouselSlide {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.landingPortfolioCarouselSlide:nth-child(n + 4) {
+  display: none;
+}
+
+.landingPortfolioCarouselImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.landingPortfolioCarouselStatus {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =========================
    ABOUT
 ========================= */
 .aboutBody {
@@ -1330,6 +1453,14 @@ textarea.input,
   .sectionTitle {
     font-size: 28px;
   }
+
+  .landingPortfolioCarouselTrack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .landingPortfolioCarouselSlide:nth-child(n + 3) {
+    display: none;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1394,5 +1525,21 @@ textarea.input,
   .footerInner {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .landingPortfolioCarouselSection {
+    padding-top: 26px;
+  }
+
+  .landingPortfolioCarouselTitle {
+    font-size: 28px;
+  }
+
+  .landingPortfolioCarouselTrack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landingPortfolioCarouselSlide:nth-child(n + 2) {
+    display: none;
   }
 }
