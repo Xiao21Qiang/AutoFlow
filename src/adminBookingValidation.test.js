@@ -144,10 +144,11 @@ beforeEach(() => {
 
 describe("Admin Add New Booking validation", () => {
   test("renders unchanged booking data inside the dedicated table scroll wrapper", () => {
+    const bookingIdValue = "B-1790822611607-208";
     const longServiceName = "[PLATINUM] Graphene + PPF (4 Door Bowls + Hood + Roof + 2 Stepsils)";
     mockData = {
       bookings: [{
-        id: "B-STYLED",
+        id: bookingIdValue,
         customer: "Customer One",
         vehicle: "Civic",
         plate: "ABC123",
@@ -162,10 +163,12 @@ describe("Admin Add New Booking validation", () => {
 
     openModalWithProps();
 
-    const bookingId = screen.getByText("B-STYLED");
+    const bookingId = screen.getByText(bookingIdValue);
     const table = bookingId.closest("table");
     const row = bookingId.closest("tr");
     expect(bookingId).toHaveClass("bookBookingId");
+    expect(bookingId).toHaveTextContent(bookingIdValue);
+    expect(within(row).getByText("December 31, 2099")).toBeInTheDocument();
     expect(screen.getByText(longServiceName)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(table).toHaveClass("tbl");

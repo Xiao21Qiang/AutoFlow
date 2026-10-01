@@ -1,5 +1,6 @@
 .stInvWrap {
   width: 100%;
+  min-width: 0;
   padding: 10px 14px 14px;
   background: var(--bg);
   flex: 1;
@@ -108,10 +109,20 @@
 
 .stInvCard {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
   overflow: hidden;
+}
+
+.stInvTableScroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
 .stInvGuidePanel {
@@ -222,9 +233,35 @@
 
 .stInvTbl {
   width: 100%;
+  min-width: 1230px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 14px;
 }
+
+.stInvTbl th:nth-child(1),
+.stInvTbl td:nth-child(1) { width: 100px; }
+
+.stInvTbl th:nth-child(2),
+.stInvTbl td:nth-child(2) { width: 180px; }
+
+.stInvTbl th:nth-child(3),
+.stInvTbl td:nth-child(3) { width: 130px; }
+
+.stInvTbl th:nth-child(4),
+.stInvTbl td:nth-child(4) { width: 120px; }
+
+.stInvTbl th:nth-child(5),
+.stInvTbl td:nth-child(5) { width: 110px; }
+
+.stInvTbl th:nth-child(6),
+.stInvTbl td:nth-child(6) { width: 170px; }
+
+.stInvTbl th:nth-child(7),
+.stInvTbl td:nth-child(7) { width: 140px; }
+
+.stInvTbl th:nth-child(8),
+.stInvTbl td:nth-child(8) { width: 280px; }
 
 .stInvTbl thead tr th {
   padding: 10px 12px;
@@ -256,7 +293,7 @@
 }
 
 .stInvColActions {
-  width: 180px;
+  width: 280px;
   text-align: center;
 }
 
@@ -307,7 +344,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  justify-content: flex-end;
+  justify-content: center;
+  min-width: max-content;
 }
 
 .stInvMiniBtn {
@@ -320,6 +358,10 @@
   font-size: 13px;
   font-weight: 900;
   cursor: pointer;
+  flex-shrink: 0;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .stInvMiniBtn:hover {
@@ -606,14 +648,6 @@
 
   .stInvLegendList {
     grid-template-columns: 1fr;
-  }
-
-  .stInvCard {
-    overflow-x: auto;
-  }
-
-  .stInvTbl {
-    min-width: 980px;
   }
 
   .stInvFieldGrid {

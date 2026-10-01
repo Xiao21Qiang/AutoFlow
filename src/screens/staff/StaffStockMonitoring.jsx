@@ -433,7 +433,8 @@ export default function StaffStockMonitoring() {
       </div>
 
       <div className="stInvCard">
-        <table className="stInvTbl">
+        <div className="stInvTableScroll">
+          <table className="stInvTbl">
           <thead>
             <tr className="stInvGuideHeadRow">
               <th colSpan={8}>
@@ -525,7 +526,8 @@ export default function StaffStockMonitoring() {
               </tr>
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <div className="stInvPagerRow">

@@ -124,6 +124,28 @@ test("Admin Stock Monitoring keeps every authorized row action rendered", () => 
   expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
 });
 
+test.each(["General Manager", "Inventory Clerk"])("%s Staff Stock Monitoring keeps its responsive wrapper and authorized actions", (role) => {
+  useAdminData.mockReturnValue({
+    stockMonitoring: [stockItem],
+    currentUser: { email: `${role.toLowerCase().replaceAll(" ", ".")}@example.com`, userType: "Staff", role },
+    createStockMonitoringItem: jest.fn(),
+    updateStockMonitoringItem: jest.fn(),
+    restockStockMonitoringItem: jest.fn(),
+    deleteStockMonitoringItem: jest.fn(),
+  });
+
+  render(<StaffStockMonitoring />);
+
+  const table = screen.getByRole("table");
+  expect(table).toHaveClass("stInvTbl");
+  expect(table.parentElement).toHaveClass("stInvTableScroll");
+  expect(table.parentElement.parentElement).toHaveClass("stInvCard");
+  expect(screen.getByRole("button", { name: "Add New Item" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Restock" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+});
+
 describe.each([
   ["Admin", AdminStockMonitoring],
   ["Staff", StaffStockMonitoring],
