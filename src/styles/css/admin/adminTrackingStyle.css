@@ -150,7 +150,7 @@
 
 .stId {
   font-weight: 900;
-  color: #0f172a;
+  color: var(--gold-dark);
 }
 
 .stEmptyRow {

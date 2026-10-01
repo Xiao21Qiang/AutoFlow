@@ -233,7 +233,7 @@
 }
 
 .bookBookingId {
-  color: #0f172a;
+  color: var(--gold-dark);
   white-space: nowrap;
 }
 
