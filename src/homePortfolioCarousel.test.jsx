@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { apiRequest } from "./services/api";
 
@@ -27,39 +27,46 @@ function renderHome() {
   );
 }
 
-test("places the portfolio carousel between the unchanged Hero and About sections", () => {
+test("places the portfolio carousel directly after the Navbar and before the unchanged Hero and About sections", () => {
   const { container } = renderHome();
+  const page = container.querySelector(".page");
+  const navbar = container.querySelector(".navWrap");
   const main = container.querySelector("main");
   const hero = container.querySelector(".heroBackdrop");
   const carousel = container.querySelector(".landingPortfolioCarouselSection");
   const about = container.querySelector("#about");
 
+  expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: /Premium protection & advanced car care/i })).toBeInTheDocument();
-  expect(main.firstElementChild).toBe(hero);
-  expect(hero.compareDocumentPosition(carousel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(carousel.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(page.firstElementChild).toBe(navbar);
+  expect(navbar.nextElementSibling).toBe(main);
+  expect(main.firstElementChild).toBe(carousel);
+  expect(carousel.nextElementSibling).toBe(hero);
+  expect(hero.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByText("All Pro-Tec: Premium Care Built on Real Experience")).toBeInTheDocument();
+  expect(screen.queryByText("Total Bookings")).not.toBeInTheDocument();
 });
 
-test("reuses the existing portfolio imagery and wraps manual navigation", () => {
+test("reuses the existing portfolio imagery in an accessible duplicated looping track without controls", () => {
   const { container } = renderHome();
   const carousel = container.querySelector(".landingPortfolioCarouselSection");
   const works = container.querySelector("#work");
-  const carouselImages = () => within(carousel).getAllByRole("img");
+  const track = carousel.querySelector(".landingPortfolioCarouselTrack");
+  const sequences = carousel.querySelectorAll(".landingPortfolioCarouselSequence");
+  const carouselImages = within(carousel).getAllByRole("img");
   const existingWorkImages = within(works).getAllByRole("img");
 
-  expect(carouselImages().map((image) => image.getAttribute("src"))).toEqual(
+  expect(carouselImages.map((image) => image.getAttribute("src"))).toEqual(
     existingWorkImages.map((image) => image.getAttribute("src"))
   );
-  expect(within(carousel).getByRole("button", { name: "Previous portfolio images" })).toBeInTheDocument();
-  expect(within(carousel).getByRole("button", { name: "Next portfolio images" })).toBeInTheDocument();
-
-  fireEvent.click(within(carousel).getByRole("button", { name: "Next portfolio images" }));
-  expect(carouselImages()[0]).toHaveAccessibleName("All Pro-Tec portfolio work 2");
-  fireEvent.click(within(carousel).getByRole("button", { name: "Previous portfolio images" }));
-  expect(carouselImages()[0]).toHaveAccessibleName("All Pro-Tec portfolio work 1");
-  fireEvent.click(within(carousel).getByRole("button", { name: "Previous portfolio images" }));
-  expect(carouselImages()[0]).toHaveAccessibleName("All Pro-Tec portfolio work 6");
+  expect(track).toContainElement(sequences[0]);
+  expect(track).toContainElement(sequences[1]);
+  expect(sequences).toHaveLength(2);
+  expect(sequences[0].querySelectorAll("img")).toHaveLength(6);
+  expect(sequences[1].querySelectorAll("img")).toHaveLength(6);
+  expect(sequences[1]).toHaveAttribute("aria-hidden", "true");
+  expect(within(carousel).queryByRole("button", { name: "Previous portfolio images" })).not.toBeInTheDocument();
+  expect(within(carousel).queryByRole("button", { name: "Next portfolio images" })).not.toBeInTheDocument();
 });
 
 test("keeps the existing lower Our Works section and actions", () => {

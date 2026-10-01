@@ -646,7 +646,7 @@ img {
    TOP PORTFOLIO CAROUSEL
 ========================= */
 .landingPortfolioCarouselSection {
-  padding: 34px 0 4px;
+  padding: 18px 0 0;
 }
 
 .landingPortfolioCarouselSection .container {
@@ -654,11 +654,7 @@ img {
 }
 
 .landingPortfolioCarouselHeader {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .landingPortfolioCarouselTitle {
@@ -671,54 +667,6 @@ img {
   color: var(--text);
 }
 
-.landingPortfolioCarouselControls {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.landingPortfolioCarouselControl {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07);
-}
-
-.landingPortfolioCarouselControl::before {
-  content: "";
-  width: 9px;
-  height: 9px;
-  border-top: 2px solid currentColor;
-  border-right: 2px solid currentColor;
-}
-
-.landingPortfolioCarouselControlPrev::before {
-  transform: rotate(-135deg);
-  margin-left: 4px;
-}
-
-.landingPortfolioCarouselControlNext::before {
-  transform: rotate(45deg);
-  margin-right: 4px;
-}
-
-.landingPortfolioCarouselControl:hover {
-  background: var(--gold);
-  border-color: var(--goldDark);
-}
-
-.landingPortfolioCarouselControl:focus-visible {
-  outline: 3px solid rgba(198, 162, 74, 0.35);
-  outline-offset: 2px;
-}
-
 .landingPortfolioCarouselViewport {
   width: 100%;
   max-width: 100%;
@@ -726,13 +674,25 @@ img {
 }
 
 .landingPortfolioCarouselTrack {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  width: max-content;
+  animation: landingPortfolioCarouselLoop 32s linear infinite;
+  will-change: transform;
+}
+
+.landingPortfolioCarouselViewport:hover .landingPortfolioCarouselTrack {
+  animation-play-state: paused;
+}
+
+.landingPortfolioCarouselSequence {
+  display: flex;
+  flex-shrink: 0;
   gap: 14px;
+  padding-right: 14px;
 }
 
 .landingPortfolioCarouselSlide {
-  min-width: 0;
+  flex: 0 0 calc((min(1120px, calc(100vw - 40px)) - 28px) / 3);
   margin: 0;
   overflow: hidden;
   aspect-ratio: 4 / 3;
@@ -742,10 +702,6 @@ img {
   box-shadow: var(--shadow);
 }
 
-.landingPortfolioCarouselSlide:nth-child(n + 4) {
-  display: none;
-}
-
 .landingPortfolioCarouselImage {
   width: 100%;
   height: 100%;
@@ -753,16 +709,14 @@ img {
   object-position: center;
 }
 
-.landingPortfolioCarouselStatus {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+@keyframes landingPortfolioCarouselLoop {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 /* =========================
@@ -1454,12 +1408,8 @@ textarea.input,
     font-size: 28px;
   }
 
-  .landingPortfolioCarouselTrack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .landingPortfolioCarouselSlide:nth-child(n + 3) {
-    display: none;
+  .landingPortfolioCarouselSlide {
+    flex-basis: calc((100vw - 54px) / 2);
   }
 }
 
@@ -1480,6 +1430,10 @@ textarea.input,
   .container,
   .footerInner {
     width: min(1120px, calc(100% - 24px));
+  }
+
+  .landingPortfolioCarouselSlide {
+    flex-basis: calc((100vw - 38px) / 2);
   }
 }
 
@@ -1528,18 +1482,50 @@ textarea.input,
   }
 
   .landingPortfolioCarouselSection {
-    padding-top: 26px;
+    padding-top: 14px;
   }
 
   .landingPortfolioCarouselTitle {
     font-size: 28px;
   }
 
+  .landingPortfolioCarouselSlide {
+    flex-basis: calc(100vw - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
   .landingPortfolioCarouselTrack {
-    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    animation: none;
+    transform: none;
+    will-change: auto;
   }
 
-  .landingPortfolioCarouselSlide:nth-child(n + 2) {
+  .landingPortfolioCarouselSequence {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-right: 0;
+  }
+
+  .landingPortfolioCarouselSequence[aria-hidden="true"] {
     display: none;
+  }
+
+  .landingPortfolioCarouselSlide {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 980px) {
+  .landingPortfolioCarouselSequence {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 520px) {
+  .landingPortfolioCarouselSequence {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

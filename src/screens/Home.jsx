@@ -64,38 +64,29 @@ const SERVICES = [
 const WORKS = [work1, work2, work3, work4, work5, work1];
 
 function LandingPortfolioCarousel() {
-  const [startIndex, setStartIndex] = useState(0);
-  const orderedWorks = WORKS.map((_, offset) => {
-    const originalIndex = (startIndex + offset) % WORKS.length;
-    return { src: WORKS[originalIndex], originalIndex };
-  });
-
-  const move = (direction) => {
-    setStartIndex((current) => (current + direction + WORKS.length) % WORKS.length);
-  };
+  const renderSequence = (isDuplicate = false) => (
+    <div
+      className="landingPortfolioCarouselSequence"
+      aria-hidden={isDuplicate ? "true" : undefined}
+    >
+      {WORKS.map((src, index) => (
+        <figure className="landingPortfolioCarouselSlide" key={index}>
+          <img
+            className="landingPortfolioCarouselImage"
+            src={src}
+            alt={isDuplicate ? "" : `All Pro-Tec portfolio work ${index + 1}`}
+          />
+        </figure>
+      ))}
+    </div>
+  );
 
   return (
     <section className="landingPortfolioCarouselSection" aria-labelledby="landing-portfolio-carousel-title">
       <Container>
         <div className="landingPortfolioCarouselHeader">
-          <div>
-            <div className="sectionLabel">Portfolio</div>
-            <h2 id="landing-portfolio-carousel-title" className="landingPortfolioCarouselTitle">Our Works</h2>
-          </div>
-          <div className="landingPortfolioCarouselControls">
-            <button
-              type="button"
-              className="landingPortfolioCarouselControl landingPortfolioCarouselControlPrev"
-              aria-label="Previous portfolio images"
-              onClick={() => move(-1)}
-            />
-            <button
-              type="button"
-              className="landingPortfolioCarouselControl landingPortfolioCarouselControlNext"
-              aria-label="Next portfolio images"
-              onClick={() => move(1)}
-            />
-          </div>
+          <div className="sectionLabel">Portfolio</div>
+          <h2 id="landing-portfolio-carousel-title" className="landingPortfolioCarouselTitle">Our Works</h2>
         </div>
 
         <div
@@ -105,20 +96,10 @@ function LandingPortfolioCarousel() {
           aria-roledescription="carousel"
         >
           <div className="landingPortfolioCarouselTrack">
-            {orderedWorks.map(({ src, originalIndex }) => (
-              <figure className="landingPortfolioCarouselSlide" key={originalIndex}>
-                <img
-                  className="landingPortfolioCarouselImage"
-                  src={src}
-                  alt={`All Pro-Tec portfolio work ${originalIndex + 1}`}
-                />
-              </figure>
-            ))}
+            {renderSequence()}
+            {renderSequence(true)}
           </div>
         </div>
-        <p className="landingPortfolioCarouselStatus" aria-live="polite">
-          Showing portfolio image {startIndex + 1} of {WORKS.length}
-        </p>
       </Container>
     </section>
   );
@@ -258,6 +239,8 @@ export default function Home() {
       <Navbar />
 
       <main>
+        <LandingPortfolioCarousel />
+
         <section
           className="heroBackdrop"
           style={{ "--hero-photo": `url(${heroBackground})` }}
@@ -340,8 +323,6 @@ export default function Home() {
             </section>
           </Container>
         </section>
-
-        <LandingPortfolioCarousel />
 
         <Container>
 
