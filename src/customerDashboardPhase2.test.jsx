@@ -1,4 +1,12 @@
-import { buildCustomerDashboardViewModel } from "./screens/customer/CustomerDashboard";
+import fs from "fs";
+import path from "path";
+import { fireEvent, render, screen } from "@testing-library/react";
+import CustomerDashboard, { buildCustomerDashboardViewModel } from "./screens/customer/CustomerDashboard";
+
+jest.mock("./assets/IMAGE/all-pro-tec-customer-dashboard-promo.png", () => "all-pro-tec-customer-dashboard-promo.png");
+jest.mock("./context/AdminDataContext", () => ({
+  useAdminData: () => ({ bookings: [], payments: [] }),
+}));
 
 describe("Customer Phase 2 dashboard synchronization calculations", () => {
   test("uses server-scoped bookings/payments directly so profile name changes do not hide metrics", () => {
@@ -68,5 +76,37 @@ describe("Customer Phase 2 dashboard synchronization calculations", () => {
     });
 
     expect(viewModel.upcomingBookings).toEqual([]);
+  });
+});
+
+describe("Customer Dashboard promotional banner", () => {
+  test("renders the supplied promotion below the existing dashboard cards and preserves quick actions", () => {
+    const goTo = jest.fn();
+    render(<CustomerDashboard goTo={goTo} />);
+
+    const banner = screen.getByRole("img", {
+      name: "All Pro-Tec Car Care premium protection and advanced car care services",
+    });
+    expect(banner).toHaveClass("clDashPromoImage");
+    expect(banner).toHaveAttribute("src", "all-pro-tec-customer-dashboard-promo.png");
+    expect(screen.getByText("Total Bookings")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming bookings")).toBeInTheDocument();
+    expect(screen.getByText("Quick actions")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Create Booking/i }));
+    expect(goTo).toHaveBeenCalledWith("bookings", { action: "open-add-booking" });
+    fireEvent.click(screen.getByRole("button", { name: /Add Review/i }));
+    expect(goTo).toHaveBeenCalledWith("engagement", { action: "open-add-review" });
+  });
+
+  test("keeps the customer promotional asset out of Admin and Staff dashboards", () => {
+    const dashboardSources = [
+      "screens/admin/AdminDashboard.jsx",
+      "screens/staff/StaffDashboard.jsx",
+    ].map((file) => fs.readFileSync(path.join(__dirname, file), "utf8"));
+
+    dashboardSources.forEach((source) => {
+      expect(source).not.toContain("all-pro-tec-customer-dashboard-promo.png");
+    });
   });
 });

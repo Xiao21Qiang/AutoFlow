@@ -117,3 +117,21 @@
   font-weight: 800;
   color: #4b5563;
 }
+
+.clDashPromo {
+  width: 100%;
+  max-width: 100%;
+  margin: 10px 0 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.clDashPromoImage {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}

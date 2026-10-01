@@ -2,6 +2,7 @@ import "../../styles/css/customer/customerDashboardStyle.css";
 import { useMemo } from "react";
 import { useAdminData } from "../../context/AdminDataContext";
 import { getBookingDateTimeSortValue, getRecognizedRevenue, isUpcomingBooking, normalizeBookingStatus, toAppDateKey } from "../../utils/businessMetrics";
+import customerDashboardPromo from "../../assets/IMAGE/all-pro-tec-customer-dashboard-promo.png";
 
 function formatDate(dateStr) {
   const d = new Date(dateStr);
@@ -94,6 +95,14 @@ export default function CustomerDashboard({ goTo }) {
           </div>
         </div>
       </div>
+
+      <figure className="clDashPromo">
+        <img
+          className="clDashPromoImage"
+          src={customerDashboardPromo}
+          alt="All Pro-Tec Car Care premium protection and advanced car care services"
+        />
+      </figure>
     </div>
   );
 }
