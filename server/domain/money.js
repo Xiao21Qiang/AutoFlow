@@ -17,7 +17,18 @@ function clampTinyNegativeMoney(value) {
   return rounded < 0 && Math.abs(rounded) <= 0.01 ? 0 : rounded;
 }
 
+// Parse decimal pesos without rounding customer input or accepting exponent notation.
+function parseMoneyCentavos(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return null;
+  const [pesos, fraction = ""] = text.replace(/,/g, "").split(".");
+  const centavos = Number(pesos) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(centavos) ? centavos : null;
+}
+
 module.exports = {
+  parseMoneyCentavos,
   clampTinyNegativeMoney,
   nonNegativeMoney,
   roundMoney,

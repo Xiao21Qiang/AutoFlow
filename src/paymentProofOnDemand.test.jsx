@@ -61,6 +61,21 @@ describe("PaymentTrackingView on-demand proof loading", () => {
     validateSpecialCredential.mockResolvedValue(true);
   });
 
+  test("flexible review shows the declared amount and projected balance with existing human review controls", async () => {
+    const context = baseContext();
+    context.payments[0] = { ...context.payments[0], paymentPlan: "flexibleDownPayment", requiredDownPaymentAmount: 500, downPaymentAmount: 1250.25, amount: 29999, totalAmount: 29999 };
+    context.loadPaymentProof.mockResolvedValue({});
+    useAdminData.mockReturnValue(context);
+    render(<PaymentTrackingView role="admin" />);
+    await userEvent.click(screen.getByRole("button", { name: "✎" }));
+    await waitFor(() => expect(context.loadPaymentProof).toHaveBeenCalledWith("PAY-1", "downPayment"));
+    expect(screen.getByText("Flexible Downpayment")).toBeInTheDocument();
+    expect(screen.getByText("Declared Amount").parentElement).toHaveTextContent("₱ 1,250.25");
+    expect(screen.getByText("Balance After Verification").parentElement).toHaveTextContent("₱ 28,748.75");
+    expect(screen.getByRole("button", { name: "Verify" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+  });
+
   test("renders the full long payment stage label", () => {
     useAdminData.mockReturnValue(baseContext({
       payments: [{

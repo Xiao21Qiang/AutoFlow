@@ -23,6 +23,8 @@ function buildInvoiceDto(payment = {}, booking = {}) {
     paymentMethod: normalized.finalPaymentMethod || normalized.downPaymentMethod || normalized.method || "",
     paymentStage: normalized.finalPaymentStatus === "Paid" ? "Final payment" : normalized.downPaymentStatus === "Paid" ? "Downpayment" : "Pending",
     paymentStatus: normalized.status || "Pending",
+    paymentPlan: normalized.paymentPlan,
+    declaredInitialPayment: paymentDomain.isFullPaymentPlan(normalized) ? finalAmountDue : normalized.downPaymentAmount,
     originalServiceAmount: originalAmount,
     promotion: normalized.promoTitle || "",
     promotionCode: normalized.promoCode || "",

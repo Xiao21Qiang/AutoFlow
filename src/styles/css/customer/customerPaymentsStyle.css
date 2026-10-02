@@ -108,8 +108,9 @@
 
 .clPayPaymentChoiceGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  align-items: start;
 }
 
 .clPayPaymentChoice {
@@ -142,6 +143,12 @@
   font-size: 18px;
   font-weight: 950;
 }
+
+.clPayFlexibleChoice .clPayPaymentChoice { width: 100%; }
+.clPayPaymentChoice[aria-pressed="true"] { border-color: #2563eb; background: #f8fbff; }
+.clPayFlexibleInput { display: grid; gap: 8px; margin-top: 10px; color: #475569; font-size: 13px; }
+.clPayFlexibleInput input { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px; border: 1px solid #dbe2ef; border-radius: 8px; font: inherit; }
+.clPayFlexibleInput [role="alert"] { color: #b91c1c; }
 
 .clPayChoiceDeadline {
   margin-top: 10px;

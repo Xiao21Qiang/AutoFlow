@@ -1,5 +1,5 @@
 const { normalizeBookingStatus } = require("./bookingStatus");
-const { clampTinyNegativeMoney, nonNegativeMoney, roundMoney, toFiniteNumber } = require("./money");
+const { clampTinyNegativeMoney, nonNegativeMoney, roundMoney, toFiniteNumber, parseMoneyCentavos } = require("./money");
 
 const PAYMENT_STAGE_STATUSES = Object.freeze([
   "Not Required",
@@ -16,6 +16,7 @@ const REJECTED_STAGE_STATUSES = new Set(["rejected", "declined"]);
 const FAILED_STAGE_STATUSES = new Set(["failed", "invalid"]);
 const PAYMENT_PLANS = Object.freeze({
   downPayment: "downPayment",
+  flexibleDownPayment: "flexibleDownPayment",
   fullPayment: "fullPayment",
 });
 
@@ -39,6 +40,9 @@ function normalizePaymentPlan(plan, payment = {}) {
   const normalized = String(plan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
   if (["full", "full payment", "pay in full", "pay full", "fullpayment"].includes(normalized)) {
     return PAYMENT_PLANS.fullPayment;
+  }
+  if (["flexibledownpayment", "flexible downpayment", "flexible down payment"].includes(normalized)) {
+    return PAYMENT_PLANS.flexibleDownPayment;
   }
   if (["down", "down payment", "dp", "downpayment"].includes(normalized)) {
     return PAYMENT_PLANS.downPayment;
@@ -65,6 +69,32 @@ function getPaymentFinalAmountDue(payment = {}, booking = {}) {
     if (Number.isFinite(amount) && amount > 0) return nonNegativeMoney(amount);
   }
   return 0;
+}
+
+function getRequiredDownPaymentAmount(payment = {}) {
+  // Old records already snapshot the required minimum in downPaymentAmount.
+  return nonNegativeMoney(payment.requiredDownPaymentAmount ?? payment.downPaymentAmount);
+}
+
+function validateFlexibleDownPayment(value, payment = {}) {
+  const centavos = parseMoneyCentavos(value);
+  const minimum = Math.round(getRequiredDownPaymentAmount(payment) * 100);
+  const total = Math.round(getPaymentFinalAmountDue(payment) * 100);
+  if (centavos === null || centavos <= 0) {
+    return { valid: false, message: "Enter a valid amount with up to 2 decimal places." };
+  }
+  if (centavos < minimum) {
+    return { valid: false, message: `Minimum flexible downpayment is ₱${(minimum / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` };
+  }
+  if (centavos > total) {
+    return { valid: false, message: "Flexible downpayment cannot exceed the total amount due." };
+  }
+  return {
+    valid: true,
+    amount: centavos / 100,
+    remainingBalance: (total - centavos) / 100,
+    paymentPlan: centavos === total ? PAYMENT_PLANS.fullPayment : PAYMENT_PLANS.flexibleDownPayment,
+  };
 }
 
 function hasMeaningfulStagedPayment(payment = {}) {
@@ -195,6 +225,7 @@ function normalizePaymentStageFields(payment = {}, booking = {}) {
     paymentPlan: normalizePaymentPlan(source.paymentPlan, source),
     downPaymentRequired,
     downPaymentAmount,
+    requiredDownPaymentAmount: getRequiredDownPaymentAmount(source),
     downPaymentStatus,
     totalAmount,
     finalPaymentStatus,
@@ -212,6 +243,8 @@ function isPaymentFullyPaid(payment = {}, booking = {}) {
 }
 
 module.exports = {
+  getRequiredDownPaymentAmount,
+  validateFlexibleDownPayment,
   PAYMENT_STAGE_STATUSES,
   PAYMENT_PLANS,
   getActiveRecognizedRevenue,

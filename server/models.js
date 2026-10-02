@@ -226,6 +226,7 @@ const paymentSchema = new mongoose.Schema(
     paymentPlan: { type: String, default: "" },
     downPaymentRequired: { type: Boolean, default: false },
     downPaymentAmount: { type: Number, default: 0 },
+    requiredDownPaymentAmount: { type: Number, default: null },
     downPaymentStatus: { type: String, default: "Not Required" },
     downPaymentMethod: { type: String, default: "" },
     downPaymentReference: { type: String, default: "" },

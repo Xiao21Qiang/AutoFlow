@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CustomerPayments from "./screens/customer/CustomerPayments";
 import { useAdminData } from "./context/AdminDataContext";
@@ -58,6 +58,110 @@ function setContext({ payment = basePayment(), payments, submitPaymentProof = je
 }
 
 describe("CustomerPayments Phase 6C", () => {
+  describe("Flexible Downpayment", () => {
+    async function openFlexible(paymentPatch = {}) {
+      const context = setContext({ payment: basePayment({ amount: 29999, totalAmount: 29999, downPaymentAmount: 500, ...paymentPatch }) });
+      render(<CustomerPayments />);
+      await userEvent.click(screen.getByRole("button", { name: "Upload" }));
+      const choices = screen.getAllByRole("button").filter((button) => /Pay Down Payment|Flexible Downpayment|Pay in Full/.test(button.textContent));
+      expect(choices.map((button) => button.textContent)).toEqual([
+        expect.stringContaining("Pay Down Payment"), expect.stringContaining("Flexible Downpayment"), expect.stringContaining("Pay in Full"),
+      ]);
+      expect(screen.queryByLabelText("Amount (₱)")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /Flexible Downpayment/ }));
+      return { ...context, input: screen.getByLabelText("Amount (₱)") };
+    }
+
+    test.each(["500", "500.5", "500.50", "1250.25", "12,500.50", "29998.99"])("accepts %s and updates the remaining balance live", async (amount) => {
+      const { input } = await openFlexible();
+      fireEvent.change(input, { target: { value: amount } });
+      expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+      const expected = ((2999900 - Math.round(Number(amount.replace(/,/g, "")) * 100)) / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      expect(screen.getByRole("status")).toHaveTextContent(`Remaining balance: P ${expected}`);
+    });
+
+    test.each(["", "499.99", "1", "0", "-500", "30000", "500.001", "1e3", "NaN", "Infinity", "abc", "₱500", "500.", "1.2.3", "50,0"])("blocks %p and hides misleading balance totals", async (amount) => {
+      const { input } = await openFlexible();
+      fireEvent.change(input, { target: { value: amount } });
+      expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      if (amount) expect(screen.getByRole("alert").textContent).not.toBe("");
+    });
+
+    test("uses the authoritative minimum and final discounted amount", async () => {
+      const { input } = await openFlexible({ requiredDownPaymentAmount: 750, finalAmount: 20000.25 });
+      fireEvent.change(input, { target: { value: "500" } });
+      expect(screen.getByRole("alert")).toHaveTextContent("Minimum flexible downpayment is ₱750.00.");
+      fireEvent.change(input, { target: { value: "20000.26" } });
+      expect(screen.getByRole("alert")).toHaveTextContent("cannot exceed");
+      fireEvent.change(input, { target: { value: "750.50" } });
+      expect(screen.getByRole("status")).toHaveTextContent("P 19,249.75");
+    });
+
+    test("submits the chosen centavos on the existing proof stage and permits changes before submission", async () => {
+      const { input, submitPaymentProof } = await openFlexible();
+      fireEvent.change(input, { target: { value: "5000.50" } });
+      await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByText("Flexible Downpayment")).toBeInTheDocument();
+      expect(screen.getByText("Declared Amount").parentElement).toHaveTextContent("P 5,000.50");
+      expect(screen.getByText("Balance After Verification").parentElement).toHaveTextContent("P 24,998.50");
+      await userEvent.click(screen.getByRole("button", { name: "Change Payment Option" }));
+      await userEvent.click(screen.getByRole("button", { name: /Pay Down Payment/ }));
+      expect(screen.getByText("Required Down Payment").parentElement).toHaveTextContent("P 500.00");
+      await userEvent.click(screen.getByRole("button", { name: "Change Payment Option" }));
+      await userEvent.click(screen.getByRole("button", { name: /Flexible Downpayment/ }));
+      fireEvent.change(screen.getByLabelText("Amount (₱)"), { target: { value: "12500.50" } });
+      await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+      await userEvent.selectOptions(screen.getByLabelText("Down Payment Method"), "Cash");
+      await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-FLEX");
+      await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+      await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ paymentPlan: "flexibleDownPayment", downPaymentAmount: "12500.50", downPaymentReference: "OR-FLEX" })));
+    });
+
+    test("exact total transitions directly to canonical Pay in Full and clears the flexible input", async () => {
+      const { input, submitPaymentProof } = await openFlexible();
+      fireEvent.change(input, { target: { value: "29,999.00" } });
+      expect(screen.queryByLabelText("Amount (₱)")).not.toBeInTheDocument();
+      expect(screen.getByText("Pay in Full")).toBeInTheDocument();
+      await userEvent.selectOptions(screen.getByLabelText("Full Payment Method"), "Cash");
+      await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-FULL");
+      await userEvent.click(screen.getByRole("button", { name: "Submit Full Payment Proof" }));
+      await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ paymentPlan: "fullPayment", finalPaymentReference: "OR-FULL" })));
+      expect(submitPaymentProof.mock.calls[0][1]).not.toHaveProperty("downPaymentAmount");
+    });
+
+    test("reopened rejected proof retains the locked flexible amount and plan", async () => {
+      const { submitPaymentProof } = setContext({ payment: basePayment({
+        paymentPlan: "flexibleDownPayment", requiredDownPaymentAmount: 500, downPaymentAmount: 1250.25,
+        downPaymentStatus: "Rejected", downPaymentCorrectionDueAt: "2099-08-02T21:00:00.000Z",
+        downPaymentProofSubmittedAt: "2026-08-01T09:00:00Z",
+      }) });
+      render(<CustomerPayments />);
+      await userEvent.click(screen.getByRole("button", { name: "Upload Correction" }));
+      expect(screen.queryByText("Choose Payment Option")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Change Payment Option" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Amount (₱)")).not.toBeInTheDocument();
+      expect(screen.getByText("Declared Amount").parentElement).toHaveTextContent("P 1,250.25");
+      await userEvent.selectOptions(screen.getByLabelText("Down Payment Method"), "Cash");
+      await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-CORRECTION");
+      await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+      await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ paymentPlan: "flexibleDownPayment", downPaymentAmount: "1250.25" })));
+    });
+
+    test("remaining-balance submission keeps a verified flexible plan", async () => {
+      const { submitPaymentProof } = setContext({ payment: basePayment({ paymentPlan: "flexibleDownPayment", requiredDownPaymentAmount: 500,
+        downPaymentAmount: 1250.25, downPaymentStatus: "Paid", remainingBalance: 3749.75 }) });
+      render(<CustomerPayments />);
+      await userEvent.click(screen.getByRole("button", { name: "Pay Balance" }));
+      expect(screen.getByText("Remaining Balance").parentElement).toHaveTextContent("P 3,749.75");
+      expect(screen.queryByRole("button", { name: "Change Payment Option" })).not.toBeInTheDocument();
+      await userEvent.selectOptions(screen.getByLabelText("Final Payment Method"), "Cash");
+      await userEvent.type(screen.getByLabelText("Receipt Number"), "OR-BALANCE");
+      await userEvent.click(screen.getByRole("button", { name: "Submit Balance Proof" }));
+      await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ paymentPlan: "flexibleDownPayment", finalPaymentStatus: "For Verification" })));
+    });
+  });
+
   beforeEach(() => {
     downloadAuthenticatedFile.mockResolvedValue(undefined);
   });
@@ -222,7 +326,7 @@ describe("CustomerPayments Phase 6C", () => {
 
     await waitFor(() => {
       expect(submitPaymentProof).toHaveBeenCalledWith(
-        payment,
+        expect.objectContaining(payment),
         expect.objectContaining({
           downPaymentStatus: "For Verification",
           downPaymentReference: "MISMATCH-REF",
@@ -258,7 +362,7 @@ describe("CustomerPayments Phase 6C", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit" }));
 
     await waitFor(() => expect(submitPaymentProof).toHaveBeenCalledWith(
-      payment,
+      expect.objectContaining(payment),
       expect.objectContaining({
         downPaymentMethod: "Cash",
         downPaymentReference: "OR-1001",
@@ -298,7 +402,7 @@ describe("CustomerPayments Phase 6C", () => {
 
     await waitFor(() => {
       expect(submitPaymentProof).toHaveBeenCalledWith(
-        payment,
+        expect.objectContaining(payment),
         expect.objectContaining({
           finalPaymentStatus: "For Verification",
           finalPaymentMethod: "Cash",

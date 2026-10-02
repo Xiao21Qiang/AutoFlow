@@ -541,6 +541,7 @@ beforeAll(async () => {
       (query.bookingId && payment.bookingId === query.bookingId)
     ));
     if (index === -1) return null;
+    if (Object.entries(query).some(([field, value]) => field !== "id" && field !== "bookingId" && (payments[index][field] ?? null) !== (value instanceof Date ? value.toISOString() : value))) return null;
     payments[index] = { ...payments[index], ...clone(update) };
     return clone(payments[index]);
   });
@@ -3150,6 +3151,214 @@ describe("Phase 6B payment/OCR backend state machine", () => {
       ...patch,
     };
   }
+
+  describe("Flexible Downpayment", () => {
+    function seedFlexible(paymentPatch = {}) {
+      seedRequiredDownPaymentState({ paymentPatch: {
+        amount: 29999, totalAmount: 29999, finalAmount: 29999,
+        downPaymentAmount: 500, ...paymentPatch,
+      } });
+      setTestPaymentOcrRecognizer(() => "Reference No. ABC-123");
+    }
+    function submitFlexible(amount, patch = {}, actor = customerUser) {
+      return request("/api/admin/payments/PAY-6B", {
+        method: "PUT", token: auth(actor),
+        body: dpProofBody({ paymentPlan: "flexibleDownPayment", downPaymentAmount: amount, ...patch }),
+      });
+    }
+    function reviewFlexible(status, patch = {}) {
+      return request("/api/admin/payments/PAY-6B", {
+        method: "PUT", token: auth(salesAssociateUser),
+        body: { downPaymentStatus: status, downPaymentNotes: "Human review", specialPin: "654321", accountName: "Sales Associate", ...patch },
+      });
+    }
+
+    test.each(["500", "500.5", "500.50", "750", "1,000", "1250.25", "12,500.50", "29998.99"])("persists %s on the canonical initial stage with its minimum and deadline", async (amount) => {
+      seedFlexible();
+      const due = payments[0].downPaymentDueAt;
+      customerUser.noDownPaymentTimeoutStreak = 2;
+      const result = await submitFlexible(amount);
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({
+        paymentPlan: "flexibleDownPayment", downPaymentAmount: Number(amount.replace(/,/g, "")),
+        requiredDownPaymentAmount: 500, downPaymentStatus: "For Verification",
+        downPaymentDueAt: due, finalPaymentStatus: "Pending", amountPaid: 0, remainingBalance: 29999,
+        downPaymentOcrAdvisoryStatus: "matched_advisory",
+      });
+      expect(payments[0].downPaymentAmount).toBe(result.body.downPaymentAmount);
+      expect(bookings[0].status).toBe("Pending");
+      expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+    });
+
+    test.each([undefined, null, "", " ", "abc", "₱500", "1", "499.99", "0", "-500", "1e3", "NaN", "Infinity", "500.001", "500.", ".50", "1.2.3", "50,0", "500,", "30,000", "9007199254740992", [], {}, true])("rejects unsafe or out-of-range amount %p without mutation", async (amount) => {
+      seedFlexible();
+      const before = clone(payments[0]);
+      const result = await submitFlexible(amount);
+      expect(result.status).toBe(400);
+      expect(payments[0]).toEqual(before);
+    });
+
+    test("uses the record's minimum, including non-default configuration", async () => {
+      seedFlexible({ downPaymentAmount: 750 });
+      expect((await submitFlexible("500")).status).toBe(400);
+      expect((await submitFlexible("750")).body.requiredDownPaymentAmount).toBe(750);
+    });
+
+    test.each(["29999", "29,999.00"])("canonicalizes exact-total %s into full-payment proof and verification", async (amount) => {
+      seedFlexible();
+      const due = payments[0].downPaymentDueAt;
+      const result = await submitFlexible(amount);
+      expect(result.status).toBe(200);
+      expect(payments[0]).toMatchObject({ paymentPlan: "fullPayment", downPaymentAmount: 500,
+        finalPaymentStatus: "For Verification", downPaymentStatus: "Pending", downPaymentDueAt: due,
+        finalPaymentReference: "ABC-123", finalPaymentOcrAdvisoryStatus: "matched_advisory" });
+      expect(payments[0].downPaymentFirstSubmittedAt).toBeFalsy();
+      const verified = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: auth(salesAssociateUser),
+        body: { finalPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" } });
+      expect(verified.status).toBe(200);
+      expect(verified.body).toMatchObject({ paymentPlan: "fullPayment", amountPaid: 29999, remainingBalance: 0 });
+    });
+
+    test("uses discounted final amount and calculates the verified balance in centavos", async () => {
+      seedFlexible({ finalAmount: 20000.25, originalAmount: 29999, promoDiscountAmount: 9998.75 });
+      expect((await submitFlexible("20000.26")).status).toBe(400);
+      expect((await submitFlexible("12500.50")).status).toBe(200);
+      const verified = await reviewFlexible("Paid");
+      expect(verified.status).toBe(200);
+      expect(verified.body).toMatchObject({ paymentPlan: "flexibleDownPayment", amountPaid: 12500.5, remainingBalance: 7499.75 });
+      expect(bookings[0].status).toBe("Pending");
+      const final = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: auth(customerUser), body: fullPaymentProofBody({
+        paymentPlan: "flexibleDownPayment", finalPaymentProofUrl: VALID_JPEG_PROOF,
+      }) });
+      expect(final.status).toBe(200);
+      expect(final.body).toMatchObject({ paymentPlan: "flexibleDownPayment", downPaymentAmount: 12500.5, remainingBalance: 7499.75 });
+      const paid = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: auth(salesAssociateUser),
+        body: { finalPaymentStatus: "Paid", specialPin: "654321", accountName: "Sales Associate" } });
+      expect(paid.status).toBe(200);
+      expect(paid.body).toMatchObject({ amountPaid: 20000.25, remainingBalance: 0 });
+      expect(bookings[0].status).toBe("Pending");
+    });
+
+    test.each(["totalAmount", "finalAmount", "amount", "originalAmount", "requiredDownPaymentAmount", "remainingBalance", "amountPaid", "downPaymentRequired", "bookingId", "customerEmail"])("rejects forged authoritative field %s", async (field) => {
+      seedFlexible();
+      const before = clone(payments[0]);
+      const result = await submitFlexible("5000", { [field]: 1 });
+      expect(result.status).toBe(403);
+      expect(payments[0]).toEqual(before);
+    });
+
+    test("denies another customer's payment even with forged booking ownership", async () => {
+      seedFlexible();
+      payments[0].customerEmail = "other@example.com";
+      bookings[0].customerEmail = "other@example.com";
+      bookings[0].customerId = "CUS-OTHER";
+      const before = clone(payments[0]);
+      const result = await submitFlexible("5000", { bookingId: "B-OWN", customerEmail: customerUser.email });
+      expect(result.status).toBe(403);
+      expect(payments[0]).toEqual(before);
+    });
+
+    test.each(["For Verification", "Rejected", "Paid"])("locks amount and plan in %s, including correction and reviewer requests", async (status) => {
+      seedFlexible({ paymentPlan: "flexibleDownPayment", requiredDownPaymentAmount: 500, downPaymentAmount: 5000,
+        downPaymentStatus: status, downPaymentFirstSubmittedAt: "2098-01-01T00:00:00.000Z",
+        downPaymentCorrectionDueAt: "2099-01-01T12:00:00.000Z" });
+      for (const amount of ["500", "8000", "29999", "5000.001"]) {
+        expect((await submitFlexible(amount)).status).toBe(400);
+      }
+      for (const plan of ["downPayment", "fullPayment"]) {
+        expect((await submitFlexible("5000", { paymentPlan: plan })).status).toBe(400);
+      }
+      expect((await reviewFlexible("Paid", { downPaymentAmount: 8000 })).status).toBe(400);
+      expect(payments[0].downPaymentAmount).toBe(5000);
+      expect(payments[0].paymentPlan).toBe("flexibleDownPayment");
+    });
+
+    test("keeps the original rejection deadline, permits one same-amount correction and closes on second rejection without a strike", async () => {
+      seedFlexible();
+      const originalDue = payments[0].downPaymentDueAt;
+      expect((await submitFlexible("5000.50")).status).toBe(200);
+      const beforeRejection = Date.now();
+      expect((await reviewFlexible("Rejected")).status).toBe(200);
+      const correctionDue = payments[0].downPaymentCorrectionDueAt;
+      expect(new Date(correctionDue).getTime()).toBeGreaterThanOrEqual(beforeRejection + 12 * 60 * 60 * 1000);
+      expect(new Date(correctionDue).getTime()).toBeLessThanOrEqual(Date.now() + 12 * 60 * 60 * 1000);
+      expect((await reviewFlexible("Rejected", { downPaymentCorrectionDueAt: "2099-12-31T00:00:00Z" })).status).toBe(200);
+      expect(payments[0].downPaymentCorrectionDueAt).toBe(correctionDue);
+      const corrected = await submitFlexible("5,000.50", { downPaymentProofUrl: VALID_JPEG_PROOF,
+        downPaymentDueAt: "2100-01-01T00:00:00Z", downPaymentCorrectionDueAt: "2100-01-01T00:00:00Z" });
+      expect(corrected.status).toBe(200);
+      expect(payments[0]).toMatchObject({ downPaymentAmount: 5000.5, downPaymentDueAt: originalDue, downPaymentCorrectionDueAt: correctionDue });
+      expect((await reviewFlexible("Rejected")).status).toBe(200);
+      expect(bookings[0].status).toBe("Cancelled");
+      expect(payments[0]).toMatchObject({ downPaymentClosureReasonCode: "DOWN_PAYMENT_CORRECTION_REJECTED", downPaymentSubmissionClosed: true });
+      expect((await submitFlexible("5000.50")).status).toBe(400);
+      expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+    });
+
+    test("expired flexible correction cancels without a no-submission strike", async () => {
+      seedFlexible({ paymentPlan: "flexibleDownPayment", requiredDownPaymentAmount: 500, downPaymentAmount: 5000,
+        downPaymentStatus: "Rejected", downPaymentFirstSubmittedAt: "2000-01-01T00:00:00Z",
+        downPaymentCorrectionDueAt: "2000-01-01T12:00:00Z" });
+      expect((await submitFlexible("5000")).status).toBe(400);
+      expect(payments[0].downPaymentClosureReasonCode).toBe("DOWN_PAYMENT_CORRECTION_TIMEOUT");
+      expect(customerUser.noDownPaymentTimeoutStreak).toBe(0);
+    });
+
+    test("cannot reset the initial deadline and participates in the third-timeout cooldown", async () => {
+      seedFlexible({ paymentPlan: "flexibleDownPayment", downPaymentDueAt: "2000-01-01T00:00:00.000Z" });
+      customerUser.noDownPaymentTimeoutStreak = 2;
+      expect((await submitFlexible("5000", { downPaymentDueAt: "2100-01-01T00:00:00Z" })).status).toBe(400);
+      expect(payments[0]).toMatchObject({ downPaymentDueAt: "2000-01-01T00:00:00.000Z", downPaymentClosureReasonCode: "DOWN_PAYMENT_TIMEOUT" });
+      expect(bookings[0].status).toBe("Cancelled");
+      expect(customerUser.noDownPaymentTimeoutStreak).toBe(3);
+      expect(new Date(customerUser.bookingCooldownUntil).getTime()).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
+    });
+
+    test("accepts legacy MongoDB records with hydrated defaults but no stored plan", async () => {
+      seedFlexible();
+      const originalFind = __testModels.Payment.findOne;
+      __testModels.Payment.findOne = (query) => query.id === "PAY-6B" ? __testModels.Payment.hydrate(payments[0]) : originalFind(query);
+      try {
+        const result = await submitFlexible("5000.50");
+        expect(result.status).toBe(200);
+        expect(result.body).toMatchObject({ paymentPlan: "flexibleDownPayment", downPaymentAmount: 5000.5, requiredDownPaymentAmount: 500 });
+      } finally {
+        __testModels.Payment.findOne = originalFind;
+      }
+    });
+
+    test("requires authenticated identity and does not offer flexible payment for exempt bookings", async () => {
+      seedFlexible();
+      const anonymous = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: "", body: dpProofBody({ paymentPlan: "flexibleDownPayment", downPaymentAmount: "5000" }) });
+      expect(anonymous.status).toBe(401);
+      payments[0].downPaymentRequired = false;
+      expect((await submitFlexible("5000")).status).toBe(400);
+      expect(payments[0].downPaymentStatus).toBe("Pending");
+    });
+
+    test("concurrent submissions cannot replace the first accepted declared amount", async () => {
+      seedFlexible();
+      const responses = await Promise.all([submitFlexible("5000"), submitFlexible("8000")]);
+      expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect([5000, 8000]).toContain(payments[0].downPaymentAmount);
+    });
+
+    test.each([generalManagerUser, salesManagerUser, salesAssociateUser])("preserves $role verification credential requirements", async (actor) => {
+      seedFlexible();
+      expect((await submitFlexible("5000")).status).toBe(200);
+      const result = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: auth(actor), body: { downPaymentStatus: "Paid" } });
+      expect(result.status).toBe(401);
+      expect(payments[0].downPaymentStatus).toBe("For Verification");
+    });
+
+    test.each([marketingUser, inventoryClerkUser, detailerUser, secondDetailerUser])("does not grant $role access to flexible review", async (actor) => {
+      seedFlexible();
+      expect((await submitFlexible("5000")).status).toBe(200);
+      const result = await request("/api/admin/payments/PAY-6B", { method: "PUT", token: auth(actor), body: { downPaymentStatus: "Paid", specialPin: "654321", accountName: actor.name } });
+      expect(result.status).toBe(403);
+      expect(payments[0].downPaymentStatus).toBe("For Verification");
+    });
+  });
 
   test("required-DP submission before deadline is accepted and resets no-DP streak", async () => {
     seedRequiredDownPaymentState();

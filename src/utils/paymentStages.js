@@ -14,8 +14,54 @@ export function normalizeStageStatus(status, fallback = "Pending") {
 export function normalizePaymentPlan(plan, payment = {}) {
   const normalized = String(plan || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
   if (["full", "full payment", "pay in full", "pay full", "fullpayment"].includes(normalized)) return "fullPayment";
+  if (["flexibledownpayment", "flexible downpayment", "flexible down payment"].includes(normalized)) return "flexibleDownPayment";
   if (["down", "down payment", "dp", "downpayment"].includes(normalized)) return "downPayment";
   return payment.downPaymentRequired === true ? "downPayment" : "fullPayment";
+}
+
+// Parse decimal pesos without rounding customer input or accepting exponent notation.
+export function parseMoneyCentavos(value) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(text)) return null;
+  const [pesos, fraction = ""] = text.replace(/,/g, "").split(".");
+  const centavos = Number(pesos) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(centavos) ? centavos : null;
+}
+
+export function getRequiredDownPaymentAmount(payment = {}) {
+  // Old records already snapshot the required minimum in downPaymentAmount.
+  return Math.max(0, Number(payment.requiredDownPaymentAmount ?? payment.downPaymentAmount) || 0);
+}
+
+export function validateFlexibleDownPayment(value, payment = {}) {
+  const centavos = parseMoneyCentavos(value);
+  const minimum = Math.round(getRequiredDownPaymentAmount(payment) * 100);
+  const total = Math.round(getPaymentTotal(payment) * 100);
+  if (centavos === null || centavos <= 0) {
+    return { valid: false, message: "Enter a valid amount with up to 2 decimal places." };
+  }
+  if (centavos < minimum) {
+    return { valid: false, message: `Minimum flexible downpayment is ₱${(minimum / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` };
+  }
+  if (centavos > total) {
+    return { valid: false, message: "Flexible downpayment cannot exceed the total amount due." };
+  }
+  return {
+    valid: true,
+    amount: centavos / 100,
+    remainingBalance: (total - centavos) / 100,
+    paymentPlan: centavos === total ? "fullPayment" : "flexibleDownPayment",
+  };
+}
+
+export function getPaymentPlanLabel(payment = {}) {
+  const plan = normalizePaymentPlan(payment.paymentPlan, payment);
+  return plan === "flexibleDownPayment" ? "Flexible Downpayment" : plan === "fullPayment" ? "Pay in Full" : "Pay Down Payment";
+}
+
+export function getBalanceAfterInitialPayment(payment = {}) {
+  return Math.max(0, (Math.round(getPaymentTotal(payment) * 100) - Math.round(Number(payment.downPaymentAmount || 0) * 100)) / 100);
 }
 
 export function isFullPaymentPlan(payment = {}) {
@@ -25,7 +71,7 @@ export function isFullPaymentPlan(payment = {}) {
 export function getPaymentTotal(payment = {}) {
   return Math.max(
     0,
-    Number(payment.totalAmount || payment.finalAmount || payment.amount || payment.originalAmount || 0) || 0
+    Number(payment.finalAmount || payment.totalAmount || payment.amount || payment.originalAmount || 0) || 0
   );
 }
 

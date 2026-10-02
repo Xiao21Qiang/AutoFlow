@@ -6,6 +6,8 @@ import { useAdminData } from "../../context/AdminDataContext";
 import { buildReportDownloadPath, downloadAuthenticatedFile } from "../../utils/downloadExport";
 import {
   PAYMENT_STATUS_OPTIONS,
+  getPaymentPlanLabel,
+  getBalanceAfterInitialPayment,
   getAllowedDownPaymentStatuses,
   getAmountPaid,
   getPaymentFormDefaults,
@@ -603,7 +605,11 @@ export default function PaymentTrackingView({ role = "admin" }) {
 
               <div className={classes.amountGrid}>
                 <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
-                <div><span>Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                <div><span>Payment Plan</span><strong>{getPaymentPlanLabel(selectedPayment)}</strong></div>
+                <div><span>{selectedPayment.paymentPlan === "flexibleDownPayment" ? "Declared Amount" : "Down Payment"}</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                {selectedPayment.paymentPlan === "flexibleDownPayment" && normalizeStageStatus(selectedPayment.downPaymentStatus) !== "Paid" && (
+                  <div><span>Balance After Verification</span><strong>{formatCurrency(getBalanceAfterInitialPayment(selectedPayment))}</strong></div>
+                )}
                 <div><span>Amount Paid</span><strong>{formatCurrency(getAmountPaid(selectedPayment))}</strong></div>
                 <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
               </div>

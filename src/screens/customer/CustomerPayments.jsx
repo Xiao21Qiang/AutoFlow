@@ -8,6 +8,11 @@ import icoSearch from "../../styles/icons/search.png";
 import icoFilter from "../../styles/icons/filter.png";
 import {
   PAYMENT_METHOD_OPTIONS,
+  getRequiredDownPaymentAmount,
+  validateFlexibleDownPayment,
+  normalizePaymentPlan,
+  getPaymentPlanLabel,
+  getBalanceAfterInitialPayment,
   getAmountPaid,
   getPaymentStageClass,
   getPaymentStageLabel,
@@ -47,7 +52,7 @@ function formatApproxTimeLeft(dateStr) {
 }
 
 function formatCurrency(value) {
-  return `P ${Number(value || 0).toLocaleString()}`;
+  return `P ${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function isCashPaymentMethod(value) {
@@ -232,6 +237,8 @@ function hasDownPaymentProofMetadata(payment = {}) {
     payment.proofImage ||
     payment.downPaymentProofName ||
     payment.proofFileName ||
+    payment.downPaymentFirstSubmittedAt ||
+    payment.downPaymentCorrectionSubmittedAt ||
     payment.downPaymentProofSubmittedAt ||
     payment.proofSubmittedAt
   );
@@ -333,6 +340,9 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
   const [modal, setModal] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [proofMode, setProofMode] = useState("downPayment");
+  const [flexibleSelected, setFlexibleSelected] = useState(false);
+  const [flexibleAmount, setFlexibleAmount] = useState("");
+  const flexibleValidation = validateFlexibleDownPayment(flexibleAmount, selectedPayment || {});
   const [proofForm, setProofForm] = useState({
     reference: "",
     method: "",
@@ -377,6 +387,8 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
     proofImageRequestRef.current += 1;
     setModal(null);
     setSelectedPayment(null);
+    setFlexibleSelected(false);
+    setFlexibleAmount("");
     setProofMode("downPayment");
     setProofForm({ reference: "", method: "", proofImage: "", proofFileName: "" });
     setProofError("");
@@ -397,6 +409,8 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
     proofImageRequestRef.current += 1;
     setSelectedPayment(payment);
     setProofMode(nextMode);
+    setFlexibleSelected(false);
+    setFlexibleAmount("");
     setProofForm(getProofFormDefaults(payment, nextMode === "paymentChoice" ? "downPayment" : nextMode));
     setProofError("");
     setProofSubmitting(false);
@@ -467,10 +481,19 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
     downloadAuthenticatedFile(`/api/admin/invoices/${encodeURIComponent(payment.id || payment.bookingId)}/pdf`, `autoflow-invoice-${payment.bookingId || payment.id}.pdf`)
       .catch((error) => window.alert(error.message || "Could not download invoice."));
 
-  const choosePaymentPlan = (mode) => {
+  const choosePaymentPlan = (mode, flexibleValue) => {
     if (!selectedPayment) return;
     const paymentId = selectedPayment.id || selectedPayment.bookingId || "";
     proofImageRequestRef.current += 1;
+    const minimum = getRequiredDownPaymentAmount(selectedPayment);
+    setSelectedPayment({
+      ...selectedPayment,
+      requiredDownPaymentAmount: minimum,
+      downPaymentAmount: flexibleValue ?? minimum,
+      paymentPlan: mode === "finalPayment" ? "fullPayment" : flexibleValue !== undefined ? "flexibleDownPayment" : "downPayment",
+    });
+    setFlexibleSelected(false);
+    setFlexibleAmount("");
     setProofMode(mode);
     setProofForm(getProofFormDefaults(selectedPayment, mode));
     setProofError("");
@@ -627,7 +650,8 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                   </div>
                   <div className="clPayStageSummary">
                     <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
-                    <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                    <div><span>Payment Plan</span><strong>{getPaymentPlanLabel(selectedPayment)}</strong></div>
+                    <div><span>{selectedPayment.paymentPlan === "flexibleDownPayment" ? "Declared Amount" : "Required Down Payment"}</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
                     <div><span>Amount Paid</span><strong>{formatCurrency(getAmountPaid(selectedPayment))}</strong></div>
                     <div><span>Remaining Balance</span><strong>{formatCurrency(getRemainingBalance(selectedPayment))}</strong></div>
                     <div><span>Down Payment Status</span><strong>{normalizeStageStatus(selectedPayment.downPaymentStatus, selectedPayment.downPaymentRequired === false ? "Not Required" : "Pending")}</strong></div>
@@ -764,8 +788,40 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                 <div className="clPayPaymentChoiceGrid">
                   <button className="clPayPaymentChoice" type="button" onClick={() => choosePaymentPlan("downPayment")}>
                     <span>Pay Down Payment</span>
-                    <strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong>
+                    <strong>{formatCurrency(getRequiredDownPaymentAmount(selectedPayment))}</strong>
                   </button>
+                  <div className="clPayFlexibleChoice">
+                    <button className="clPayPaymentChoice" type="button" aria-pressed={flexibleSelected} onClick={() => setFlexibleSelected(true)}>
+                      <span>Flexible Downpayment</span>
+                      <small>Enter your preferred initial payment</small>
+                    </button>
+                    {flexibleSelected && (
+                      <div className="clPayFlexibleInput">
+                        <label htmlFor="flexibleDownPaymentAmount">Amount (₱)</label>
+                        <input
+                          id="flexibleDownPaymentAmount"
+                          type="text"
+                          inputMode="decimal"
+                          value={flexibleAmount}
+                          autoFocus
+                          aria-invalid={Boolean(flexibleAmount && !flexibleValidation.valid)}
+                          aria-describedby="flexibleDownPaymentHelp flexibleDownPaymentError"
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setFlexibleAmount(value);
+                            const selection = validateFlexibleDownPayment(value, selectedPayment);
+                            if (selection.valid && selection.paymentPlan === "fullPayment") choosePaymentPlan("finalPayment");
+                          }}
+                        />
+                        <small id="flexibleDownPaymentHelp">Minimum downpayment: {formatCurrency(getRequiredDownPaymentAmount(selectedPayment))}</small>
+                        <small id="flexibleDownPaymentError" role="alert">{flexibleAmount && !flexibleValidation.valid ? flexibleValidation.message : ""}</small>
+                        {flexibleValidation.valid && <div role="status">Remaining balance: {formatCurrency(flexibleValidation.remainingBalance)}</div>}
+                        <button className="clPayPrimaryBtn" type="button" disabled={!flexibleValidation.valid} onClick={() => choosePaymentPlan("downPayment", flexibleValidation.amount)}>
+                          Continue
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <button className="clPayPaymentChoice" type="button" onClick={() => choosePaymentPlan("finalPayment")}>
                     <span>Pay in Full</span>
                     <strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong>
@@ -814,7 +870,7 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                         finalPaymentReference: reference,
                         finalPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         finalPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        paymentPlan: isFullPaymentMode ? "fullPayment" : "downPayment",
+                        paymentPlan: isFullPaymentMode ? "fullPayment" : normalizePaymentPlan(selectedPayment.paymentPlan, selectedPayment),
                       }
                     : {
                         downPaymentStatus: "For Verification",
@@ -822,7 +878,8 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                         downPaymentReference: reference,
                         downPaymentProofUrl: isCashMethod ? "" : proofForm.proofImage,
                         downPaymentProofName: isCashMethod ? "" : proofForm.proofFileName,
-                        paymentPlan: "downPayment",
+                        paymentPlan: normalizePaymentPlan(selectedPayment.paymentPlan, selectedPayment),
+                        ...(selectedPayment.paymentPlan === "flexibleDownPayment" ? { downPaymentAmount: Number(selectedPayment.downPaymentAmount).toFixed(2) } : {}),
                       };
                   try {
                     setProofSubmitting(true);
@@ -834,6 +891,9 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                   }
                 }}
               >
+                {needsInitialPaymentChoice(selectedPayment) && (
+                  <button className="clPayTextBtn" type="button" onClick={() => setProofMode("paymentChoice")}>Change Payment Option</button>
+                )}
                 <div className="clPayModalTitle">
                   {isFullPaymentProofMode(selectedPayment, proofMode)
                     ? "Submit Full Payment Proof"
@@ -848,12 +908,13 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                 )}
                 <div className="clPayStageSummary clPayStageSummaryCompact">
                   <div><span>Total Amount</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
+                  <div><span>Payment Plan</span><strong>{getPaymentPlanLabel(selectedPayment)}</strong></div>
                   {isFullPaymentProofMode(selectedPayment, proofMode) ? (
                     <div><span>Amount Due</span><strong>{formatCurrency(getPaymentTotal(selectedPayment))}</strong></div>
                   ) : proofMode === "finalPayment" ? (
                     <div><span>Amount Paid</span><strong>{formatCurrency(getAmountPaid(selectedPayment))}</strong></div>
                   ) : (
-                    <div><span>Required Down Payment</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
+                    <div><span>{selectedPayment.paymentPlan === "flexibleDownPayment" ? "Declared Amount" : "Required Down Payment"}</span><strong>{formatCurrency(selectedPayment.downPaymentAmount || 0)}</strong></div>
                   )}
                   <div>
                     <span>Payment Method</span>
@@ -865,7 +926,7 @@ export default function CustomerPayments({ paymentHandoff = null, onPaymentHando
                       ) || "-"}
                     </strong>
                   </div>
-                  <div><span>{isFullPaymentProofMode(selectedPayment, proofMode) ? "Balance After Verification" : "Remaining Balance"}</span><strong>{formatCurrency(isFullPaymentProofMode(selectedPayment, proofMode) ? 0 : getRemainingBalance(selectedPayment))}</strong></div>
+                  <div><span>{isFullPaymentProofMode(selectedPayment, proofMode) || (proofMode === "downPayment" && selectedPayment.paymentPlan === "flexibleDownPayment") ? "Balance After Verification" : "Remaining Balance"}</span><strong>{formatCurrency(isFullPaymentProofMode(selectedPayment, proofMode) ? 0 : proofMode === "downPayment" && selectedPayment.paymentPlan === "flexibleDownPayment" ? getBalanceAfterInitialPayment(selectedPayment) : getRemainingBalance(selectedPayment))}</strong></div>
                   <div>
                     <span>{proofMode === "finalPayment" ? "Full Payment Status" : "Current DP Status"}</span>
                     <strong>

@@ -114,6 +114,19 @@ describe("admin bootstrap performance structure", () => {
     });
   }
 
+  test.each([
+    { userType: "Admin", role: "Admin" },
+    { userType: "Staff", role: "General Manager" },
+    { userType: "Staff", role: "Sales Manager" },
+    { userType: "Staff", role: "Sales Associate" },
+    { id: "CUS-1", userType: "Customer", role: "New", email: "customer@example.com", name: "Customer One" },
+  ])("preserves flexible plan, amount and minimum through $role bootstrap and invoice projection", async (actor) => {
+    const data = filterBootstrapDataForRole(await loadBootstrapData(), actor);
+    const payment = data.payments.find((entry) => entry.id === "PAY-1");
+    expect(payment).toMatchObject({ paymentPlan: "flexibleDownPayment", downPaymentAmount: 300, requiredDownPaymentAmount: 200 });
+    expect(payment.invoice).toMatchObject({ paymentPlan: "flexibleDownPayment", declaredInitialPayment: 300 });
+  });
+
   beforeAll(() => {
     const bookings = [
       { id: "BK-1", customer: "Customer One", customerEmail: "customer@example.com", customerId: "CUS-1", service: "Coating", status: "Completed", finalAmount: 1000, assigned: "Junior Detailer", assignedDetailerId: "JR-1" },
@@ -139,6 +152,8 @@ describe("admin bootstrap performance structure", () => {
         totalAmount: 1000,
         downPaymentRequired: true,
         downPaymentAmount: 300,
+        requiredDownPaymentAmount: 200,
+        paymentPlan: "flexibleDownPayment",
         downPaymentStatus: "Paid",
         downPaymentMethod: "GCash",
         downPaymentReference: "DP-REF",
@@ -352,6 +367,8 @@ describe("admin bootstrap performance structure", () => {
       status: 1,
       amount: 1,
       paymentPlan: 1,
+      requiredDownPaymentAmount: 1,
+      downPaymentAmount: 1,
       downPaymentProofName: 1,
       finalPaymentProofName: 1,
       finalPaymentReferenceCheckStatus: 1,

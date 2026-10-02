@@ -29,6 +29,7 @@ const {
 } = require("./models");
 const bookingDomain = require("./domain/bookingStatus");
 const paymentDomain = require("./domain/payments");
+const moneyDomain = require("./domain/money");
 const paymentMethodsDomain = require("./domain/paymentMethods");
 const stockDomain = require("./domain/stock");
 const scheduleDomain = require("./domain/schedule");
@@ -124,6 +125,7 @@ const BOOTSTRAP_PAYMENT_PROJECTION = Object.freeze({
   paymentPlan: 1,
   downPaymentRequired: 1,
   downPaymentAmount: 1,
+  requiredDownPaymentAmount: 1,
   downPaymentStatus: 1,
   downPaymentMethod: 1,
   downPaymentReference: 1,
@@ -4510,6 +4512,9 @@ function hasDownPaymentSubmission(payment = {}) {
   return Boolean(
     status === "For Verification" ||
     status === "Paid" ||
+    status === "Rejected" ||
+    payment.downPaymentFirstSubmittedAt ||
+    payment.downPaymentCorrectionSubmittedAt ||
     payment.downPaymentProofSubmittedAt ||
     String(payment.downPaymentProofUrl || payment.proofImage || "").trim() ||
     String(payment.downPaymentProofName || payment.proofFileName || "").trim()
@@ -5420,7 +5425,7 @@ function hasCanonicalFinalPaymentActivity(payment = {}) {
 }
 
 function hasMirroredDownPaymentProofInFinalStage(payment = {}) {
-  if (normalizePaymentPlan(payment.paymentPlan, payment) !== "downPayment") return false;
+  if (normalizePaymentPlan(payment.paymentPlan, payment) === "fullPayment") return false;
   if (hasCanonicalFinalPaymentActivity(payment)) return false;
   const downProofUrl = String(payment.downPaymentProofUrl || payment.proofImage || "").trim();
   const downProofName = String(payment.downPaymentProofName || payment.proofFileName || "").trim();
@@ -5534,6 +5539,7 @@ function getPaymentStageFields(payment = {}) {
     downPaymentRequired: normalized.downPaymentRequired,
     paymentPlan: normalized.paymentPlan,
     downPaymentAmount: normalized.downPaymentAmount,
+    requiredDownPaymentAmount: normalized.requiredDownPaymentAmount,
     downPaymentStatus: normalized.downPaymentStatus,
     downPaymentMethod: normalized.downPaymentMethod,
     downPaymentReference: normalized.downPaymentReference,
@@ -5632,6 +5638,8 @@ function getPaymentProofPayload(payment = {}, stage = "downPayment") {
       id: normalized.id || "",
       bookingId: normalized.bookingId || "",
       stage,
+      paymentPlan: normalized.paymentPlan,
+      declaredAmount: getPaymentStageSnapshot(normalized, stage).amount,
       proofImage: normalized.finalPaymentProofUrl || "",
       proofUrl: normalized.finalPaymentProofUrl || "",
       proofFileName: normalized.finalPaymentProofName || "",
@@ -5650,6 +5658,8 @@ function getPaymentProofPayload(payment = {}, stage = "downPayment") {
     id: normalized.id || "",
     bookingId: normalized.bookingId || "",
     stage,
+    paymentPlan: normalized.paymentPlan,
+    declaredAmount: normalized.downPaymentAmount,
     proofImage: normalized.downPaymentProofUrl || normalized.proofImage || "",
     proofUrl: normalized.downPaymentProofUrl || normalized.proofImage || "",
     proofFileName: normalized.downPaymentProofName || normalized.proofFileName || "",
@@ -8214,6 +8224,8 @@ app.get("/api/admin/invoices/:id/pdf", async (req, res, next) => {
             ["Payment Method", invoice.paymentMethod || "-"],
             ["Payment Stage", invoice.paymentStage || "-"],
             ["Payment Status", invoice.paymentStatus || "-"],
+            ["Payment Plan", invoice.paymentPlan === "flexibleDownPayment" ? "Flexible Downpayment" : invoice.paymentPlan === "fullPayment" ? "Pay in Full" : "Pay Down Payment"],
+            ["Declared Initial Payment", exportDomain.formatPeso(invoice.declaredInitialPayment)],
             ["Original Amount", exportDomain.formatPeso(invoice.originalServiceAmount)],
             ["Promotion", invoice.promotion || "-"],
             ["Reward", invoice.reward || "-"],
@@ -10384,6 +10396,66 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       );
     }
     const hasBodyField = (field) => Object.prototype.hasOwnProperty.call(req.body, field);
+    const hasExistingPaymentSubmission = hasDownPaymentSubmission(existingPayment) || hasFullPaymentSubmission(existingPayment);
+    let selectedDownPaymentAmount = existingPayment.downPaymentAmount;
+    if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
+      res.status(403).json({ message: "You can only update your own payment records." });
+      return;
+    }
+    if (actorType === "customer" && ["requiredDownPaymentAmount", "totalAmount", "amount", "originalAmount", "bookingId", "customerEmail", "customerId", "downPaymentRequired"].some(hasBodyField)) {
+      res.status(403).json({ message: "Customers cannot update authoritative payment fields." });
+      return;
+    }
+    const selectedPlan = normalizePaymentPlan(req.body.paymentPlan || existingPayment.paymentPlan, existingPayment);
+    if (hasExistingPaymentSubmission && hasBodyField("downPaymentAmount")) {
+      const amount = moneyDomain.parseMoneyCentavos(req.body.downPaymentAmount);
+      if (amount === null || amount !== Math.round(existingPayment.downPaymentAmount * 100)) {
+        res.status(400).json({ message: "Payment amount cannot be changed after payment proof is submitted." });
+        return;
+      }
+      req.body.downPaymentAmount = amount / 100;
+    }
+    if (hasExistingPaymentSubmission && hasBodyField("paymentPlan") && selectedPlan !== normalizePaymentPlan(existingPayment.paymentPlan, existingPayment)) {
+      res.status(400).json({ message: "Payment plan cannot be changed after payment proof is submitted." });
+      return;
+    }
+    if (actorType === "customer" && !hasExistingPaymentSubmission) {
+      if (selectedPlan === "flexibleDownPayment") {
+        if (!existingPayment.downPaymentRequired) {
+          res.status(400).json({ message: "Down payment is not required for this payment." });
+          return;
+        }
+        const selection = paymentDomain.validateFlexibleDownPayment(req.body.downPaymentAmount, existingPayment);
+        if (!selection.valid) {
+          res.status(400).json({ message: selection.message });
+          return;
+        }
+        req.body.paymentPlan = selection.paymentPlan;
+        if (selection.paymentPlan === "fullPayment") {
+          // Reuse the canonical full-payment proof path, including OCR and deadlines.
+          for (const suffix of ["Status", "Method", "Reference", "ProofUrl", "ProofName", "Notes"]) {
+            if (hasBodyField(`downPayment${suffix}`)) {
+              if (hasBodyField(`finalPayment${suffix}`)) {
+                res.status(400).json({ message: "Submit one payment stage at a time." });
+                return;
+              }
+              req.body[`finalPayment${suffix}`] = req.body[`downPayment${suffix}`];
+              delete req.body[`downPayment${suffix}`];
+            }
+          }
+          delete req.body.downPaymentAmount;
+        } else {
+          selectedDownPaymentAmount = selection.amount;
+          req.body.downPaymentAmount = selection.amount;
+        }
+      } else {
+        selectedDownPaymentAmount = paymentDomain.getRequiredDownPaymentAmount(existingPayment);
+        if (hasBodyField("downPaymentAmount") && moneyDomain.parseMoneyCentavos(req.body.downPaymentAmount) !== Math.round(selectedDownPaymentAmount * 100)) {
+          res.status(400).json({ message: "Choose Flexible Downpayment to change the initial payment amount." });
+          return;
+        }
+      }
+    }
     const existingPaymentPlan = normalizePaymentPlan(existingPayment.paymentPlan, existingPayment);
     const nextStatus = String(req.body.status || "");
     const nextDownPaymentStatus = existingPaymentPlan === "fullPayment" && hasBodyField("finalPaymentStatus")
@@ -10431,22 +10503,9 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
     }
     if (
       hasBodyField("paymentPlan") &&
-      !["full", "full payment", "pay in full", "pay full", "fullpayment", "down", "down payment", "dp", "downpayment"].includes(rawPaymentPlan)
+      !["full", "full payment", "pay in full", "pay full", "fullpayment", "flexibledownpayment", "flexible downpayment", "flexible down payment", "down", "down payment", "dp", "downpayment"].includes(rawPaymentPlan)
     ) {
       res.status(400).json({ message: "Unsupported payment plan." });
-      return;
-    }
-    if (actorType === "customer" && !isCustomerSubmittingOwnPayment) {
-      res.status(403).json({ message: "You can only update your own payment records." });
-      return;
-    }
-    const hasExistingPaymentSubmission = hasDownPaymentSubmission(existingPayment) || hasFullPaymentSubmission(existingPayment);
-    if (
-      actorType === "customer" &&
-      hasExistingPaymentSubmission &&
-      requestedPaymentPlan !== existingPaymentPlan
-    ) {
-      res.status(400).json({ message: "Payment plan cannot be changed after payment proof is submitted." });
       return;
     }
     if (actorType === "customer" && isCustomerDownPaymentSubmission && isFullPaymentPlanRequest) {
@@ -11009,6 +11068,10 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
           finalPaymentPossibleDuplicateReference: Boolean(existingPayment.finalPaymentPossibleDuplicateReference),
           paymentPlan: hasBodyField("paymentPlan") ? requestedPaymentPlan : normalizePaymentPlan(existingPayment.paymentPlan, existingPayment),
         };
+    if (isCustomerSubmittingOwnPayment) {
+      nextPayload.downPaymentAmount = selectedDownPaymentAmount;
+    }
+    nextPayload.requiredDownPaymentAmount = paymentDomain.getRequiredDownPaymentAmount(existingPayment);
     const nextTotalAmount = getPaymentTotalAmount({ ...existingPayment, ...nextPayload });
     let nextAmountPaid = Object.prototype.hasOwnProperty.call(req.body, "amountPaid")
       ? Number(req.body.amountPaid || 0)
@@ -11061,11 +11124,24 @@ app.put("/api/admin/payments/:id", requireRoles("admin", "staff", "customer"), a
       stagedNextPayload.downPaymentVerifiedNotificationSentAt = new Date();
     }
 
+    const submissionGuard = isCustomerSubmittingOwnPayment
+      ? Object.fromEntries([
+          "paymentPlan", "downPaymentAmount", "downPaymentStatus", "finalPaymentStatus",
+          "finalAmount", "totalAmount", "requiredDownPaymentAmount", "downPaymentDueAt",
+          "downPaymentFirstSubmittedAt", "downPaymentProofSubmittedAt", "finalPaymentProofSubmittedAt",
+          "downPaymentCorrectionSubmittedAt", "downPaymentSubmissionClosed", "downPaymentCorrectionDueAt",
+        // Hydrated defaults may not exist in older MongoDB records; null also matches absence.
+        ].map((field) => [field, paymentDocument?.$isDefault?.(field) ? null : foundPayment[field] ?? null]))
+      : {};
     const payment = await Payment.findOneAndUpdate(
-      { id: req.params.id },
+      { id: req.params.id, ...submissionGuard },
       stagedNextPayload,
       { new: true }
     );
+    if (!payment) {
+      res.status(409).json({ message: "Payment changed while submitting. Reload the payment before trying again." });
+      return;
+    }
     const proofAuditStage = isCustomerSubmittingOwnPayment && isCustomerFinalPaymentSubmission
       ? "finalPayment"
       : isCustomerSubmittingOwnPayment && isCustomerDownPaymentSubmission
