@@ -4,6 +4,8 @@
 
 const { TextDecoder, TextEncoder } = require("util");
 const http = require("http");
+const path = require("path");
+const PDFDocument = require("pdfkit");
 
 global.TextDecoder = global.TextDecoder || TextDecoder;
 global.TextEncoder = global.TextEncoder || TextEncoder;
@@ -64,6 +66,49 @@ const baseData = {
 
 jest.setTimeout(15000);
 
+const pdfPageCount = (pdf) => (pdf.toString("latin1").match(/\/Type \/Page\b/g) || []).length;
+const compactText = (value) => value.replace(/\s+/g, "");
+
+// Observe the real PDFKit drawing calls without replacing PDF generation or
+// relying on pixel snapshots. This also checks measured bounds on every page.
+async function capturePdfLayout(render) {
+  const lines = [];
+  const text = PDFDocument.prototype.text;
+  const textSpy = jest.spyOn(PDFDocument.prototype, "text").mockImplementation(function (value, x, y, options) {
+    lines.push({ text: String(value), x, y, width: this.widthOfString(String(value)), height: this.currentLineHeight(), page: this.page });
+    return text.call(this, value, x, y, options);
+  });
+  const imageSpy = jest.spyOn(PDFDocument.prototype, "image");
+  try {
+    const response = await render();
+    return { response, lines, images: imageSpy.mock.calls.slice(), content: compactText(lines.map((line) => line.text).join("")) };
+  } finally {
+    textSpy.mockRestore();
+    imageSpy.mockRestore();
+  }
+}
+
+function expectSafeInvoiceLayout(lines) {
+  const body = lines.filter((line) => !/^Page \d+ of \d+$/.test(line.text));
+  for (const line of lines) {
+    expect(line.x).toBeGreaterThanOrEqual(line.page.margins.left);
+    expect(line.x + line.width).toBeLessThanOrEqual(line.page.width - line.page.margins.right + 0.01);
+    expect(line.y).toBeGreaterThanOrEqual(line.page.margins.top);
+    expect(line.y + line.height).toBeLessThanOrEqual(line.page.height - line.page.margins.bottom);
+  }
+  for (let i = 0; i < body.length; i += 1) {
+    const a = body[i];
+    for (const b of body.slice(i + 1).filter((item) => item.page === a.page)) {
+      const overlaps = a.x < b.x + b.width - 0.01 && b.x < a.x + a.width - 0.01
+        && a.y < b.y + b.height - 0.01 && b.y < a.y + a.height - 0.01;
+      expect(overlaps).toBe(false);
+    }
+    if (/^(BOOKING INFORMATION|PAYMENT INFORMATION|AMOUNT SUMMARY|PAYMENT REFERENCES)/.test(a.text)) {
+      expect(body.some((b) => b.page === a.page && b.y > a.y)).toBe(true);
+    }
+  }
+}
+
 describe("Phase 5 export helpers", () => {
   test("protects CSV cells from spreadsheet formula injection without corrupting numeric columns", () => {
     const csv = exportDomain.buildCsv({
@@ -114,6 +159,7 @@ describe("Phase 5 export helpers", () => {
     expect(Buffer.isBuffer(pdf)).toBe(true);
     expect(pdf.slice(0, 4).toString()).toBe("%PDF");
     expect(pdf.length).toBeGreaterThan(500);
+    expect(pdfPageCount(pdf)).toBe(1); // The footer must not add an empty page.
   });
 
   test("validates export filters and report permissions", () => {
@@ -317,6 +363,99 @@ describe("Phase 5 export routes", () => {
       baseData.bookings[0] = originalBooking;
       baseData.payments[0] = originalPayment;
     }
+  });
+
+  async function renderInvoiceFixture(paymentChanges = {}, bookingChanges = {}) {
+    const originalPayment = baseData.payments[0];
+    const originalBooking = baseData.bookings[0];
+    const token = signJwt({ sub: "USR-CUST", email: "customer@example.com", userType: "Customer", role: "New" });
+    baseData.bookings[0] = { ...originalBooking, date: "2026-10-02", time: "08:00", ...bookingChanges };
+    baseData.payments[0] = {
+      ...originalPayment, originalAmount: 16298, totalAmount: 16298, finalAmount: 16298,
+      promoDiscountAmount: 0, rewardDiscountAmount: 0, paymentPlan: "flexibleDownPayment",
+      requiredDownPaymentAmount: 500, downPaymentAmount: 10500.25, downPaymentStatus: "Paid",
+      finalPaymentStatus: "Pending", downPaymentMethod: "GCash", downPaymentReference: "260969885",
+      finalPaymentReference: "FINAL-123", downPaymentProofSubmittedAt: "2026-10-02T02:00:00Z", ...paymentChanges,
+    };
+    const before = JSON.stringify([baseData.payments[0], baseData.bookings[0]]);
+    try {
+      const invoice = invoiceDomain.buildInvoiceDto(baseData.payments[0], baseData.bookings[0]);
+      const result = await capturePdfLayout(() => invokeApp("/api/admin/invoices/PAY-500/pdf", {
+        headers: { Authorization: `Bearer ${token}` },
+      }));
+      expect(result.response.status).toBe(200);
+      expect(result.response.body.slice(0, 4).toString()).toBe("%PDF");
+      expect(JSON.stringify([baseData.payments[0], baseData.bookings[0]])).toBe(before);
+      expectSafeInvoiceLayout(result.lines);
+      return { ...result, invoice };
+    } finally {
+      baseData.payments[0] = originalPayment;
+      baseData.bookings[0] = originalBooking;
+    }
+  }
+
+  test("invoice PDF keeps every field and flexible centavos on one branded A4 page", async () => {
+    const { response, lines, images, content, invoice } = await renderInvoiceFixture();
+    expect(pdfPageCount(response.body)).toBe(1);
+    expect(lines[0].page.width).toBeCloseTo(595.28);
+    expect(lines[0].page.height).toBeCloseTo(841.89);
+    expect(String(response.headers["content-disposition"])).toContain("autoflow-invoice-bk-500.pdf");
+    expect(images).toEqual([[path.resolve(__dirname, "../public/aptlogo.png"), 45, 45, { fit: [102, 102] }]]);
+    expect(response.body.toString("latin1")).toContain("/Subtype /Image");
+    for (const label of [
+      "SALES INVOICE", "ALL PRO-TEC CAR CARE", "AutoFlow", "Invoice / Booking", "Generated",
+      "BOOKING INFORMATION", "Customer", "Vehicle", "Service", "Booking Date", "Scheduled Time", "Relevant Status",
+      "PAYMENT INFORMATION", "Payment Method", "Payment Stage", "Payment Status", "Payment Plan", "Declared Initial Payment", "Proof Submitted",
+      "AMOUNT SUMMARY", "Original Amount", "Promotion", "Reward", "Discount Type", "Discount Value", "Discount Amount",
+      "Final Amount Due", "Verified Downpayment", "Verified Final Payment", "Total Verified Paid", "OUTSTANDING BALANCE",
+      "PAYMENT REFERENCES", "Downpayment Reference", "Final Payment Reference",
+      "BK-500", "Customer One", "Civic / ABC123", "Ceramic Coating", "Oct 02, 2026", "08:00 AM", "10:00 AM", "GCash",
+      "Flexible Downpayment", "260969885", "FINAL-123", invoice.paymentStage, invoice.paymentStatus,
+    ]) expect(content).toContain(compactText(label));
+    expect(invoice).toMatchObject({ declaredInitialPayment: 10500.25, finalAmountDue: 16298, verifiedDownPayment: 10500.25, outstandingBalance: 5797.75 });
+    for (const [label, value] of [
+      ["Declared Initial Payment", invoice.declaredInitialPayment], ["Original Amount", invoice.originalServiceAmount],
+      ["Discount Amount", invoice.discountAmount], ["Final Amount Due", invoice.finalAmountDue],
+      ["Verified Downpayment", invoice.verifiedDownPayment], ["Verified Final Payment", invoice.verifiedFinalPayment],
+      ["Total Verified Paid", invoice.totalVerifiedPaid], ["OUTSTANDING BALANCE", invoice.outstandingBalance],
+    ]) expect(content).toContain(compactText(label + exportDomain.formatPeso(value)));
+    const summary = lines.slice(lines.findIndex((line) => line.text === "AMOUNT SUMMARY"));
+    const money = summary.filter((line) => line.text.startsWith("PHP "));
+    money.forEach((line, index) => expect(line.x + line.width).toBeCloseTo(line.page.width - 45 - (index === money.length - 1 ? 8 : 0)));
+  });
+
+  test.each([["downPayment", "Pay Down Payment"], ["fullPayment", "Pay in Full"]])("invoice PDF supports %s and missing optional values", async (paymentPlan, label) => {
+    const { response, content } = await renderInvoiceFixture({
+      paymentPlan, downPaymentMethod: "", downPaymentReference: "", finalPaymentReference: "",
+      downPaymentProofSubmittedAt: "", downPaymentStatus: "Pending", downPaymentAmount: 500,
+    }, { vehicle: "", plate: "", time: "", date: "" });
+    expect(pdfPageCount(response.body)).toBe(1);
+    for (const expected of [label, "Payment Method-", "Vehicle- / -", "Booking Date-", "Scheduled Time-", "Proof Submitted-", "Promotion-", "Reward-", "Downpayment Reference-", "Final Payment Reference-"]) {
+      expect(content).toContain(compactText(expected));
+    }
+    expect(content).not.toMatch(/NaN|undefined|InvalidDate/);
+  });
+
+  test("invoice PDF wraps long fields, unbroken references and large amounts safely across pages", async () => {
+    const customer = "Alexandra Maria Santos Del Rosario ".repeat(12) + "CUSTOMER-END";
+    const service = "Extended ceramic coating and interior detailing package. ".repeat(130) + "SERVICE-END";
+    const promotion = "Preferred customer seasonal promotion ".repeat(25) + "PROMO-END";
+    const reward = "Loyalty customer reward ".repeat(25) + "REWARD-END";
+    const reference = "REF-" + "1234567890".repeat(7) + "-END";
+    const { response, content, lines } = await renderInvoiceFixture({
+      customer, service, promoTitle: promotion, rewardName: reward, downPaymentReference: reference,
+      originalAmount: 999999999.99, finalAmount: 999999999.99, totalAmount: 999999999.99,
+    }, { customer, service, vehicle: "Long Vehicle Model ".repeat(20) + "VEHICLE-END", plate: "1234567890".repeat(15) + "PLATE-END" });
+    const pages = pdfPageCount(response.body);
+    expect(pages).toBeGreaterThan(1);
+    for (const end of ["CUSTOMER-END", "SERVICE-END", "PROMO-END", "REWARD-END", "VEHICLE-END", "PLATE-END", reference, "PHP 999,999,999.99"]) {
+      expect(content).toContain(compactText(end));
+    }
+    expect((content.match(/Extended/g) || []).length).toBe(130);
+    expect(lines.filter((line) => line.text === "SALES INVOICE - CONTINUED")).toHaveLength(pages - 1);
+    expect(lines.filter((line) => /^Page \d+ of \d+$/.test(line.text)).map((line) => line.text)).toEqual(
+      Array.from({ length: pages }, (_, index) => `Page ${index + 1} of ${pages}`)
+    );
   });
 
   test("returns CSV attachment with formula injection protection", async () => {

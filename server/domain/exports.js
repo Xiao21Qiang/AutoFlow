@@ -1,4 +1,5 @@
 const PDFDocument = require("pdfkit");
+const path = require("path");
 const { normalizeBookingStatus } = require("./bookingStatus");
 const { roundMoney } = require("./money");
 const stockDomain = require("./stock");
@@ -116,31 +117,233 @@ function addPdfTable(doc, title, columns, rows, emptyMessage = "No data availabl
   });
 }
 
+// Invoice layout consumes the already-formatted canonical report rows. It never
+// computes prices, payment states, discounts, or balances.
+function formatInvoiceDate(value) {
+  const key = formatDateKey(value);
+  if (!key) return safeText(value) || "-";
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return safeText(value) || "-";
+  return date.toLocaleDateString("en-PH", {
+    timeZone: APP_TZ, month: "short", day: "2-digit", year: "numeric",
+  });
+}
+
+function formatInvoiceTime(value) {
+  const raw = safeText(value);
+  const match = /^(\d{1,2}):([0-5]\d)$/.exec(raw);
+  if (!match || Number(match[1]) > 23) return raw || "-";
+  const hours = Number(match[1]);
+  return `${String(hours % 12 || 12).padStart(2, "0")}:${match[2]} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+function addInvoiceLayout(doc, report) {
+  const fields = new Map((report.sections || []).flatMap((section) => section.rows || []));
+  const used = new Set(["Generated"]);
+  const valueOf = (label) => {
+    used.add(label);
+    return safeText(fields.get(label)) || "-";
+  };
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const bottom = doc.page.height - doc.page.margins.bottom - 12;
+  const bookingId = valueOf("Invoice / Booking");
+  let y = doc.page.margins.top;
+
+  // Measure with the same PDF font used to draw; split long unbroken references
+  // as well as ordinary words. Lines are painted explicitly to avoid PDFKit's
+  // automatic wrapping creating a page halfway through a paired row.
+  const wrap = (text, availableWidth, font, size) => {
+    doc.font(font).fontSize(size);
+    const lines = [];
+    let line = "";
+    for (const word of (safeText(text) || "-").split(" ")) {
+      if (line && doc.widthOfString(`${line} ${word}`) <= availableWidth) {
+        line += ` ${word}`;
+        continue;
+      }
+      if (line) lines.push(line);
+      line = word;
+      while (doc.widthOfString(line) > availableWidth) {
+        const chars = Array.from(line);
+        let low = 1;
+        let high = chars.length;
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2);
+          if (doc.widthOfString(chars.slice(0, mid).join("")) <= availableWidth) low = mid;
+          else high = mid - 1;
+        }
+        lines.push(chars.slice(0, low).join(""));
+        line = chars.slice(low).join("");
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  };
+  const line = (text, x, top, availableWidth, { font = "Helvetica", size = 9, color = "#202020", align = "left" } = {}) => {
+    doc.font(font).fontSize(size).fillColor(color);
+    const textX = align === "right" ? x + availableWidth - doc.widthOfString(text) : x;
+    doc.text(text, textX, top, { lineBreak: false });
+  };
+  const rule = (top, color = "#d5d5d5") => {
+    doc.save().strokeColor(color).lineWidth(0.5).moveTo(left, top).lineTo(left + width, top).stroke().restore();
+  };
+  const newPage = () => {
+    doc.addPage();
+    y = doc.page.margins.top + 1; // Include the small bold font's ascender in the top margin.
+    line("SALES INVOICE - CONTINUED", left, y, width, { font: "Helvetica-Bold", size: 8 });
+    const idLines = wrap(bookingId, width / 2, "Helvetica", 8);
+    idLines.forEach((text, index) => line(text, left + width / 2, y + index * 11, width / 2, { size: 8, align: "right" }));
+    y += Math.max(11, idLines.length * 11) + 8;
+    rule(y);
+    y += 16;
+  };
+  const sectionTitle = (title, continued = false, firstRowHeight = 24) => {
+    if (y + 20 + firstRowHeight > bottom) newPage();
+    line(`${title}${continued ? " (CONTINUED)" : ""}`, left, y, width, { font: "Helvetica-Bold", size: 10.5 });
+    y += 20;
+  };
+  const drawRow = (entries, section, { summary = false, strong = false, balance = false, startSection = false } = {}) => {
+    const columnGap = 20;
+    const columnWidth = summary ? width : (width - columnGap) / 2;
+    const inset = balance ? 8 : 0;
+    const labelWidth = summary ? 180 : 78;
+    const size = balance ? 11 : 9;
+    const leading = balance ? 14 : 12;
+    const padding = balance ? 9 : 4;
+    const font = strong || balance ? "Helvetica-Bold" : "Helvetica";
+    const cells = entries.map(([label, value, monetary], index) => ({
+      x: left + index * (columnWidth + columnGap) + inset,
+      label: wrap(label, labelWidth, summary ? font : "Helvetica-Bold", summary ? size : 8),
+      value: wrap(value, columnWidth - labelWidth - 8 - inset * 2, font, size),
+      monetary,
+    }));
+    const count = Math.max(...cells.map((cell) => Math.max(cell.label.length, cell.value.length)));
+    const height = count * leading + padding * 2;
+    // Keep ordinary rows intact; only a row taller than a fresh page is split.
+    const freshCapacity = bottom - doc.page.margins.top - 60;
+    // Keep each section heading with its first row, including long references.
+    if (startSection) sectionTitle(section, false, height <= freshCapacity ? height : leading * 2 + padding * 2);
+    if (y + height > bottom && height <= freshCapacity) {
+      newPage();
+      sectionTitle(section, true);
+    }
+    let offset = 0;
+    while (offset < count) {
+      let capacity = Math.floor((bottom - y - padding * 2) / leading);
+      if (capacity < 1) {
+        newPage();
+        sectionTitle(section, true);
+        capacity = Math.floor((bottom - y - padding * 2) / leading);
+      }
+      const take = Math.min(capacity, count - offset);
+      const chunkHeight = take * leading + padding * 2;
+      if (balance) doc.save().rect(left, y, width, chunkHeight).fill("#eeeeee").restore();
+      else if (strong) rule(y);
+      cells.forEach((cell) => {
+        const labelLines = offset && cell.value.length > offset ? cell.label : cell.label.slice(offset, offset + take);
+        labelLines.slice(0, take).forEach((text, index) => line(text, cell.x, y + padding + index * leading, labelWidth, {
+          font: summary ? font : "Helvetica-Bold", size: summary ? size : 8, color: summary ? "#202020" : "#555555",
+        }));
+        cell.value.slice(offset, offset + take).forEach((text, index) => line(text, cell.x + labelWidth + 8, y + padding + index * leading, columnWidth - labelWidth - 8 - inset * 2, {
+          font, size, align: cell.monetary ? "right" : "left",
+        }));
+      });
+      y += chunkHeight;
+      offset += take;
+      if (offset < count) {
+        newPage();
+        sectionTitle(section, true);
+      }
+    }
+  };
+  const grid = (title, entries) => {
+    for (let index = 0; index < entries.length; index += 2) {
+      drawRow(entries.slice(index, index + 2), title, { startSection: index === 0 });
+    }
+    y += 18;
+  };
+
+  const logoSize = 102; // 36 mm; PDFKit's fit preserves the official asset's aspect ratio.
+  doc.image(path.resolve(__dirname, "../../public/aptlogo.png"), left, y, { fit: [logoSize, logoSize] });
+  line("ALL PRO-TEC CAR CARE", left, y + logoSize + 7, width / 2, { font: "Helvetica-Bold", size: 9 });
+  line("AutoFlow", left, y + logoSize + 20, width / 2, { size: 8, color: "#666666" });
+  const metaX = left + width / 2;
+  const metaWidth = width / 2;
+  line("SALES INVOICE", metaX, y + 2, metaWidth, { font: "Helvetica-Bold", size: 19, align: "right" });
+  let metaY = y + 37;
+  line("Invoice / Booking", metaX, metaY, metaWidth, { size: 8, color: "#666666", align: "right" });
+  metaY += 14;
+  const idLines = wrap(bookingId, metaWidth, "Helvetica-Bold", 10);
+  idLines.forEach((text, index) => line(text, metaX, metaY + index * 13, metaWidth, { font: "Helvetica-Bold", size: 10, align: "right" }));
+  metaY += idLines.length * 13 + 12;
+  line("Generated", metaX, metaY, metaWidth, { size: 8, color: "#666666", align: "right" });
+  metaY += 13;
+  const generated = safeText(fields.get("Generated")) || formatDateTime(report.generatedAt || new Date());
+  wrap(generated, metaWidth, "Helvetica", 9).forEach((text) => {
+    line(text, metaX, metaY, metaWidth, { align: "right" });
+    metaY += 12;
+  });
+  y = Math.max(y + logoSize + 39, metaY + 12);
+  rule(y, "#888888");
+  y += 20;
+
+  grid("BOOKING INFORMATION", [
+    ["Customer", valueOf("Customer")], ["Vehicle", valueOf("Vehicle")],
+    ["Service", valueOf("Service")], ["Booking Date", formatInvoiceDate(valueOf("Booking Date"))],
+    ["Scheduled Time", formatInvoiceTime(valueOf("Scheduled Time"))], ["Invoice / Booking", bookingId],
+    ["Relevant Status", valueOf("Relevant Status")],
+  ]);
+  grid("PAYMENT INFORMATION", [
+    ["Payment Method", valueOf("Payment Method")], ["Payment Status", valueOf("Payment Status")],
+    ["Payment Stage", valueOf("Payment Stage")], ["Payment Plan", valueOf("Payment Plan")],
+    ["Declared Initial Payment", valueOf("Declared Initial Payment")], ["Proof Submitted", valueOf("Proof Submitted")],
+  ]);
+  for (const label of ["Original Amount", "Promotion", "Reward", "Discount Type", "Discount Value", "Discount Amount", "Final Amount Due", "Verified Downpayment", "Verified Final Payment", "Total Verified Paid", "Outstanding Balance"]) {
+    const monetary = !["Promotion", "Reward", "Discount Type", "Discount Value"].includes(label);
+    drawRow([[label === "Outstanding Balance" ? "OUTSTANDING BALANCE" : label, valueOf(label), monetary]], "AMOUNT SUMMARY", {
+      summary: true, strong: ["Final Amount Due", "Total Verified Paid"].includes(label), balance: label === "Outstanding Balance", startSection: label === "Original Amount",
+    });
+  }
+  y += 18;
+  grid("PAYMENT REFERENCES", [
+    ["Downpayment Reference", valueOf("Downpayment Reference")], ["Final Payment Reference", valueOf("Final Payment Reference")],
+  ]);
+  // Keep future invoice fields visible if the canonical report gains a new row.
+  const remaining = [...fields.entries()].filter(([label]) => !used.has(label));
+  if (remaining.length) grid("ADDITIONAL INFORMATION", remaining);
+}
+
 function renderReportPdf(report) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 42, bufferPages: true });
+    const isInvoice = report.key === "invoice";
+    const doc = new PDFDocument({ size: "A4", margin: isInvoice ? 45 : 42, bufferPages: true });
     const chunks = [];
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("error", reject);
     doc.on("end", () => resolve(Buffer.concat(chunks)));
 
-    doc.font("Helvetica-Bold").fontSize(18).text(report.title || "AutoFlow Report");
-    doc.font("Helvetica").fontSize(9).text(`Generated: ${formatDateTime(report.generatedAt || new Date())}`);
-    if (report.subtitle) doc.text(report.subtitle);
-    if (report.periodLabel) doc.text(`Period: ${report.periodLabel}`);
-    (report.sections || []).forEach((section) => {
-      addPdfTable(doc, section.title || "Report", section.columns || [], section.rows || [], section.emptyMessage);
-    });
+    if (isInvoice) {
+      addInvoiceLayout(doc, report);
+    } else {
+      doc.font("Helvetica-Bold").fontSize(18).text(report.title || "AutoFlow Report");
+      doc.font("Helvetica").fontSize(9).text(`Generated: ${formatDateTime(report.generatedAt || new Date())}`);
+      if (report.subtitle) doc.text(report.subtitle);
+      if (report.periodLabel) doc.text(`Period: ${report.periodLabel}`);
+      (report.sections || []).forEach((section) => {
+        addPdfTable(doc, section.title || "Report", section.columns || [], section.rows || [], section.emptyMessage);
+      });
+    }
 
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i += 1) {
       doc.switchToPage(i);
-      doc.fontSize(8).fillColor("#64748b").text(
-        `Page ${i + 1 - range.start} of ${range.count}`,
-        doc.page.margins.left,
-        doc.page.height - 30,
-        { align: "right" }
-      );
+      const footer = `Page ${i + 1 - range.start} of ${range.count}`;
+      doc.font("Helvetica").fontSize(8).fillColor("#64748b");
+      // Disable text flow so the footer cannot create an extra page. Invoices
+      // reserve space for it inside their printable margins.
+      const footerY = doc.page.height - (isInvoice ? doc.page.margins.bottom + 8 : 30);
+      doc.text(footer, doc.page.width - doc.page.margins.right - doc.widthOfString(footer), footerY, { lineBreak: false });
       doc.fillColor("#000000");
     }
     doc.end();
